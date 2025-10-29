@@ -2,9 +2,14 @@
 import requests
 import json
 import sys
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Adjustable parameters
-API_KEY = "7d86a73c2ea0a836d5609704c60c0102"
+API_KEY = os.getenv("LASTFM_API_KEY")
 USER = "Megalox2"
 METHOD = "user.gettopartists"
 LIMIT = 400
