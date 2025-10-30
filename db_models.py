@@ -19,6 +19,8 @@ class Artist(Base):
     name = Column(String, unique=True, nullable=False, index=True)
     playcount = Column(Integer, nullable=False, default=0)
     recent = Column(Boolean, nullable=False, default=False)
+    mbid = Column(String, nullable=True)  # MusicBrainz ID
+    imageUrl = Column(String, nullable=True)  # Last.fm artist image (large size)
     
     # Relationship
     concerts = relationship('Concert', back_populates='artist', cascade='all, delete-orphan')
