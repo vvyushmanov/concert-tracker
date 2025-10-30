@@ -1,0 +1,40 @@
+services:
+  # Next.js development server
+  web:
+    build:
+      context: ./concert-tracker
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mount source code for hot reload
+      - ./concert-tracker:/app
+      # Mount node_modules as named volume for performance
+      - concert-tracker-node-modules:/app/node_modules
+      # Mount shared database directory
+      - ./data:/app/data
+      # Mount Python parser for re-scan functionality
+      - ./country_concert_parser.py:/app/scripts/country_concert_parser.py:ro
+      - ./concert_utils.py:/app/scripts/concert_utils.py:ro
+      - ./db_models.py:/app/scripts/db_models.py:ro
+      - ./db_writer.py:/app/scripts/db_writer.py:ro
+      - ./.env:/app/scripts/.env:ro
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=file:/app/data/concerts.db
+      - WATCHPACK_POLLING=true
+      - PRISMA_QUERY_ENGINE_LIBRARY=/app/node_modules/.prisma/client/libquery_engine-linux-musl-openssl-3.0.x.so.node
+      - PRISMA_QUERY_ENGINE_BINARY=/app/node_modules/.prisma/client/query-engine-linux-musl-openssl-3.0.x
+    command: sh -c "npm install && npx prisma generate && npm run dev"
+    stdin_open: true
+    tty: true
+
+volumes:
+  concert-tracker-node-modules:
+
+networks:
+  default:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16

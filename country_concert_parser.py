@@ -18,6 +18,14 @@ from dotenv import load_dotenv
 
 from concert_utils import restructure_concerts_by_country_and_band, fetch_lastfm_artists
 
+# Import database writer if needed (lazy import to avoid dependency issues)
+try:
+    from db_writer import ConcertDatabaseWriter
+    DB_AVAILABLE = True
+except ImportError:
+    DB_AVAILABLE = False
+    ConcertDatabaseWriter = None
+
 
 class CountryConcertParser:
     """Parser for concerts-metal.com country pages with pagination"""
@@ -450,8 +458,38 @@ def main():
         default='auto',
         help=f'How often to save progress: per page, per country, or auto (every {CountryConcertParser.PAGES_PER_SAVE} pages, default: auto)'
     )
+    parser.add_argument(
+        '--output',
+        type=str,
+        choices=['json', 'db', 'both'],
+        default='json',
+        help='Output mode: json (default), db (database), or both'
+    )
+    parser.add_argument(
+        '--db-path',
+        type=str,
+        help='Path to SQLite database file (required for db/both output modes)',
+        default=None
+    )
     
     args = parser.parse_args()
+    
+    # Validate database arguments
+    if args.output in ['db', 'both'] and not args.db_path:
+        parser.error("--db-path is required when using --output db or --output both")
+        return 1
+    
+    # Check if database module is available
+    if args.output in ['db', 'both'] and not DB_AVAILABLE:
+        print("ERROR: Database output requested but SQLAlchemy is not installed")
+        print("Please install: pip install sqlalchemy")
+        return 1
+    
+    # Initialize database writer if needed
+    db_writer = None
+    if args.output in ['db', 'both']:
+        print(f"Database output mode: {args.db_path}")
+        db_writer = ConcertDatabaseWriter(args.db_path)
     
     # Get country codes from .env
     country_codes_str = os.getenv('COUNTRY_CODES', 'tr,fr,de')
@@ -494,10 +532,11 @@ def main():
     all_concerts = []
     all_filtered_concerts = []
     
-    # Initialize output file with empty array
-    with open(args.json, 'w', encoding='utf-8') as f:
-        json.dump([], f)
-    print(f"Initialized output file: {args.json}\n")
+    # Initialize output file with empty array (only for JSON output)
+    if args.output in ['json', 'both']:
+        with open(args.json, 'w', encoding='utf-8') as f:
+            json.dump([], f)
+        print(f"Initialized output file: {args.json}\n")
     
     for idx, country_code in enumerate(country_codes):
         # Add delay between countries to avoid rate limiting
@@ -529,14 +568,22 @@ def main():
                 should_save = (page_num % CountryConcertParser.PAGES_PER_SAVE == 0)
             
             if should_save:
-                concert_parser.save_progress(
-                    args.json,
-                    all_concerts,
-                    all_filtered_concerts,
-                    recent_artists,
-                    artist_playcounts,
-                    bool(lastfm_artists)
-                )
+                # Save to JSON if needed
+                if args.output in ['json', 'both']:
+                    concert_parser.save_progress(
+                        args.json,
+                        all_concerts,
+                        all_filtered_concerts,
+                        recent_artists,
+                        artist_playcounts,
+                        bool(lastfm_artists)
+                    )
+                
+                # Save to database if needed
+                if args.output in ['db', 'both'] and db_writer:
+                    data_to_write = filtered_concerts_so_far if lastfm_artists else all_concerts_so_far
+                    db_writer.write_concerts(data_to_write, artist_playcounts, recent_artists)
+                
                 print(f"  💾 Progress saved (page {page_num})")
         
         # Parse all pages for this country
@@ -550,17 +597,25 @@ def main():
         
         # Save after country completion (for 'country' mode or final save for 'auto')
         if args.save_frequency in ['country', 'auto']:
-            concert_parser.save_progress(
-                args.json,
-                all_concerts,
-                all_filtered_concerts,
-                recent_artists,
-                artist_playcounts,
-                bool(lastfm_artists)
-            )
+            # Save to JSON if needed
+            if args.output in ['json', 'both']:
+                concert_parser.save_progress(
+                    args.json,
+                    all_concerts,
+                    all_filtered_concerts,
+                    recent_artists,
+                    artist_playcounts,
+                    bool(lastfm_artists)
+                )
+            
+            # Save to database if needed
+            if args.output in ['db', 'both'] and db_writer:
+                data_to_write = concert_parser.filtered_concerts if lastfm_artists else concert_parser.concerts
+                db_writer.write_concerts(data_to_write, artist_playcounts, recent_artists)
         
         data_to_save = all_filtered_concerts if lastfm_artists else all_concerts
-        print(f"\n💾 Country complete: {len(data_to_save)} total concerts saved to {args.json}")
+        output_desc = f"{args.json}" if args.output in ['json', 'both'] else "database"
+        print(f"\n💾 Country complete: {len(data_to_save)} total concerts saved to {output_desc}")
         
         # Print country summary
         if not args.no_summary:
@@ -579,10 +634,18 @@ def main():
     
     # Final save already done incrementally
     data_to_save = all_filtered_concerts if lastfm_artists else all_concerts
-    print(f"✅ Final output: {len(data_to_save)} concerts in {args.json}")
     
-    # Optionally save all concerts
-    if args.save_all and lastfm_artists:
+    # Print final output message
+    if args.output in ['json', 'both']:
+        print(f"✅ Final output: {len(data_to_save)} concerts in {args.json}")
+    
+    if args.output in ['db', 'both'] and db_writer:
+        db_writer.print_stats()
+        db_writer.close()
+        print(f"✅ Database output: {args.db_path}")
+    
+    # Optionally save all concerts (JSON only)
+    if args.save_all and lastfm_artists and args.output in ['json', 'both']:
         all_filename = args.json.replace('.json', '_all.json')
         with open(all_filename, 'w', encoding='utf-8') as f:
             json.dump(all_concerts, f, indent=2, ensure_ascii=False)

@@ -1,0 +1,50 @@
+// Prisma schema matching SQLAlchemy models
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Artist {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  playcount Int
+  recent    Boolean
+  concerts  Concert[]
+}
+
+model Concert {
+  id           Int     @id @default(autoincrement())
+  eventName    String
+  eventUrl     String  @unique
+  dateStart    Int     // Unix timestamp (seconds since epoch)
+  dateEnd      Int     // Unix timestamp (seconds since epoch)
+  venue        String
+  city         String
+  country      String
+  postalCode   String?
+  performers   String  // JSON array stored as text
+  imageUrl     String?
+  organizer    String?
+  organizerUrl String?
+  ticketLinks  String  // JSON array stored as text
+  artistId     Int
+  artist       Artist  @relation(fields: [artistId], references: [id])
+  
+  // User interaction fields
+  interested   Boolean @default(false)
+  notes        String?
+  createdAt    Int     // Unix timestamp
+  updatedAt    Int     // Unix timestamp
+
+  @@index([artistId])
+  @@index([city])
+  @@index([country])
+  @@index([dateStart])
+  @@index([eventUrl])
+}
