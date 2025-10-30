@@ -1,10 +1,14 @@
 import { prisma } from '@/lib/prisma';
 import { format } from 'date-fns';
 import Link from 'next/link';
+import Image from 'next/image';
 import { notFound } from 'next/navigation';
 
-export default async function ArtistDetailPage({ params }: { params: { id: string } }) {
-  const artistId = parseInt(params.id);
+export const dynamic = 'force-dynamic';
+
+export default async function ArtistDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const artistId = parseInt(id);
   
   if (isNaN(artistId)) {
     notFound();
@@ -96,9 +100,11 @@ export default async function ArtistDetailPage({ params }: { params: { id: strin
                       className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow"
                     >
                       {concert.imageUrl && (
-                        <img 
+                        <Image 
                           src={concert.imageUrl} 
                           alt={concert.eventName}
+                          width={400}
+                          height={160}
                           className="w-full h-40 object-cover"
                         />
                       )}

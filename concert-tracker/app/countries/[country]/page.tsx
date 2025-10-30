@@ -1,10 +1,14 @@
 import { prisma } from '@/lib/prisma';
 import { format } from 'date-fns';
 import Link from 'next/link';
+import Image from 'next/image';
 import { notFound } from 'next/navigation';
 
-export default async function CountryDetailPage({ params }: { params: { country: string } }) {
-  const country = decodeURIComponent(params.country);
+export const dynamic = 'force-dynamic';
+
+export default async function CountryDetailPage({ params }: { params: Promise<{ country: string }> }) {
+  const { country: countryParam } = await params;
+  const country = decodeURIComponent(countryParam);
 
   const concerts = await prisma.concert.findMany({
     where: { country },
@@ -87,9 +91,11 @@ export default async function CountryDetailPage({ params }: { params: { country:
                       className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow"
                     >
                       {concert.imageUrl && (
-                        <img 
+                        <Image 
                           src={concert.imageUrl} 
                           alt={concert.eventName}
+                          width={400}
+                          height={160}
                           className="w-full h-40 object-cover"
                         />
                       )}
