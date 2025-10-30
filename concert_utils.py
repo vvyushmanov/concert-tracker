@@ -81,6 +81,7 @@ def fetch_lastfm_artists(
         - Set of all artist names (with min_playcount filter)
         - Set of recent artist names (listened in last 12 months)
         - Dict of artist name -> overall playcount
+        - Dict of artist name -> image URL (large size)
     """
     print("Fetching top artists from Last.fm...")
     
@@ -121,6 +122,7 @@ def fetch_lastfm_artists(
         # Process overall artists
         artists_overall = data_overall.get("topartists", {}).get("artist", [])
         overall_playcounts = {}
+        artist_images = {}
         filtered_artists = set()
         
         for artist in artists_overall:
@@ -128,6 +130,12 @@ def fetch_lastfm_artists(
             playcount = int(artist.get("playcount", 0))
             if name:
                 overall_playcounts[name] = playcount
+                
+                # Extract MusicBrainz ID for later image fetching
+                mbid = artist.get("mbid", "").strip()
+                if mbid:
+                    artist_images[name] = mbid  # Store mbid instead of image URL
+                
                 if playcount >= min_playcount:
                     filtered_artists.add(name)
         
@@ -142,8 +150,9 @@ def fetch_lastfm_artists(
         
         print(f"  ✓ Loaded {len(filtered_artists)} artists (with {min_playcount}+ plays)")
         print(f"  ✓ {len(recent_artists)} artists listened to in last 12 months")
+        print(f"  ✓ {len(artist_images)} artists with MusicBrainz IDs")
         
-        return filtered_artists, recent_artists, overall_playcounts
+        return filtered_artists, recent_artists, overall_playcounts, artist_images
     except Exception as e:
         print(f"Error fetching Last.fm data: {e}")
-        return set(), set(), {}
+        return set(), set(), {}, {}

@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { format } from 'date-fns';
+import Image from 'next/image';
 
 export default async function Home() {
   const stats = {
@@ -9,7 +10,6 @@ export default async function Home() {
 
   // Query with all fields including dates (now Unix timestamps)
   const concerts = await prisma.concert.findMany({
-    take: 20,
     orderBy: {
       dateStart: 'asc',
     },
@@ -21,8 +21,8 @@ export default async function Home() {
   return (
     <div className="min-h-screen p-8 bg-gray-50 dark:bg-gray-900">
       <main className="max-w-7xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold mb-2">Concert Tracker</h1>
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold mb-2">All Concerts</h1>
           <p className="text-gray-600 dark:text-gray-400">
             {stats.total} concerts from {stats.artists} artists
           </p>
@@ -41,11 +41,15 @@ export default async function Home() {
                 className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow"
               >
                 {concert.imageUrl && (
-                  <img 
-                    src={concert.imageUrl} 
-                    alt={concert.eventName}
-                    className="w-full h-48 object-cover"
-                  />
+                  <div className="w-full h-48 relative">
+                    <Image
+                      src={concert.imageUrl} 
+                      alt={concert.eventName}
+                      fill
+                      className="object-cover"
+                      sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                    />
+                  </div>
                 )}
                 <div className="p-6">
                   <div className="mb-2">

@@ -7,6 +7,16 @@ const nextConfig = {
         hostname: 'www.concerts-metal.com',
         pathname: '/images/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'assets.fanart.tv',
+        pathname: '/fanart/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'lastfm.freetls.fastly.net',
+        pathname: '/i/u/**',
+      },
     ],
   },
 }

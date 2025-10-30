@@ -34,8 +34,11 @@ def import_json_to_db(json_file: str, db_path: str):
                 recent_artists.add(artist_name)
             
             for concert in artist_data.get('concerts', []):
-                # Add matched_artists field for database writer
+                # Add matched_artists and country fields for database writer
                 concert['matched_artists'] = [artist_name]
+                # Add country if not already present
+                if 'country' not in concert or not concert['country']:
+                    concert['country'] = country
                 concerts_to_import.append(concert)
     
     print(f"Found {len(concerts_to_import)} concerts from {len(artist_playcounts)} artists")
