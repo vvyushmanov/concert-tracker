@@ -1,0 +1,16 @@
+# Development Dockerfile for Next.js concert tracker
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install dependencies for better development experience and Prisma
+RUN apk add --no-cache git python3 py3-pip openssl
+
+# Copy package files (will be created during setup)
+# COPY package*.json ./
+
+# Expose Next.js dev server port
+EXPOSE 3000
+
+# Default command (will be overridden by docker-compose)
+CMD ["npm", "run", "dev"]
