@@ -2,6 +2,8 @@ import { prisma } from '@/lib/prisma';
 import { format } from 'date-fns';
 import Image from 'next/image';
 
+export const dynamic = 'force-dynamic';
+
 export default async function Home() {
   const stats = {
     total: await prisma.concert.count(),

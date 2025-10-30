@@ -2,6 +2,8 @@ import { prisma } from '@/lib/prisma';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, startOfWeek, endOfWeek } from 'date-fns';
 import Link from 'next/link';
 
+export const dynamic = 'force-dynamic';
+
 export default async function CalendarPage() {
   // Get all concerts
   const concerts = await prisma.concert.findMany({
