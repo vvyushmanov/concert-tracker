@@ -5,6 +5,7 @@ Import existing JSON data into database
 
 import json
 import sys
+sys.path.insert(0, 'concert-tracker/scripts')
 from db_writer import ConcertDatabaseWriter
 
 def import_json_to_db(json_file: str, db_path: str):
