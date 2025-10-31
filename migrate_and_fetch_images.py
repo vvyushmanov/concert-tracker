@@ -18,10 +18,12 @@ from datetime import datetime
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
+import sys
+sys.path.insert(0, 'concert-tracker/scripts')
 from db_models import Base, Artist
 
 # Load environment variables
-load_dotenv()
+load_dotenv('concert-tracker/scripts/.env')
 
 def log(message: str):
     """Log message with timestamp"""

@@ -7,20 +7,12 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      # Mount source code for hot reload
+      # Mount source code for hot reload (includes scripts directory)
       - ./concert-tracker:/app
       # Mount node_modules as named volume for performance
       - concert-tracker-node-modules:/app/node_modules
       # Mount shared database directory
       - ./data:/app/data
-      # Mount Python parser for re-scan functionality
-      - ./country_concert_parser.py:/app/scripts/country_concert_parser.py:ro
-      - ./concert_utils.py:/app/scripts/concert_utils.py:ro
-      - ./db_models.py:/app/scripts/db_models.py:ro
-      - ./db_writer.py:/app/scripts/db_writer.py:ro
-      - ./proxy_manager.py:/app/scripts/proxy_manager.py:ro
-      - ./city_normalizer.py:/app/scripts/city_normalizer.py:ro
-      - ./.env:/app/scripts/.env:ro
     environment:
       - NODE_ENV=development
       - DATABASE_URL=file:/app/data/concerts.db
