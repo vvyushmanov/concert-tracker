@@ -16,16 +16,18 @@ from city_normalizer import CityNormalizer
 class ConcertDatabaseWriter:
     """Writes concert data to SQLite database"""
     
-    def __init__(self, db_path: str, auto_add_mappings: bool = False):
+    def __init__(self, db_path: str, auto_add_mappings: bool = False, debug: bool = False):
         """Initialize database writer
         
         Args:
             db_path: Path to SQLite database file
             auto_add_mappings: If True, automatically add common manual city mappings
+            debug: If True, enable verbose logging in normalizer
         """
         self.db_path = db_path
+        self.debug = debug
         self.session = get_session(db_path)
-        self.normalizer = CityNormalizer(self.session)
+        self.normalizer = CityNormalizer(self.session, verbose=debug)
         
         # Automatically add common manual mappings if enabled
         if auto_add_mappings:
@@ -171,24 +173,46 @@ class ConcertDatabaseWriter:
         self.stats['cities_normalized'] += 1
         
         if concert:
-            # Update existing concert
-            concert.eventName = concert_data.get('event_name', '')
-            concert.dateStart = self.parse_date(concert_data.get('date_start'))
-            concert.dateEnd = self.parse_date(concert_data.get('date_end'))
-            concert.venue = concert_data.get('venue', '')
-            concert.city = original_city
-            concert.normalizedCity = normalized_city
-            concert.country = country
-            concert.postalCode = concert_data.get('postal_code')
-            concert.performers = performers_json
-            concert.imageUrl = concert_data.get('image_url')
-            concert.organizer = concert_data.get('organizer')
-            concert.organizerUrl = concert_data.get('organizer_url')
-            concert.ticketLinks = ticket_links_json
-            concert.artistId = artist.id
-            concert.updatedAt = int(datetime.utcnow().timestamp())
+            # Check if any fields have changed
+            has_changes = False
+            changed_fields = []
             
-            self.stats['concerts_updated'] += 1
+            new_values = {
+                'eventName': concert_data.get('event_name', ''),
+                'dateStart': self.parse_date(concert_data.get('date_start')),
+                'dateEnd': self.parse_date(concert_data.get('date_end')),
+                'venue': concert_data.get('venue', ''),
+                'city': original_city,
+                'normalizedCity': normalized_city,
+                'country': country,
+                'postalCode': concert_data.get('postal_code'),
+                'performers': performers_json,
+                'imageUrl': concert_data.get('image_url'),
+                'organizer': concert_data.get('organizer'),
+                'organizerUrl': concert_data.get('organizer_url'),
+                'ticketLinks': ticket_links_json,
+                'artistId': artist.id
+            }
+            
+            # Check each field for changes
+            for field, new_value in new_values.items():
+                old_value = getattr(concert, field)
+                if old_value != new_value:
+                    has_changes = True
+                    changed_fields.append(f"{field}: '{old_value}' → '{new_value}'")
+                    setattr(concert, field, new_value)
+            
+            # Only update timestamp and increment counter if there were actual changes
+            if has_changes:
+                concert.updatedAt = int(datetime.utcnow().timestamp())
+                self.stats['concerts_updated'] += 1
+                if self.debug:
+                    print(f"[DB] Updated concert: {concert_data.get('event_name', 'Unknown')}")
+                    for change in changed_fields:
+                        print(f"     - {change}")
+            else:
+                if self.debug:
+                    print(f"[DB] No changes for concert: {concert_data.get('event_name', 'Unknown')} (skipped update)")
         else:
             # Create new concert
             concert = Concert(
@@ -212,6 +236,12 @@ class ConcertDatabaseWriter:
             )
             self.session.add(concert)
             self.stats['concerts_created'] += 1
+            if self.debug:
+                print(f"[DB] Created new concert: {concert_data.get('event_name', 'Unknown')}")
+                print(f"     - Date: {concert_data.get('date_start')}")
+                print(f"     - Venue: {concert_data.get('venue', 'Unknown')}")
+                print(f"     - City: {original_city} → {normalized_city}")
+                print(f"     - Country: {country}")
         
         return normalized_city
     

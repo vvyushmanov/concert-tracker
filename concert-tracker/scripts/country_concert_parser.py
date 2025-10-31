@@ -8,7 +8,6 @@ Filters concerts by Last.fm top artists
 import requests
 from bs4 import BeautifulSoup
 import json
-import re
 from typing import List, Dict, Optional, Set, Tuple
 import argparse
 import time
@@ -43,12 +42,23 @@ class CountryConcertParser:
     COUNTRY_DELAY_MULTIPLIER = 3  # Longer delay between countries
     PAGES_PER_SAVE = 5  # Save progress every N pages in auto mode
     
+    # User agents for rotation (appear more human-like)
+    USER_AGENTS = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15',
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    ]
+    
     def __init__(self, country_code: str, max_pages: Optional[int] = None, delay: float = 1.0, 
-                 lastfm_artists: Optional[Set[str]] = None, proxy_manager: Optional[ProxyManager] = None):
+                 lastfm_artists: Optional[Set[str]] = None, proxy_manager: Optional[ProxyManager] = None,
+                 debug: bool = False):
         self.country_code = country_code.lower()
         self.base_url = self.BASE_URL
         self.max_pages = max_pages
         self.delay = delay  # Delay between requests to be polite
+        self.debug = debug  # Enable timing and debug logs
         self.concerts = []
         self.filtered_concerts = []  # Concerts matching Last.fm artists
         self.pages_processed = 0
@@ -111,14 +121,6 @@ class CountryConcertParser:
             url: URL to fetch
             max_retries: Maximum number of retries with different proxies
         """
-        # Rotate user agents to appear more human-like
-        user_agents = [
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15',
-            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        ]
         
         for attempt in range(max_retries):
             try:
@@ -133,7 +135,7 @@ class CountryConcertParser:
                         self._log(f"  Using proxy: {proxy_url} (attempt {attempt + 1}/{max_retries})")
                 
                 headers = {
-                    'User-Agent': random.choice(user_agents),
+                    'User-Agent': random.choice(self.USER_AGENTS),
                     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
                     'Accept-Language': 'en-US,en;q=0.9,en-GB;q=0.8',
                     'Connection': 'keep-alive',
@@ -184,7 +186,7 @@ class CountryConcertParser:
                 parse_time = time.time() - parse_start
                 
                 total_time = time.time() - start_time
-                if total_time > 2.0:
+                if self.debug:
                     self._log(f"  Timing: fetch={fetch_time:.2f}s, parse={parse_time:.2f}s, total={total_time:.2f}s")
                 
                 return soup
@@ -254,7 +256,6 @@ class CountryConcertParser:
         if not self.lastfm_artists_normalized:
             return []  # If no filter, return empty list
         
-        start_time = time.time()
         matched = []
         # O(1) lookup using normalized dictionary
         for performer in performers:
@@ -263,14 +264,10 @@ class CountryConcertParser:
                 original = self.lastfm_artists_normalized[normalized]
                 if original not in matched:
                     matched.append(original)
-        match_time = time.time() - start_time
-        if match_time > 0.1:
-            self._log(f"  Match timing: {match_time:.2f}s")
         return matched
     
     def extract_event_details(self, event_div) -> Dict:
         """Extract all details from a single event div"""
-        start_time = time.time()
         event = {
             'event_name': None,
             'event_url': None,
@@ -352,9 +349,6 @@ class CountryConcertParser:
         # Find matched artists from Last.fm (using Last.fm capitalization)
         event['matched_artists'] = self.matches_lastfm_artists(event['performers'])
         
-        extract_time = time.time() - start_time
-        if extract_time > 0.1:
-            self._log(f"  Extract timing: {extract_time:.2f}s")
         return event
     
     def parse_page(self, soup: BeautifulSoup) -> Tuple[List[Dict], List[Dict]]:
@@ -363,7 +357,6 @@ class CountryConcertParser:
         Returns:
             Tuple of (all_concerts, filtered_concerts)
         """
-        start_time = time.time()
         concerts = []
         filtered_concerts = []
         event_divs = soup.find_all('div', itemtype='https://schema.org/MusicEvent')
@@ -376,10 +369,6 @@ class CountryConcertParser:
                 # Check if matches Last.fm artists
                 if event_details['matched_artists']:  # Non-empty list means match
                     filtered_concerts.append(event_details)
-        
-        parse_time = time.time() - start_time
-        if parse_time > 1.0:
-            self._log(f"  Parse timing: {parse_time:.2f}s for {len(concerts)} concerts")
         
         return concerts, filtered_concerts
     
@@ -505,6 +494,11 @@ class CountryConcertParser:
             # Check if concert has normalizedCity (set by db_writer)
             if 'normalizedCity' in concert and concert['normalizedCity'] != concert['city']:
                 city_display = f"{concert['city']} → {concert['normalizedCity']}"
+            # Or use normalizer to show what it would be normalized to (for dry-run/preview)
+            elif normalizer and concert.get('city') and concert.get('country'):
+                normalized = normalizer.normalize(concert['city'], concert['country'])
+                if normalized != concert['city']:
+                    city_display = f"{concert['city']} → {normalized}"
             print(f"   Location: {city_display}, {concert['country']}")
             
             if concert['performers']:
@@ -638,6 +632,11 @@ def main():
         action='store_true',
         help='Dry run mode: fetch and parse data but do not save anything (for testing/debugging)'
     )
+    parser.add_argument(
+        '--debug',
+        action='store_true',
+        help='Enable debug mode with verbose logging and timing information'
+    )
     
     args = parser.parse_args()
     
@@ -665,13 +664,15 @@ def main():
     db_writer = None
     if not args.dry_run and args.output in ['db', 'both']:
         print(f"Database output mode: {args.db_path}")
-        db_writer = ConcertDatabaseWriter(args.db_path)
+        db_writer = ConcertDatabaseWriter(args.db_path, debug=args.debug)
     
     # Create a normalizer for display purposes (works in dry-run too)
+    # Use db_path if available, otherwise use a temporary in-memory database
     from db_models import get_session
     from city_normalizer import CityNormalizer
-    display_session = get_session(args.db_path)
-    display_normalizer = CityNormalizer(display_session)
+    db_path_for_display = args.db_path if args.db_path else ':memory:'
+    display_session = get_session(db_path_for_display)
+    display_normalizer = CityNormalizer(display_session, verbose=args.debug)
     
     # Initialize proxy manager if needed
     proxy_manager = None
@@ -770,6 +771,10 @@ def main():
             json.dump([], f)
         print(f"Initialized output file: {args.json}\n")
     
+    # Track proxy stats across all countries
+    total_proxy_successes = 0
+    total_proxy_failures = 0
+    
     for idx, country_code in enumerate(country_codes):
         # Add delay between countries to avoid rate limiting
         if idx > 0:
@@ -786,7 +791,8 @@ def main():
             max_pages=args.max_pages,
             delay=args.delay,
             lastfm_artists=lastfm_artists,
-            proxy_manager=proxy_manager
+            proxy_manager=proxy_manager,
+            debug=args.debug
         )
         
         # Define callback wrapper for incremental saving
@@ -858,6 +864,10 @@ def main():
             output_desc = f"{args.json}" if args.output in ['json', 'both'] else "database"
             print(f"\n💾 Country complete: {len(data_to_save)} total concerts saved to {output_desc}")
         
+        # Accumulate proxy stats
+        total_proxy_successes += concert_parser.proxy_successes
+        total_proxy_failures += concert_parser.proxy_failures
+        
         # Print country summary
         if not args.no_summary:
             # Pass normalizer to show normalization preview
@@ -876,13 +886,11 @@ def main():
     # Print proxy statistics if proxies were used
     if proxy_manager:
         print(f"\nProxy usage:")
-        total_proxy_requests = sum(cp.proxy_successes + cp.proxy_failures for cp in [concert_parser])
-        total_successes = sum(cp.proxy_successes for cp in [concert_parser])
-        total_failures = sum(cp.proxy_failures for cp in [concert_parser])
-        print(f"  Successful requests: {total_successes}")
-        print(f"  Failed requests: {total_failures}")
+        total_proxy_requests = total_proxy_successes + total_proxy_failures
+        print(f"  Successful requests: {total_proxy_successes}")
+        print(f"  Failed requests: {total_proxy_failures}")
         if total_proxy_requests > 0:
-            print(f"  Success rate: {total_successes/(total_successes+total_failures)*100:.1f}%")
+            print(f"  Success rate: {total_proxy_successes/total_proxy_requests*100:.1f}%")
         proxy_manager.print_stats()
     
     print(f"{'='*80}\n")
