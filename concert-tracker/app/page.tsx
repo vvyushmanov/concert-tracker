@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { format } from 'date-fns';
 import Image from 'next/image';
+import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,9 +13,10 @@ export default async function Home() {
 
   // Query with all fields including dates (now Unix timestamps)
   const concerts = await prisma.concert.findMany({
-    orderBy: {
-      dateStart: 'asc',
-    },
+    orderBy: [
+      { interested: 'desc' }, // Pinned concerts first
+      { dateStart: 'asc' },
+    ],
     include: {
       artist: true,
     },
@@ -38,10 +40,16 @@ export default async function Home() {
             const isSameDay = concert.dateStart === concert.dateEnd;
             
             return (
-              <div
+              <Link
                 key={concert.id}
-                className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow"
+                href={`/concerts/${concert.id}`}
+                className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow block relative"
               >
+                {concert.interested && (
+                  <div className="absolute top-2 right-2 z-10 bg-yellow-400 text-yellow-900 px-2 py-1 rounded-full text-xs font-bold">
+                    ⭐ Pinned
+                  </div>
+                )}
                 {concert.imageUrl && (
                   <div className="w-full h-48 relative">
                     <Image
@@ -74,17 +82,9 @@ export default async function Home() {
                       <span className="text-base">📍</span>
                       <span>{concert.venue}, {concert.city}, {concert.country}</span>
                     </p>
-                    <a 
-                      href={concert.eventUrl} 
-                      target="_blank" 
-                      rel="noopener noreferrer" 
-                      className="inline-flex items-center gap-1 text-blue-500 hover:text-blue-700 dark:hover:text-blue-300 font-medium mt-2"
-                    >
-                      View Event →
-                    </a>
                   </div>
                 </div>
-              </div>
+              </Link>
             );
           })}
         </div>

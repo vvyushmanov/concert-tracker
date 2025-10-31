@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 import urllib3
 
 from concert_utils import restructure_concerts_by_country_and_band, fetch_lastfm_artists
+from proxy_manager import ProxyManager
 
 # Import database writer if needed (lazy import to avoid dependency issues)
 try:
@@ -43,7 +44,7 @@ class CountryConcertParser:
     PAGES_PER_SAVE = 5  # Save progress every N pages in auto mode
     
     def __init__(self, country_code: str, max_pages: Optional[int] = None, delay: float = 1.0, 
-                 lastfm_artists: Optional[Set[str]] = None):
+                 lastfm_artists: Optional[Set[str]] = None, proxy_manager: Optional[ProxyManager] = None):
         self.country_code = country_code.lower()
         self.base_url = self.BASE_URL
         self.max_pages = max_pages
@@ -59,6 +60,9 @@ class CountryConcertParser:
         }
         self.total_concerts_found = 0
         self.matched_concerts = 0
+        self.proxy_manager = proxy_manager
+        self.proxy_failures = 0
+        self.proxy_successes = 0
         
         # Configure session with SSL handling and connection pooling
         self.session = requests.Session()
@@ -100,66 +104,106 @@ class CountryConcertParser:
         timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
         print(f"[{timestamp}] {message}")
     
-    def fetch_page(self, url: str) -> Optional[BeautifulSoup]:
-        """Fetch a single page and return BeautifulSoup object"""
-        try:
-            start_time = time.time()
-            
-            # Rotate user agents to appear more human-like
-            user_agents = [
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
-                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15',
-                'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            ]
-            
-            headers = {
-                'User-Agent': random.choice(user_agents),
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.9,en-GB;q=0.8',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-                'Cache-Control': 'max-age=0',
-                'Referer': self.base_url if hasattr(self, '_last_url') else None
-            }
-            
-            # Remove None values
-            headers = {k: v for k, v in headers.items() if v is not None}
-            
-            # Use verify=False only for this specific domain due to certificate issues
-            # In production, you should fix the certificate or use certifi
-            response = self.session.get(
-                url, 
-                timeout=self.REQUEST_TIMEOUT, 
-                verify=False,  # Only because this specific site has cert issues
-                headers=headers, 
-                allow_redirects=True
-            )
-            response.raise_for_status()
-            
-            fetch_time = time.time() - start_time
-            self._last_url = url  # Store for next request's Referer
-            
-            # Parse HTML
-            parse_start = time.time()
-            soup = BeautifulSoup(response.text, 'html.parser')
-            parse_time = time.time() - parse_start
-            
-            total_time = time.time() - start_time
-            if total_time > 2.0:
-                self._log(f"  Timing: fetch={fetch_time:.2f}s, parse={parse_time:.2f}s, total={total_time:.2f}s")
-            
-            # Check for rate limiting
-            if 'limit.html' in response.url or len(response.text) < self.RATE_LIMIT_MIN_RESPONSE_SIZE:
-                print(f"  [ERROR] ⚠️  RATE LIMITED! The website is blocking requests.")
-                print(f"  [ERROR] Please wait 10-15 minutes before trying again.")
-                print(f"  [ERROR] Consider using --delay 3 or higher to be more polite.")
-            
-            return soup
-        except requests.RequestException as e:
-            print(f"Error fetching {url}: {e}")
-            return None
+    def fetch_page(self, url: str, max_retries: int = 3) -> Optional[BeautifulSoup]:
+        """Fetch a single page and return BeautifulSoup object
+        
+        Args:
+            url: URL to fetch
+            max_retries: Maximum number of retries with different proxies
+        """
+        # Rotate user agents to appear more human-like
+        user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        ]
+        
+        for attempt in range(max_retries):
+            try:
+                start_time = time.time()
+                
+                # Get proxy if proxy manager is available
+                proxy = None
+                if self.proxy_manager:
+                    proxy = self.proxy_manager.get_next_proxy()
+                    if proxy:
+                        proxy_url = proxy.get('http', 'direct')
+                        self._log(f"  Using proxy: {proxy_url} (attempt {attempt + 1}/{max_retries})")
+                
+                headers = {
+                    'User-Agent': random.choice(user_agents),
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.9,en-GB;q=0.8',
+                    'Connection': 'keep-alive',
+                    'Upgrade-Insecure-Requests': '1',
+                    'Cache-Control': 'max-age=0',
+                    'Referer': self.base_url if hasattr(self, '_last_url') else None
+                }
+                
+                # Remove None values
+                headers = {k: v for k, v in headers.items() if v is not None}
+                
+                # Use verify=False only for this specific domain due to certificate issues
+                # In production, you should fix the certificate or use certifi
+                response = self.session.get(
+                    url, 
+                    timeout=self.REQUEST_TIMEOUT, 
+                    verify=False,  # Only because this specific site has cert issues
+                    headers=headers, 
+                    proxies=proxy,  # Use proxy if available
+                    allow_redirects=True
+                )
+                response.raise_for_status()
+                
+                fetch_time = time.time() - start_time
+                self._last_url = url  # Store for next request's Referer
+                
+                # Check for rate limiting
+                if 'limit.html' in response.url or len(response.text) < self.RATE_LIMIT_MIN_RESPONSE_SIZE:
+                    print(f"  [ERROR] ⚠️  RATE LIMITED! The website is blocking requests.")
+                    if self.proxy_manager and proxy:
+                        self.proxy_manager.mark_proxy_failed(proxy)
+                        self.proxy_failures += 1
+                        print(f"  [INFO] Trying next proxy...")
+                        continue  # Try next proxy
+                    else:
+                        print(f"  [ERROR] Please wait 10-15 minutes before trying again.")
+                        print(f"  [ERROR] Consider using --use-proxies webshare or --use-proxies custom")
+                        return None
+                
+                # Success! Mark proxy as working
+                if self.proxy_manager and proxy:
+                    self.proxy_manager.mark_proxy_success(proxy)
+                    self.proxy_successes += 1
+                
+                # Parse HTML
+                parse_start = time.time()
+                soup = BeautifulSoup(response.text, 'html.parser')
+                parse_time = time.time() - parse_start
+                
+                total_time = time.time() - start_time
+                if total_time > 2.0:
+                    self._log(f"  Timing: fetch={fetch_time:.2f}s, parse={parse_time:.2f}s, total={total_time:.2f}s")
+                
+                return soup
+                
+            except requests.RequestException as e:
+                if self.proxy_manager and proxy:
+                    self.proxy_manager.mark_proxy_failed(proxy)
+                    self.proxy_failures += 1
+                    if attempt < max_retries - 1:
+                        print(f"  [WARN] Request failed with proxy: {e}")
+                        print(f"  [INFO] Trying next proxy...")
+                        time.sleep(1)  # Brief delay before retry
+                        continue
+                
+                print(f"Error fetching {url}: {e}")
+                return None
+        
+        print(f"  [ERROR] Failed after {max_retries} attempts")
+        return None
     
     def extract_venue_info(self, event_div) -> Dict[str, str]:
         """Extract venue information from event div"""
@@ -561,11 +605,43 @@ def main():
         help='Path to SQLite database file (required for db/both output modes)',
         default=None
     )
+    parser.add_argument(
+        '--use-proxies',
+        type=str,
+        choices=['custom', 'webshare'],
+        help='Enable proxy rotation: custom (from proxies.txt) or webshare (from WEBSHARE_PROXY_URL in .env)',
+        default=None
+    )
+    parser.add_argument(
+        '--no-proxy-validation',
+        action='store_true',
+        help='Skip proxy validation on load (faster startup but may use dead proxies)'
+    )
+    parser.add_argument(
+        '--proxy-workers',
+        type=int,
+        default=50,
+        help='Number of parallel workers for proxy validation (default: 50)'
+    )
+    parser.add_argument(
+        '--dry-run',
+        action='store_true',
+        help='Dry run mode: fetch and parse data but do not save anything (for testing/debugging)'
+    )
     
     args = parser.parse_args()
     
-    # Validate database arguments
-    if args.output in ['db', 'both'] and not args.db_path:
+    # Dry run mode overrides output settings
+    if args.dry_run:
+        print("\n" + "="*60)
+        print("DRY RUN MODE - NO DATA WILL BE SAVED")
+        print("="*60)
+        print("This mode will fetch and parse data but skip all writes.")
+        print("Useful for testing proxies, delays, and parsing logic.")
+        print("="*60 + "\n")
+    
+    # Validate database arguments (skip in dry run)
+    if not args.dry_run and args.output in ['db', 'both'] and not args.db_path:
         parser.error("--db-path is required when using --output db or --output both")
         return 1
     
@@ -575,11 +651,61 @@ def main():
         print("Please install: pip install sqlalchemy")
         return 1
     
-    # Initialize database writer if needed
+    # Initialize database writer if needed (skip in dry run)
     db_writer = None
-    if args.output in ['db', 'both']:
+    if not args.dry_run and args.output in ['db', 'both']:
         print(f"Database output mode: {args.db_path}")
         db_writer = ConcertDatabaseWriter(args.db_path)
+    
+    # Initialize proxy manager if needed
+    proxy_manager = None
+    if args.use_proxies:
+        print("\n" + "="*60)
+        print("PROXY CONFIGURATION")
+        print("="*60)
+        
+        validate = not args.no_proxy_validation
+        
+        if args.use_proxies == 'webshare':
+            webshare_url = os.getenv('WEBSHARE_PROXY_URL')
+            if not webshare_url:
+                print("❌ ERROR: WEBSHARE_PROXY_URL not found in .env file")
+                print("   Add your Webshare download URL to .env:")
+                print("   WEBSHARE_PROXY_URL=https://proxy.webshare.io/api/v2/...")
+                return 1
+            
+            print(f"Using Webshare.io proxies")
+            proxy_manager = ProxyManager(
+                webshare_url=webshare_url,
+                validate_on_load=validate,
+                validation_workers=args.proxy_workers
+            )
+        elif args.use_proxies == 'custom':
+            proxy_file = 'proxies.txt'
+            if not os.path.exists(proxy_file):
+                print(f"❌ ERROR: {proxy_file} not found")
+                print(f"   Create it with: python proxy_manager.py create-template")
+                return 1
+            
+            print(f"Loading custom proxies from: {proxy_file}")
+            proxy_manager = ProxyManager(
+                proxy_file=proxy_file,
+                validate_on_load=validate,
+                validation_workers=args.proxy_workers
+            )
+        
+        if proxy_manager and proxy_manager.proxies:
+            proxy_manager.print_stats()
+        else:
+            print("⚠️  No working proxies available. Continuing without proxies.")
+            proxy_manager = None
+        
+        print("="*60 + "\n")
+    else:
+        print("\n⚠️  No proxies configured. Using direct connection.")
+        print("   To avoid IP bans, use:")
+        print("   --use-proxies webshare  (add WEBSHARE_PROXY_URL to .env)")
+        print("   --use-proxies custom    (create proxies.txt)\n")
     
     # Get country codes from .env
     country_codes_str = os.getenv('COUNTRY_CODES', 'tr,fr,de')
@@ -622,8 +748,8 @@ def main():
     all_concerts = []
     all_filtered_concerts = []
     
-    # Initialize output file with empty array (only for JSON output)
-    if args.output in ['json', 'both']:
+    # Initialize output file with empty array (only for JSON output, skip in dry run)
+    if not args.dry_run and args.output in ['json', 'both']:
         with open(args.json, 'w', encoding='utf-8') as f:
             json.dump([], f)
         print(f"Initialized output file: {args.json}\n")
@@ -643,11 +769,17 @@ def main():
             country_code,
             max_pages=args.max_pages,
             delay=args.delay,
-            lastfm_artists=lastfm_artists
+            lastfm_artists=lastfm_artists,
+            proxy_manager=proxy_manager
         )
         
         # Define callback wrapper for incremental saving
         def save_callback(all_concerts_so_far, filtered_concerts_so_far, page_num):
+            # Skip all saves in dry run mode
+            if args.dry_run:
+                print(f"  🔍 [DRY RUN] Would save progress here (page {page_num})")
+                return
+            
             # Save based on frequency setting
             should_save = False
             
@@ -686,7 +818,7 @@ def main():
         all_filtered_concerts.extend(concert_parser.filtered_concerts)
         
         # Save after country completion (for 'country' mode or final save for 'auto')
-        if args.save_frequency in ['country', 'auto']:
+        if not args.dry_run and args.save_frequency in ['country', 'auto']:
             # Save to JSON if needed
             if args.output in ['json', 'both']:
                 concert_parser.save_progress(
@@ -704,8 +836,11 @@ def main():
                 db_writer.write_concerts(data_to_write, artist_playcounts, recent_artists, artist_images)
         
         data_to_save = all_filtered_concerts if lastfm_artists else all_concerts
-        output_desc = f"{args.json}" if args.output in ['json', 'both'] else "database"
-        print(f"\n💾 Country complete: {len(data_to_save)} total concerts saved to {output_desc}")
+        if args.dry_run:
+            print(f"\n🔍 [DRY RUN] Country complete: {len(data_to_save)} total concerts parsed (not saved)")
+        else:
+            output_desc = f"{args.json}" if args.output in ['json', 'both'] else "database"
+            print(f"\n💾 Country complete: {len(data_to_save)} total concerts saved to {output_desc}")
         
         # Print country summary
         if not args.no_summary:
@@ -720,26 +855,43 @@ def main():
     if lastfm_artists:
         print(f"Concerts matching Last.fm artists: {len(all_filtered_concerts)}")
         print(f"Overall match rate: {len(all_filtered_concerts)/len(all_concerts)*100:.1f}%" if all_concerts else "Match rate: 0%")
+    
+    # Print proxy statistics if proxies were used
+    if proxy_manager:
+        print(f"\nProxy usage:")
+        total_proxy_requests = sum(cp.proxy_successes + cp.proxy_failures for cp in [concert_parser])
+        total_successes = sum(cp.proxy_successes for cp in [concert_parser])
+        total_failures = sum(cp.proxy_failures for cp in [concert_parser])
+        print(f"  Successful requests: {total_successes}")
+        print(f"  Failed requests: {total_failures}")
+        if total_proxy_requests > 0:
+            print(f"  Success rate: {total_successes/(total_successes+total_failures)*100:.1f}%")
+        proxy_manager.print_stats()
+    
     print(f"{'='*80}\n")
     
     # Final save already done incrementally
     data_to_save = all_filtered_concerts if lastfm_artists else all_concerts
     
     # Print final output message
-    if args.output in ['json', 'both']:
-        print(f"✅ Final output: {len(data_to_save)} concerts in {args.json}")
-    
-    if args.output in ['db', 'both'] and db_writer:
-        db_writer.print_stats()
-        db_writer.close()
-        print(f"✅ Database output: {args.db_path}")
-    
-    # Optionally save all concerts (JSON only)
-    if args.save_all and lastfm_artists and args.output in ['json', 'both']:
-        all_filename = args.json.replace('.json', '_all.json')
-        with open(all_filename, 'w', encoding='utf-8') as f:
-            json.dump(all_concerts, f, indent=2, ensure_ascii=False)
-        print(f"Saved all {len(all_concerts)} concerts to {all_filename}")
+    if args.dry_run:
+        print(f"\n🔍 [DRY RUN] Completed: {len(data_to_save)} concerts parsed (nothing saved)")
+        print(f"   To save data, run without --dry-run flag")
+    else:
+        if args.output in ['json', 'both']:
+            print(f"✅ Final output: {len(data_to_save)} concerts in {args.json}")
+        
+        if args.output in ['db', 'both'] and db_writer:
+            db_writer.print_stats()
+            db_writer.close()
+            print(f"✅ Database output: {args.db_path}")
+        
+        # Optionally save all concerts (JSON only)
+        if args.save_all and lastfm_artists and args.output in ['json', 'both']:
+            all_filename = args.json.replace('.json', '_all.json')
+            with open(all_filename, 'w', encoding='utf-8') as f:
+                json.dump(all_concerts, f, indent=2, ensure_ascii=False)
+            print(f"Saved all {len(all_concerts)} concerts to {all_filename}")
     
     return 0
 

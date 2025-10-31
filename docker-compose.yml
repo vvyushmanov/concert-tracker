@@ -2,13 +2,15 @@ services:
   # Next.js production server
   web:
     build:
-      context: ./concert-tracker
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./concert-tracker/Dockerfile
     ports:
       - "3000:3000"
     volumes:
-      # Mount shared database directory (read-only for safety)
-      - ./data:/app/data:ro
+      # Mount shared database directory (writable for rescan)
+      - ./data:/app/data
+      # Mount .env for Python parser to access API keys and proxy config
+      - ./.env:/app/scripts/.env:ro
     environment:
       - NODE_ENV=production
       - DATABASE_URL=file:/app/data/concerts.db

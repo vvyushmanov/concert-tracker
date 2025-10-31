@@ -9,7 +9,7 @@ WORKDIR /app
 RUN apk add --no-cache openssl
 
 # Copy package files
-COPY package.json package-lock.json* ./
+COPY concert-tracker/package.json concert-tracker/package-lock.json* ./
 
 # Install dependencies
 RUN npm ci --only=production
@@ -22,19 +22,19 @@ WORKDIR /app
 RUN apk add --no-cache openssl
 
 # Copy package files
-COPY package.json package-lock.json* ./
+COPY concert-tracker/package.json concert-tracker/package-lock.json* ./
 
 # Install all dependencies (including dev dependencies for build)
 RUN npm ci
 
 # Copy Prisma schema
-COPY prisma ./prisma
+COPY concert-tracker/prisma ./prisma
 
 # Generate Prisma client
 RUN npx prisma generate
 
 # Copy application code
-COPY . .
+COPY concert-tracker/. .
 
 # Create public directory if it doesn't exist
 RUN mkdir -p public
@@ -46,8 +46,8 @@ RUN npm run build
 FROM node:20-alpine AS runner
 WORKDIR /app
 
-# Install runtime dependencies
-RUN apk add --no-cache openssl
+# Install runtime dependencies (including Python for rescan)
+RUN apk add --no-cache openssl python3 py3-pip
 
 ENV NODE_ENV=production
 
@@ -61,6 +61,17 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
+
+# Copy Python scripts and requirements from project root
+COPY --chown=nextjs:nodejs country_concert_parser.py ./scripts/
+COPY --chown=nextjs:nodejs concert_utils.py ./scripts/
+COPY --chown=nextjs:nodejs db_models.py ./scripts/
+COPY --chown=nextjs:nodejs db_writer.py ./scripts/
+COPY --chown=nextjs:nodejs proxy_manager.py ./scripts/
+COPY --chown=nextjs:nodejs requirements.txt ./scripts/
+
+# Install Python dependencies
+RUN pip3 install --no-cache-dir -r ./scripts/requirements.txt --break-system-packages
 
 # Create data directory for database and .next cache directory
 RUN mkdir -p /app/data /app/.next/cache && chown -R nextjs:nodejs /app/data /app/.next

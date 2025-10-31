@@ -18,9 +18,10 @@ export default async function ArtistDetailPage({ params }: { params: Promise<{ i
     where: { id: artistId },
     include: {
       concerts: {
-        orderBy: {
-          dateStart: 'asc',
-        },
+        orderBy: [
+          { interested: 'desc' }, // Pinned concerts first
+          { dateStart: 'asc' },
+        ],
       },
     },
   });
@@ -95,10 +96,16 @@ export default async function ArtistDetailPage({ params }: { params: Promise<{ i
                   const isSameDay = concert.dateStart === concert.dateEnd;
                   
                   return (
-                    <div
+                    <Link
                       key={concert.id}
-                      className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow"
+                      href={`/concerts/${concert.id}`}
+                      className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow block relative"
                     >
+                      {concert.interested && (
+                        <div className="absolute top-2 right-2 z-10 bg-yellow-400 text-yellow-900 px-2 py-1 rounded-full text-xs font-bold">
+                          ⭐ Pinned
+                        </div>
+                      )}
                       {concert.imageUrl && (
                         <Image 
                           src={concert.imageUrl} 
@@ -124,17 +131,9 @@ export default async function ArtistDetailPage({ params }: { params: Promise<{ i
                             <span>📍</span>
                             <span>{concert.venue}, {concert.city}</span>
                           </p>
-                          <a 
-                            href={concert.eventUrl} 
-                            target="_blank" 
-                            rel="noopener noreferrer" 
-                            className="inline-flex items-center gap-1 text-blue-500 hover:text-blue-700 dark:hover:text-blue-300 font-medium mt-2"
-                          >
-                            View Event →
-                          </a>
                         </div>
                       </div>
-                    </div>
+                    </Link>
                   );
                 })}
               </div>

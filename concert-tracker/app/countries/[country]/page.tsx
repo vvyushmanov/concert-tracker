@@ -15,9 +15,10 @@ export default async function CountryDetailPage({ params }: { params: Promise<{ 
     include: {
       artist: true,
     },
-    orderBy: {
-      dateStart: 'asc',
-    },
+    orderBy: [
+      { interested: 'desc' }, // Pinned concerts first
+      { dateStart: 'asc' },
+    ],
   });
 
   if (concerts.length === 0) {
@@ -86,10 +87,16 @@ export default async function CountryDetailPage({ params }: { params: Promise<{ 
                   const isSameDay = concert.dateStart === concert.dateEnd;
                   
                   return (
-                    <div
+                    <Link
                       key={concert.id}
-                      className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow"
+                      href={`/concerts/${concert.id}`}
+                      className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow block relative"
                     >
+                      {concert.interested && (
+                        <div className="absolute top-2 right-2 z-10 bg-yellow-400 text-yellow-900 px-2 py-1 rounded-full text-xs font-bold">
+                          ⭐ Pinned
+                        </div>
+                      )}
                       {concert.imageUrl && (
                         <Image 
                           src={concert.imageUrl} 
@@ -101,12 +108,9 @@ export default async function CountryDetailPage({ params }: { params: Promise<{ 
                       )}
                       <div className="p-4">
                         <div className="mb-2">
-                          <Link
-                            href={`/artists/${concert.artistId}`}
-                            className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline uppercase tracking-wide"
-                          >
+                          <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">
                             {concert.artist.name}
-                          </Link>
+                          </span>
                         </div>
                         <h3 className="font-bold mb-2 line-clamp-2">
                           {concert.eventName}
@@ -123,17 +127,9 @@ export default async function CountryDetailPage({ params }: { params: Promise<{ 
                             <span>📍</span>
                             <span>{concert.venue}</span>
                           </p>
-                          <a 
-                            href={concert.eventUrl} 
-                            target="_blank" 
-                            rel="noopener noreferrer" 
-                            className="inline-flex items-center gap-1 text-blue-500 hover:text-blue-700 dark:hover:text-blue-300 font-medium mt-2"
-                          >
-                            View Event →
-                          </a>
                         </div>
                       </div>
-                    </div>
+                    </Link>
                   );
                 })}
               </div>
