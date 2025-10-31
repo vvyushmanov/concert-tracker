@@ -65,22 +65,22 @@ class CityNormalizer:
         if self.verbose:
             print(f"\n[NORMALIZE] Starting normalization for: '{city}', {country}")
         
-        # Step 1: Check manual mapping
-        manual_result = self._check_manual_mapping(city, country)
-        if manual_result:
+        # Step 1: Check if we already have ANY mapping for this exact city (manual or geocoded)
+        existing_mapping = self._check_manual_mapping(city, country)
+        if existing_mapping:
             if self.verbose:
-                print(f"[NORMALIZE] Found manual mapping: '{city}' -> '{manual_result.normalizedCity}'")
-            return manual_result.normalizedCity
+                print(f"[NORMALIZE] Found {existing_mapping.source} mapping: '{city}' -> '{existing_mapping.normalizedCity}'")
+            return existing_mapping.normalizedCity
         
         if self.verbose:
-            print(f"[NORMALIZE] No manual mapping found")
+            print(f"[NORMALIZE] No existing mapping found")
         
-        # Step 2: Apply text normalization
+        # Step 2: Apply text normalization (cleanup before geocoding)
         normalized = self._normalize_text(city)
         if self.verbose:
             print(f"[NORMALIZE] Text normalized: '{city}' -> '{normalized}'")
         
-        # Step 3: Try geocoding and clustering
+        # Step 3: Try geocoding and clustering (always, to check for metro clustering)
         if self.verbose:
             print(f"[NORMALIZE] Attempting geocoding and clustering...")
         geocoded_result = self._geocode_and_cluster(city, country, normalized)
@@ -89,6 +89,7 @@ class CityNormalizer:
                 print(f"[NORMALIZE] Geocoding result: '{normalized}' -> '{geocoded_result}'")
             return geocoded_result
         
+        # Step 4: No geocoding result, return text normalized version
         if self.verbose:
             print(f"[NORMALIZE] No geocoding result, returning text normalized: '{normalized}'")
         return normalized
