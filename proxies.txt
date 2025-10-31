@@ -1,0 +1,14 @@
+# Proxy list - one proxy per line
+# Supported formats:
+#   ip:port
+#   http://ip:port
+#   https://ip:port
+#   http://user:pass@ip:port
+#
+# Example:
+# 123.45.67.89:8080
+# http://123.45.67.89:3128
+# http://user:password@123.45.67.89:8080
+#
+# Add your proxies below:
+

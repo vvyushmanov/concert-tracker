@@ -6,6 +6,16 @@ WORKDIR /app
 # Install dependencies for better development experience and Prisma
 RUN apk add --no-cache git python3 py3-pip openssl
 
+# Install Python dependencies directly (requirements will be mounted via volume)
+RUN pip3 install --no-cache-dir --break-system-packages \
+    requests==2.31.0 \
+    python-dotenv==1.0.0 \
+    beautifulsoup4==4.12.3 \
+    sqlalchemy==2.0.23
+
+# Create scripts directory
+RUN mkdir -p /app/scripts
+
 # Copy package files (will be created during setup)
 # COPY package*.json ./
 

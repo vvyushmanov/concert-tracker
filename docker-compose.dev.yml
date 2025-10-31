@@ -18,6 +18,7 @@ services:
       - ./concert_utils.py:/app/scripts/concert_utils.py:ro
       - ./db_models.py:/app/scripts/db_models.py:ro
       - ./db_writer.py:/app/scripts/db_writer.py:ro
+      - ./proxy_manager.py:/app/scripts/proxy_manager.py:ro
       - ./.env:/app/scripts/.env:ro
     environment:
       - NODE_ENV=development

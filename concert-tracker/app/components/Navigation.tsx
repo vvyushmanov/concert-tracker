@@ -19,10 +19,9 @@ export default function Navigation() {
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      const response = await fetch('/api/revalidate', { method: 'POST' });
-      if (response.ok) {
-        router.refresh();
-      }
+      // First revalidate the cache
+      await fetch('/api/revalidate', { method: 'POST' });
+      router.refresh();
     } catch (error) {
       console.error('Failed to refresh:', error);
     } finally {
@@ -30,8 +29,12 @@ export default function Navigation() {
     }
   };
   
+  const handleRescan = () => {
+    router.push('/scanner');
+  };
+  
   return (
-    <nav className="bg-white dark:bg-gray-800 shadow-md border-b border-gray-200 dark:border-gray-700">
+    <nav className="sticky top-0 z-50 bg-white dark:bg-gray-800 shadow-md border-b border-gray-200 dark:border-gray-700">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center">
@@ -69,12 +72,31 @@ export default function Navigation() {
             <button
               onClick={handleRefresh}
               disabled={isRefreshing}
-              className="flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200 hover:bg-green-200 dark:hover:bg-green-800 disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Refresh data from database"
+              className="flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-200 hover:bg-blue-200 dark:hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Refresh page data"
             >
-              <span>{isRefreshing ? '⏳' : '🔄'}</span>
-              <span className="hidden sm:inline">{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
+              <span>🔄</span>
+              <span className="hidden sm:inline">Refresh</span>
             </button>
+            
+            <button
+              onClick={handleRescan}
+              className="flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200 hover:bg-green-200 dark:hover:bg-green-800"
+              title="Open concert scanner"
+            >
+              <span>🔍</span>
+              <span className="hidden sm:inline">Scanner</span>
+            </button>
+            
+            <a
+              href="/api/export"
+              className="flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-200 hover:bg-purple-200 dark:hover:bg-purple-800"
+              title="Export all data to JSON"
+              download
+            >
+              <span>💾</span>
+              <span className="hidden sm:inline">Export</span>
+            </a>
           </div>
         </div>
       </div>
