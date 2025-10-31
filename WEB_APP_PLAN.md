@@ -223,43 +223,104 @@ lastfm-parser/
                                    └─────────────┘
 ```
 
-## Current Status (Oct 30, 2025)
-✅ **Completed:**
-- Python parser with dual-mode output (JSON + Database)
-- SQLAlchemy and Prisma schemas using Unix timestamps (Int) for dates
-- Next.js app with Docker setup
-- Basic concert grid view with images, dates, locations, artist info
-- Database with 272 concerts from 62 artists
+## Current Status (Oct 31, 2025) - ✅ ALL CORE FEATURES COMPLETE
 
-## Next Steps - Priority: Multiple View Types
+### ✅ Fully Implemented Features
 
-### Implement Three Main Views:
+#### Core Views (All Complete)
+1. **Main Page (/)** - Concert grid with advanced filtering, sorting, and search
+2. **Artists Page (/artists)** - Artist cards with search, sorting (popularity/concerts/name)
+3. **Artist Detail (/artists/[id])** - Concerts grouped by country
+4. **Countries Page (/countries)** - Country list with concert counts
+5. **Country Detail (/countries/[country])** - Concerts grouped by city
+6. **Calendar View (/calendar)** - Two-column layout (calendar + concerts list)
+7. **Concert Detail (/concerts/[id])** - Full concert info with interactions
+8. **Scanner Page (/scanner)** - Real-time Python parser execution with SSE logs
 
-#### 1. **By Artist View** (`/artists` or `/by-artist`)
-- List all artists with concert counts
-- Click artist to see all their concerts
-- Sort by: playcount, name, concert count
-- Show artist stats (total concerts, countries)
+#### Main Page Features ✅
+- Search by concert name, artist, venue, city
+- Filters: Artist dropdown, Country dropdown, Interested-only checkbox
+- Sort: Date, Artist Name, Artist Popularity, Recently Added
+- Results counter and "Clear All" button
+- Interested concerts always shown first
 
-#### 2. **By Country View** (`/countries` or `/by-country`)
-- Group concerts by country
-- Show concert count per country
-- Click country to see all concerts in that country
-- Map visualization (optional enhancement)
+#### Artists Page Features ✅
+- Search by artist name with clear button
+- Sort by: Artist Popularity, Upcoming Concerts, Artist Name
+- Shows only artists with upcoming concerts
+- Concert/country counts based on upcoming concerts only
+- Enhanced stats panel with bold numbers
 
-#### 3. **Calendar View** (`/calendar`)
-- Month/week view of concerts
-- Visual calendar with concert markers
-- Click date to see concerts on that day
-- Filter by artist/country within calendar
-- Highlight upcoming concerts
+#### Calendar View Features ✅
+- Two-column layout: calendar (left) + concerts list (right)
+- Month navigation with prev/next buttons
+- Filters: Artist, Country, Interested-only
+- Click day to see concerts on that date
+- Scrollable concerts list (max 800px) with sticky headers
+- Compact calendar cells optimized for space
 
-### Implementation Plan:
-1. Create navigation bar with view switchers
-2. Build `/app/artists/page.tsx` - Artist list and detail views
-3. Build `/app/countries/page.tsx` - Country-based grouping
-4. Build `/app/calendar/page.tsx` - Calendar interface
-5. Add shared filtering/sorting components
-6. Enhance existing grid view with filters
+#### Past Events Management ✅
+- **All views** hide past concerts by default
+- "Show Past Events" toggle button
+- Past events in separate sections with:
+  - Grayscale images
+  - Reduced opacity (75%)
+  - Gray headings
+  - Clear visual separation
 
-These views will provide different ways to explore the concert data based on user preferences.
+#### Concert Interactions ✅
+- Mark concerts as "interested" (⭐ Pinned)
+- Add personal notes
+- View full concert details
+- External links to event pages
+- Export database to JSON
+
+#### Scanner Features ✅
+- Start/Stop Python parser from UI
+- Real-time log streaming via SSE
+- Process status monitoring
+- Error handling and recovery
+
+#### Technical Implementation ✅
+- Server components for data fetching
+- Client components for interactivity
+- Unix timestamps (Int) for all dates
+- Prisma ORM with SQLite
+- Real-time SSE for scanner logs
+- Docker setup with dev environment
+- No nested anchor tags (proper hydration)
+
+### API Routes Implemented ✅
+- `GET /api/concerts/[id]` - Concert details
+- `PATCH /api/concerts/[id]` - Update interested/notes
+- `POST /api/scanner/start` - Start Python parser
+- `POST /api/scanner/stop` - Stop parser
+- `GET /api/scanner/logs` - SSE log stream
+- `GET /api/export` - Export to JSON
+
+### Bug Fixes Applied ✅
+- Fixed SSE controller closed error with isClosed flag
+- Fixed nested anchor tag hydration errors
+- Optimized calendar two-column layout
+- Improved search panel alignment
+
+## Potential Future Enhancements
+
+### Optional Features (Not Yet Implemented)
+1. **Statistics Dashboard** - Charts showing concerts by country, timeline, artist frequency
+2. **Map Visualization** - Interactive map with concert locations
+3. **Advanced Search** - Full-text search across all fields
+4. **Concert Notifications** - Reminders for upcoming concerts
+5. **Mobile Optimization** - Enhanced mobile-specific layouts
+6. **Date Range Picker** - Custom date range filtering
+7. **Multi-select Filters** - Select multiple artists/countries at once
+8. **User Preferences** - Save filter/sort preferences
+9. **Concert Sharing** - Share concert links with others
+10. **Import/Export** - Import concerts from other sources
+
+### Technical Improvements
+- Add pagination for large concert lists
+- Implement caching for faster page loads
+- Add loading skeletons for better UX
+- Optimize image loading with blur placeholders
+- Add error boundaries for better error handling

@@ -1,7 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import { format } from 'date-fns';
-import Image from 'next/image';
-import Link from 'next/link';
+import ConcertGrid from './ConcertGrid';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +20,18 @@ export default async function Home() {
     },
   });
 
+  // Get unique artists and countries for filters
+  const artists = await prisma.artist.findMany({
+    orderBy: { name: 'asc' },
+    select: { id: true, name: true },
+  });
+
+  const countries = await prisma.concert.findMany({
+    select: { country: true },
+    distinct: ['country'],
+    orderBy: { country: 'asc' },
+  });
+
   return (
     <div className="min-h-screen p-8 bg-gray-50 dark:bg-gray-900">
       <main className="max-w-7xl mx-auto">
@@ -32,62 +42,11 @@ export default async function Home() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {concerts.map((concert) => {
-            // Convert Unix timestamps to Date objects
-            const startDate = new Date(concert.dateStart * 1000);
-            const endDate = new Date(concert.dateEnd * 1000);
-            const isSameDay = concert.dateStart === concert.dateEnd;
-            
-            return (
-              <Link
-                key={concert.id}
-                href={`/concerts/${concert.id}`}
-                className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow block relative"
-              >
-                {concert.interested && (
-                  <div className="absolute top-2 right-2 z-10 bg-yellow-400 text-yellow-900 px-2 py-1 rounded-full text-xs font-bold">
-                    ⭐ Pinned
-                  </div>
-                )}
-                {concert.imageUrl && (
-                  <div className="w-full h-48 relative">
-                    <Image
-                      src={concert.imageUrl} 
-                      alt={concert.eventName}
-                      fill
-                      className="object-cover"
-                      sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                    />
-                  </div>
-                )}
-                <div className="p-6">
-                  <div className="mb-2">
-                    <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">
-                      {concert.artist.name}
-                    </span>
-                  </div>
-                  <h2 className="text-lg font-bold mb-3 line-clamp-2">
-                    {concert.eventName}
-                  </h2>
-                  <div className="text-sm text-gray-600 dark:text-gray-400 space-y-2">
-                    <p className="flex items-start gap-2">
-                      <span className="text-base">📅</span>
-                      <span>
-                        {format(startDate, 'MMM dd, yyyy')}
-                        {!isSameDay && ` - ${format(endDate, 'MMM dd, yyyy')}`}
-                      </span>
-                    </p>
-                    <p className="flex items-start gap-2">
-                      <span className="text-base">📍</span>
-                      <span>{concert.venue}, {concert.city}, {concert.country}</span>
-                    </p>
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
-        </div>
+        <ConcertGrid
+          initialConcerts={concerts}
+          artists={artists}
+          countries={countries.map(c => c.country)}
+        />
       </main>
     </div>
   );
