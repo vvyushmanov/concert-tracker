@@ -12,7 +12,13 @@ export default async function CountryDetailPage({ params }: { params: Promise<{ 
   const concerts = await prisma.concert.findMany({
     where: { country },
     include: {
-      artist: true,
+      artist: {
+        select: {
+          id: true,
+          name: true,
+          playcount: true,
+        },
+      },
     },
     orderBy: [
       { interested: 'desc' }, // Pinned concerts first
@@ -24,8 +30,8 @@ export default async function CountryDetailPage({ params }: { params: Promise<{ 
     notFound();
   }
 
-  // Get unique cities and artists
-  const cities = [...new Set(concerts.map(c => c.city))];
+  // Get unique normalized cities and artists
+  const cities = [...new Set(concerts.map(c => c.normalizedCity))];
   const artists = new Set(concerts.map(c => c.artist.name)).size;
 
   return (

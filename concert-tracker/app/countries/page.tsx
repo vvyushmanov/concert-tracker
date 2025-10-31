@@ -9,6 +9,7 @@ export default async function CountriesPage() {
     select: {
       country: true,
       city: true,
+      normalizedCity: true,
       id: true,
       artist: {
         select: {
@@ -31,7 +32,7 @@ export default async function CountriesPage() {
       };
     }
     acc[concert.country].count++;
-    acc[concert.country].cities.add(concert.city);
+    acc[concert.country].cities.add(concert.normalizedCity);
     acc[concert.country].artists.add(concert.artist.name);
     return acc;
   }, {} as Record<string, { count: number; cities: Set<string>; artists: Set<string> }>);

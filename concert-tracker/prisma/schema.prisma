@@ -20,16 +20,32 @@ model Artist {
   concerts  Concert[]
 }
 
+model CityMapping {
+  id             Int     @id @default(autoincrement())
+  originalCity   String
+  country        String
+  normalizedCity String
+  latitude       String?
+  longitude      String?
+  source         String  // 'manual' | 'geocoded' | 'text_normalized'
+  createdAt      Int
+  updatedAt      Int
+
+  @@unique([originalCity, country])
+  @@index([normalizedCity, country])
+}
+
 model Concert {
-  id           Int     @id @default(autoincrement())
-  eventName    String
-  eventUrl     String  @unique
-  dateStart    Int     // Unix timestamp (seconds since epoch)
-  dateEnd      Int     // Unix timestamp (seconds since epoch)
-  venue        String
-  city         String
-  country      String
-  postalCode   String?
+  id             Int     @id @default(autoincrement())
+  eventName      String
+  eventUrl       String  @unique
+  dateStart      Int     // Unix timestamp (seconds since epoch)
+  dateEnd        Int     // Unix timestamp (seconds since epoch)
+  venue          String
+  city           String  // Original city name
+  normalizedCity String  // Normalized city name for grouping
+  country        String
+  postalCode     String?
   performers   String  // JSON array stored as text
   imageUrl     String?
   organizer    String?
@@ -46,6 +62,7 @@ model Concert {
 
   @@index([artistId])
   @@index([city])
+  @@index([normalizedCity])
   @@index([country])
   @@index([dateStart])
   @@index([eventUrl])

@@ -29,6 +29,24 @@ class Artist(Base):
         return f"<Artist(id={self.id}, name='{self.name}', playcount={self.playcount})>"
 
 
+class CityMapping(Base):
+    """City mapping model for normalization"""
+    __tablename__ = 'CityMapping'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    originalCity = Column(String, nullable=False)
+    country = Column(String, nullable=False)
+    normalizedCity = Column(String, nullable=False, index=True)
+    latitude = Column(String, nullable=True)  # Store as string for precision
+    longitude = Column(String, nullable=True)  # Store as string for precision
+    source = Column(String, nullable=False)  # 'manual', 'geocoded', 'text_normalized'
+    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()))
+    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()), onupdate=lambda: int(datetime.utcnow().timestamp()))
+    
+    def __repr__(self):
+        return f"<CityMapping('{self.originalCity}' -> '{self.normalizedCity}', {self.country})>"
+
+
 class Concert(Base):
     """Concert model - matches Prisma Concert schema"""
     __tablename__ = 'Concert'
@@ -39,7 +57,8 @@ class Concert(Base):
     dateStart = Column(Integer, nullable=False, index=True)  # Unix timestamp
     dateEnd = Column(Integer, nullable=False)  # Unix timestamp
     venue = Column(String, nullable=False)
-    city = Column(String, nullable=False, index=True)
+    city = Column(String, nullable=False, index=True)  # Original city name
+    normalizedCity = Column(String, nullable=False, index=True)  # Normalized city name for grouping
     country = Column(String, nullable=False, index=True)
     postalCode = Column(String, nullable=True)
     performers = Column(Text, nullable=False)  # JSON array stored as text

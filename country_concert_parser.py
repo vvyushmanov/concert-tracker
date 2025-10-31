@@ -460,10 +460,13 @@ class CountryConcertParser:
             json.dump(data_to_save, f, indent=2, ensure_ascii=False)
         print(f"\nSaved {len(data_to_save)} concerts to {filename}")
     
-    def print_summary(self):
-        """Print a summary of parsed concerts"""
-        print(f"\n{'='*80}")
-        print(f"Country: {self.country_code.upper()}")
+    def print_statistics(self, country_code: str, normalizer=None):
+        """Print statistics about parsed concerts
+        
+        Args:
+            country_code: Country code being processed
+            normalizer: Optional CityNormalizer to show normalized city names
+        """
         print(f"Pages processed: {self.pages_processed}")
         print(f"Total concerts found: {self.total_concerts_found}")
         if self.lastfm_artists:
@@ -496,7 +499,14 @@ class CountryConcertParser:
                 print(f" to {concert['date_end']}")
             else:
                 print()
-            print(f"   Location: {concert['city']}, {concert['country']}")
+            
+            # Show city with normalization info
+            city_display = concert['city']
+            # Check if concert has normalizedCity (set by db_writer)
+            if 'normalizedCity' in concert and concert['normalizedCity'] != concert['city']:
+                city_display = f"{concert['city']} → {concert['normalizedCity']}"
+            print(f"   Location: {city_display}, {concert['country']}")
+            
             if concert['performers']:
                 performers_str = ', '.join(concert['performers'][:3])
                 if len(concert['performers']) > 3:
@@ -656,6 +666,12 @@ def main():
     if not args.dry_run and args.output in ['db', 'both']:
         print(f"Database output mode: {args.db_path}")
         db_writer = ConcertDatabaseWriter(args.db_path)
+    
+    # Create a normalizer for display purposes (works in dry-run too)
+    from db_models import get_session
+    from city_normalizer import CityNormalizer
+    display_session = get_session(args.db_path)
+    display_normalizer = CityNormalizer(display_session)
     
     # Initialize proxy manager if needed
     proxy_manager = None
@@ -844,7 +860,8 @@ def main():
         
         # Print country summary
         if not args.no_summary:
-            concert_parser.print_summary()
+            # Pass normalizer to show normalization preview
+            concert_parser.print_statistics(country_code, normalizer=display_normalizer)
     
     # Print overall summary
     print(f"\n\n{'='*80}")

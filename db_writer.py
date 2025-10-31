@@ -10,26 +10,68 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from db_models import Artist, Concert, get_session
+from city_normalizer import CityNormalizer
 
 
 class ConcertDatabaseWriter:
     """Writes concert data to SQLite database"""
     
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, auto_add_mappings: bool = False):
         """Initialize database writer
         
         Args:
             db_path: Path to SQLite database file
+            auto_add_mappings: If True, automatically add common manual city mappings
         """
         self.db_path = db_path
         self.session = get_session(db_path)
+        self.normalizer = CityNormalizer(self.session)
+        
+        # Automatically add common manual mappings if enabled
+        if auto_add_mappings:
+            self._add_common_manual_mappings()
+        
         self.stats = {
             'artists_created': 0,
             'artists_updated': 0,
             'concerts_created': 0,
             'concerts_updated': 0,
+            'cities_normalized': 0,
             'errors': 0
         }
+    
+    def _add_common_manual_mappings(self):
+        """Add common manual city mappings for known metropolitan areas"""
+        mappings = [
+            # Lyon agglomeration (France)
+            ('Lyon (Décines-Charpieu)', 'France', 'Lyon'),
+            ('Décines-Charpieu', 'France', 'Lyon'),
+            ('Villeurbanne', 'France', 'Lyon'),
+            
+            # Paris agglomeration (France)
+            ('Saint-Denis', 'France', 'Paris'),
+            ('Montreuil', 'France', 'Paris'),
+            ('Clichy', 'France', 'Paris'),
+            
+            # London agglomeration (UK)
+            ('Camden', 'United Kingdom', 'London'),
+            ('Brixton', 'United Kingdom', 'London'),
+            ('Islington', 'United Kingdom', 'London'),
+            
+            # Berlin agglomeration (Germany)
+            ('Kreuzberg', 'Germany', 'Berlin'),
+            ('Friedrichshain', 'Germany', 'Berlin'),
+            
+            # Frankfurt agglomeration (Germany)
+            ('Wiesbaden', 'Germany', 'Frankfurt'),
+        ]
+        
+        for original, country, normalized in mappings:
+            try:
+                self.normalizer.add_manual_mapping(original, country, normalized)
+            except Exception:
+                # Silently skip if mapping already exists
+                pass
     
     def close(self):
         """Close database session"""
@@ -99,7 +141,7 @@ class ConcertDatabaseWriter:
         artist: Artist,
         artist_playcounts: Dict[str, int] = None,
         recent_artists: Set[str] = None
-    ) -> Concert:
+    ) -> str:
         """Insert or update concert in database
         
         Args:
@@ -109,7 +151,7 @@ class ConcertDatabaseWriter:
             recent_artists: Set of recent artists from Last.fm
             
         Returns:
-            Concert object
+            Normalized city name
         """
         event_url = concert_data.get('event_url')
         if not event_url:
@@ -122,14 +164,21 @@ class ConcertDatabaseWriter:
         performers_json = json.dumps(concert_data.get('performers', []))
         ticket_links_json = json.dumps(concert_data.get('ticket_links', []))
         
+        # Normalize city name
+        original_city = concert_data.get('city', '')
+        country = concert_data.get('country', '')
+        normalized_city = self.normalizer.normalize(original_city, country)
+        self.stats['cities_normalized'] += 1
+        
         if concert:
             # Update existing concert
             concert.eventName = concert_data.get('event_name', '')
             concert.dateStart = self.parse_date(concert_data.get('date_start'))
             concert.dateEnd = self.parse_date(concert_data.get('date_end'))
             concert.venue = concert_data.get('venue', '')
-            concert.city = concert_data.get('city', '')
-            concert.country = concert_data.get('country', '')
+            concert.city = original_city
+            concert.normalizedCity = normalized_city
+            concert.country = country
             concert.postalCode = concert_data.get('postal_code')
             concert.performers = performers_json
             concert.imageUrl = concert_data.get('image_url')
@@ -148,8 +197,9 @@ class ConcertDatabaseWriter:
                 dateStart=self.parse_date(concert_data.get('date_start')),
                 dateEnd=self.parse_date(concert_data.get('date_end')),
                 venue=concert_data.get('venue', ''),
-                city=concert_data.get('city', ''),
-                country=concert_data.get('country', ''),
+                city=original_city,
+                normalizedCity=normalized_city,
+                country=country,
                 postalCode=concert_data.get('postal_code'),
                 performers=performers_json,
                 imageUrl=concert_data.get('image_url'),
@@ -163,7 +213,7 @@ class ConcertDatabaseWriter:
             self.session.add(concert)
             self.stats['concerts_created'] += 1
         
-        return concert
+        return normalized_city
     
     def write_concerts(
         self,
@@ -207,13 +257,17 @@ class ConcertDatabaseWriter:
                     mbid=mbid
                 )
                 
-                # Upsert concert
-                self.upsert_concert(
+                # Upsert concert and get normalized city
+                normalized_city = self.upsert_concert(
                     concert_data,
                     artist,
                     artist_playcounts,
                     recent_artists
                 )
+                
+                # Store normalized city back in concert_data for display purposes
+                if normalized_city:
+                    concert_data['normalizedCity'] = normalized_city
                 
             except Exception as e:
                 print(f"Error writing concert {concert_data.get('event_name', 'Unknown')}: {e}")
@@ -237,6 +291,7 @@ class ConcertDatabaseWriter:
         print(f"Artists updated: {self.stats['artists_updated']}")
         print(f"Concerts created: {self.stats['concerts_created']}")
         print(f"Concerts updated: {self.stats['concerts_updated']}")
+        print(f"Cities normalized: {self.stats['cities_normalized']}")
         if self.stats['errors'] > 0:
             print(f"Errors: {self.stats['errors']}")
         print(f"{'='*80}\n")

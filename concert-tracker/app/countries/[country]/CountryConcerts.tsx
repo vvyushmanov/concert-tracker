@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { format } from 'date-fns';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -13,10 +13,12 @@ type Concert = {
   dateEnd: number;
   venue: string;
   city: string;
+  normalizedCity: string;
   interested: boolean;
   artist: {
     id: number;
     name: string;
+    playcount: number;
   };
 };
 
@@ -26,20 +28,95 @@ type CountryConcertsProps = {
 
 export default function CountryConcerts({ concerts }: CountryConcertsProps) {
   const [showPastEvents, setShowPastEvents] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedArtist, setSelectedArtist] = useState<number | null>(null);
+  const [selectedCity, setSelectedCity] = useState<string | null>(null);
+  const [showInterestedOnly, setShowInterestedOnly] = useState(false);
+  const [sortBy, setSortBy] = useState<'date' | 'artist' | 'playcount' | 'recent'>('date');
   
   const now = Math.floor(Date.now() / 1000);
   
-  // Split concerts into upcoming and past
-  const upcomingConcerts = concerts.filter(c => c.dateStart >= now);
-  const pastConcerts = concerts.filter(c => c.dateStart < now);
+  // Get unique artists and cities for filters
+  const artists = useMemo(() => {
+    const artistMap = new Map();
+    concerts.forEach(c => {
+      if (!artistMap.has(c.artist.id)) {
+        artistMap.set(c.artist.id, c.artist);
+      }
+    });
+    return Array.from(artistMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [concerts]);
+
+  const cities = useMemo(() => {
+    return [...new Set(concerts.map(c => c.normalizedCity))].sort();
+  }, [concerts]);
+
+  // Filter and sort concerts
+  const { upcomingConcerts, pastConcerts } = useMemo(() => {
+    let filtered = concerts.filter(concert => {
+      // Search filter
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        const matchesSearch = 
+          concert.eventName.toLowerCase().includes(query) ||
+          concert.artist.name.toLowerCase().includes(query) ||
+          concert.venue.toLowerCase().includes(query) ||
+          concert.city.toLowerCase().includes(query);
+        if (!matchesSearch) return false;
+      }
+
+      // Artist filter
+      if (selectedArtist && concert.artist.id !== selectedArtist) return false;
+
+      // City filter
+      if (selectedCity && concert.normalizedCity !== selectedCity) return false;
+
+      // Interested filter
+      if (showInterestedOnly && !concert.interested) return false;
+
+      return true;
+    });
+
+    // Split into upcoming and past
+    const upcoming = filtered.filter(c => c.dateStart >= now);
+    const past = filtered.filter(c => c.dateStart < now);
+
+    // Sort function
+    const sortConcerts = (concertList: Concert[]) => {
+      return concertList.sort((a, b) => {
+        // Interested concerts always first
+        if (a.interested && !b.interested) return -1;
+        if (!a.interested && b.interested) return 1;
+
+        switch (sortBy) {
+          case 'date':
+            return a.dateStart - b.dateStart;
+          case 'artist':
+            return a.artist.name.localeCompare(b.artist.name);
+          case 'playcount':
+            return b.artist.playcount - a.artist.playcount;
+          case 'recent':
+            return b.id - a.id;
+          default:
+            return 0;
+        }
+      });
+    };
+
+    return {
+      upcomingConcerts: sortConcerts(upcoming),
+      pastConcerts: sortConcerts(past),
+    };
+  }, [concerts, searchQuery, selectedArtist, selectedCity, showInterestedOnly, sortBy, now]);
   
-  // Group by city
+  // Group by normalized city
   const groupByCity = (concertList: Concert[]) => {
     return concertList.reduce((acc, concert) => {
-      if (!acc[concert.city]) {
-        acc[concert.city] = [];
+      const key = concert.normalizedCity;
+      if (!acc[key]) {
+        acc[key] = [];
       }
-      acc[concert.city].push(concert);
+      acc[key].push(concert);
       return acc;
     }, {} as Record<string, Concert[]>);
   };
@@ -100,8 +177,95 @@ export default function CountryConcerts({ concerts }: CountryConcertsProps) {
   };
 
   return (
-    <div className="space-y-8">
-      {/* Stats and Toggle */}
+    <div className="space-y-6">
+      {/* Search and Filters */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4">
+        {/* Search Bar */}
+        <div className="mb-4">
+          <input
+            type="text"
+            placeholder="Search concerts, artists, venues, cities..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+        </div>
+
+        {/* Filters Row */}
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">Artist</label>
+            <select
+              value={selectedArtist || ''}
+              onChange={(e) => setSelectedArtist(e.target.value ? parseInt(e.target.value) : null)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"
+            >
+              <option value="">All Artists</option>
+              {artists.map(artist => (
+                <option key={artist.id} value={artist.id}>{artist.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">City</label>
+            <select
+              value={selectedCity || ''}
+              onChange={(e) => setSelectedCity(e.target.value || null)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"
+            >
+              <option value="">All Cities</option>
+              {cities.map(city => (
+                <option key={city} value={city}>{city}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">Sort By</label>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"
+            >
+              <option value="date">Date</option>
+              <option value="artist">Artist Name</option>
+              <option value="playcount">Artist Popularity</option>
+              <option value="recent">Recently Added</option>
+            </select>
+          </div>
+
+          <div className="flex items-end">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showInterestedOnly}
+                onChange={(e) => setShowInterestedOnly(e.target.checked)}
+                className="w-4 h-4"
+              />
+              <span className="text-sm font-medium">Interested Only</span>
+            </label>
+          </div>
+
+          <div className="flex items-end">
+            <button
+              onClick={() => {
+                setSearchQuery('');
+                setSelectedArtist(null);
+                setSelectedCity(null);
+                setShowInterestedOnly(false);
+                setShowPastEvents(false);
+                setSortBy('date');
+              }}
+              className="w-full px-4 py-2 text-sm bg-gray-200 dark:bg-gray-700 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600"
+            >
+              Clear All
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Results Count and Toggle */}
       <div className="flex items-center justify-between">
         <div className="text-sm text-gray-600 dark:text-gray-400">
           {upcomingConcerts.length} upcoming concert{upcomingConcerts.length !== 1 ? 's' : ''}
@@ -121,11 +285,11 @@ export default function CountryConcerts({ concerts }: CountryConcertsProps) {
       {Object.keys(upcomingByCity).length > 0 && (
         <div className="space-y-8">
           <h2 className="text-2xl font-bold">Upcoming Concerts</h2>
-          {Object.entries(upcomingByCity).map(([city, cityConcerts]) => (
-            <div key={city}>
+          {Object.entries(upcomingByCity).map(([normalizedCity, cityConcerts]) => (
+            <div key={normalizedCity}>
               <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
                 <span>📍</span>
-                <span>{city}</span>
+                <span>{normalizedCity}</span>
                 <span className="text-sm font-normal text-gray-500 dark:text-gray-400">
                   ({cityConcerts.length} {cityConcerts.length === 1 ? 'concert' : 'concerts'})
                 </span>
@@ -143,11 +307,11 @@ export default function CountryConcerts({ concerts }: CountryConcertsProps) {
       {showPastEvents && Object.keys(pastByCity).length > 0 && (
         <div className="space-y-8 opacity-75">
           <h2 className="text-2xl font-bold text-gray-500 dark:text-gray-400">Past Concerts</h2>
-          {Object.entries(pastByCity).map(([city, cityConcerts]) => (
-            <div key={city}>
+          {Object.entries(pastByCity).map(([normalizedCity, cityConcerts]) => (
+            <div key={normalizedCity}>
               <h3 className="text-xl font-bold mb-4 flex items-center gap-2 text-gray-500 dark:text-gray-400">
                 <span>📍</span>
-                <span>{city}</span>
+                <span>{normalizedCity}</span>
                 <span className="text-sm font-normal">
                   ({cityConcerts.length} {cityConcerts.length === 1 ? 'concert' : 'concerts'})
                 </span>
