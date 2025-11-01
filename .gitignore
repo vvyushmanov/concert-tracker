@@ -3,3 +3,4 @@ venv/
 vpn/
 __pycache__
 *.db*
+data/*

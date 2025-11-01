@@ -1,0 +1,70 @@
+// Prisma schema for MySQL
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Artist {
+  id              Int       @id @default(autoincrement())
+  name            String    @unique @db.VarChar(255)
+  playcount       Int       @default(0)
+  playcount12month Int      @default(0)
+  recent          Boolean   @default(false)
+  mbid            String?   @db.VarChar(255)
+  imageUrl        String?   @db.VarChar(500)
+  concerts        Concert[]
+}
+
+model CityMapping {
+  id             Int     @id @default(autoincrement())
+  originalCity   String  @db.VarChar(255)
+  country        String  @db.VarChar(100)
+  normalizedCity String  @db.VarChar(255)
+  latitude       String? @db.VarChar(50)
+  longitude      String? @db.VarChar(50)
+  source         String  @db.VarChar(50) // 'manual' | 'geocoded' | 'text_normalized'
+  createdAt      Int
+  updatedAt      Int
+
+  @@unique([originalCity, country])
+  @@index([normalizedCity, country])
+}
+
+model Concert {
+  id             Int     @id @default(autoincrement())
+  eventName      String  @db.VarChar(500)
+  eventUrl       String  @unique @db.VarChar(500)
+  dateStart      Int     // Unix timestamp (seconds since epoch)
+  dateEnd        Int     // Unix timestamp (seconds since epoch)
+  venue          String  @db.VarChar(500)
+  city           String  @db.VarChar(255) // Original city name
+  normalizedCity String  @db.VarChar(255) // Normalized city name for grouping
+  country        String  @db.VarChar(100)
+  postalCode     String? @db.VarChar(20)
+  performers   String  @db.Text // JSON array stored as text
+  imageUrl     String? @db.VarChar(500)
+  organizer    String? @db.VarChar(255)
+  organizerUrl String? @db.VarChar(500)
+  ticketLinks  String  @db.Text // JSON array stored as text
+  artistId     Int
+  artist       Artist  @relation(fields: [artistId], references: [id])
+  
+  // User interaction fields
+  interested   Boolean @default(false)
+  notes        String? @db.Text
+  createdAt    Int     // Unix timestamp
+  updatedAt    Int     // Unix timestamp
+
+  @@index([artistId])
+  @@index([city])
+  @@index([normalizedCity])
+  @@index([country])
+  @@index([dateStart])
+  @@index([eventUrl])
+}

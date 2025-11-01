@@ -10,6 +10,7 @@ from datetime import datetime
 from unidecode import unidecode
 import requests
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from db_models import CityMapping
 
 
@@ -566,6 +567,12 @@ class CityNormalizer:
         try:
             self.db.add(mapping)
             self.db.commit()
+        except IntegrityError as e:
+            # Duplicate entry - another process/thread already inserted this mapping
+            # This is expected in concurrent scenarios, just rollback silently
+            self.db.rollback()
+            if self.verbose:
+                print(f"[INFO] Mapping for {original_city}, {country} already exists (concurrent insert)")
         except Exception as e:
             self.db.rollback()
             print(f"Error storing mapping for {original_city}: {e}")

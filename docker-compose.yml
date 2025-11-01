@@ -1,4 +1,24 @@
 services:
+  # MySQL database
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: concerts
+      MYSQL_USER: ${MYSQL_USER:-concertuser}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-concertpass}
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./data/db:/var/lib/mysql
+      - ./concert-tracker/scripts/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpassword}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # Next.js production server
   web:
     build:
@@ -7,13 +27,13 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      # Mount shared database directory (writable for rescan)
+      # Mount shared data directory (for backups/exports)
       - ./data:/app/data
       # Mount .env for Python parser to access API keys and proxy config
       - ./.env:/app/scripts/.env:ro
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=file:/app/data/concerts.db
+      - DATABASE_URL=mysql://${MYSQL_USER:-concertuser}:${MYSQL_PASSWORD:-concertpass}@db:3306/concerts
       - PRISMA_QUERY_ENGINE_LIBRARY=/app/node_modules/.prisma/client/libquery_engine-linux-musl-openssl-3.0.x.so.node
       - PRISMA_QUERY_ENGINE_BINARY=/app/node_modules/.prisma/client/query-engine-linux-musl-openssl-3.0.x
     restart: unless-stopped
@@ -23,6 +43,9 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    depends_on:
+      db:
+        condition: service_healthy
 
 networks:
   default:

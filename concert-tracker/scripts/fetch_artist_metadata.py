@@ -93,14 +93,14 @@ def fetch_fanart_image(mbid: str, api_key: str) -> tuple:
         log(f"  Error fetching fanart for {mbid}: {e}")
         return None, None
 
-def fetch_metadata_for_new_artists(db_path: str, silent: bool = False) -> int:
+def fetch_metadata_for_new_artists(db_path: str = None, silent: bool = False) -> int:
     """Fetch metadata (MBID + images) for artists without complete metadata
     
     This is a simplified version optimized for calling after parser runs.
     It focuses on MBID repair and image fetching, skipping playcount refresh.
     
     Args:
-        db_path: Path to SQLite database
+        db_path: Path to SQLite database (for SQLite) or None to use DATABASE_URL env var (for MySQL)
         silent: If True, suppress most output
         
     Returns:
@@ -126,7 +126,13 @@ def fetch_metadata_for_new_artists(db_path: str, silent: bool = False) -> int:
     lastfm_user = os.getenv('LASTFM_USER', 'Megalox2')
     
     # Connect to database
-    engine = create_engine(f'sqlite:///{db_path}')
+    if db_path:
+        engine = create_engine(f'sqlite:///{db_path}')
+    else:
+        database_url = os.getenv('DATABASE_URL')
+        if not database_url:
+            raise ValueError("DATABASE_URL environment variable not set")
+        engine = create_engine(database_url)
     Session = sessionmaker(bind=engine)
     session = Session()
     
@@ -205,8 +211,8 @@ def main():
     parser.add_argument(
         '--db-path',
         type=str,
-        required=True,
-        help='Path to SQLite database'
+        required=False,
+        help='Path to SQLite database (optional if DATABASE_URL env var is set)'
     )
     parser.add_argument(
         '--limit',
@@ -243,8 +249,16 @@ def main():
     log(f"Last.fm user: {lastfm_user}")
     
     # Connect to database
-    log(f"Connecting to database: {args.db_path}")
-    engine = create_engine(f'sqlite:///{args.db_path}')
+    if args.db_path:
+        log(f"Connecting to database: {args.db_path}")
+        engine = create_engine(f'sqlite:///{args.db_path}')
+    else:
+        database_url = os.getenv('DATABASE_URL')
+        if not database_url:
+            print("Error: Either --db-path or DATABASE_URL environment variable must be set")
+            return 1
+        log(f"Connecting to database via DATABASE_URL")
+        engine = create_engine(database_url)
     
     # Check if playcount12month column exists, add it if not
     try:

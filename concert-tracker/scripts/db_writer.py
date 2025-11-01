@@ -14,13 +14,13 @@ from city_normalizer import CityNormalizer
 
 
 class ConcertDatabaseWriter:
-    """Writes concert data to SQLite database"""
+    """Writes concert data to database (SQLite or MySQL)"""
     
-    def __init__(self, db_path: str, auto_add_mappings: bool = False, debug: bool = False):
+    def __init__(self, db_path: str = None, auto_add_mappings: bool = False, debug: bool = False):
         """Initialize database writer
         
         Args:
-            db_path: Path to SQLite database file
+            db_path: Path to SQLite database file (for SQLite) or None to use DATABASE_URL env var (for MySQL)
             auto_add_mappings: If True, automatically add common manual city mappings
             debug: If True, enable verbose logging in normalizer
         """
