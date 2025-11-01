@@ -11,13 +11,14 @@ datasource db {
 }
 
 model Artist {
-  id        Int       @id @default(autoincrement())
-  name      String    @unique
-  playcount Int       @default(0)
-  recent    Boolean   @default(false)
-  mbid      String?
-  imageUrl  String?
-  concerts  Concert[]
+  id              Int       @id @default(autoincrement())
+  name            String    @unique
+  playcount       Int       @default(0)
+  playcount12month Int      @default(0)
+  recent          Boolean   @default(false)
+  mbid            String?
+  imageUrl        String?
+  concerts        Concert[]
 }
 
 model CityMapping {

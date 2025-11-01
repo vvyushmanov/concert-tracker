@@ -85,12 +85,13 @@ class ConcertDatabaseWriter:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
     
-    def get_or_create_artist(self, name: str, playcount: int = 0, recent: bool = False, mbid: str = None) -> Artist:
+    def get_or_create_artist(self, name: str, playcount: int = 0, playcount12month: int = 0, recent: bool = False, mbid: str = None) -> Artist:
         """Get existing artist or create new one
         
         Args:
             name: Artist name
-            playcount: Last.fm playcount
+            playcount: Last.fm overall playcount
+            playcount12month: Last.fm 12-month playcount
             recent: Whether artist is recently listened to
             mbid: MusicBrainz ID for fetching images later
             
@@ -100,10 +101,13 @@ class ConcertDatabaseWriter:
         artist = self.session.query(Artist).filter_by(name=name).first()
         
         if artist:
-            # Update playcount, recent flag, and mbid if changed
+            # Update playcount, playcount12month, recent flag, and mbid if changed
             updated = False
             if artist.playcount != playcount:
                 artist.playcount = playcount
+                updated = True
+            if artist.playcount12month != playcount12month:
+                artist.playcount12month = playcount12month
                 updated = True
             if artist.recent != recent:
                 artist.recent = recent
@@ -115,7 +119,7 @@ class ConcertDatabaseWriter:
                 self.stats['artists_updated'] += 1
         else:
             # Create new artist
-            artist = Artist(name=name, playcount=playcount, recent=recent, mbid=mbid)
+            artist = Artist(name=name, playcount=playcount, playcount12month=playcount12month, recent=recent, mbid=mbid)
             self.session.add(artist)
             self.stats['artists_created'] += 1
         
@@ -249,6 +253,7 @@ class ConcertDatabaseWriter:
         self,
         concerts: List[Dict],
         artist_playcounts: Dict[str, int] = None,
+        artist_playcounts_12month: Dict[str, int] = None,
         recent_artists: Set[str] = None,
         artist_mbids: Dict[str, str] = None
     ):
@@ -256,11 +261,13 @@ class ConcertDatabaseWriter:
         
         Args:
             concerts: List of concert data from parser
-            artist_playcounts: Dict of artist playcounts from Last.fm
+            artist_playcounts: Dict of artist overall playcounts from Last.fm
+            artist_playcounts_12month: Dict of artist 12-month playcounts from Last.fm
             recent_artists: Set of recent artists from Last.fm
             artist_mbids: Dict of artist MusicBrainz IDs from Last.fm
         """
         artist_playcounts = artist_playcounts or {}
+        artist_playcounts_12month = artist_playcounts_12month or {}
         recent_artists = recent_artists or set()
         artist_mbids = artist_mbids or {}
         
@@ -276,6 +283,7 @@ class ConcertDatabaseWriter:
                 # Use first matched artist as primary
                 primary_artist_name = matched_artists[0]
                 playcount = artist_playcounts.get(primary_artist_name, 0)
+                playcount12month = artist_playcounts_12month.get(primary_artist_name, 0)
                 is_recent = primary_artist_name in recent_artists
                 mbid = artist_mbids.get(primary_artist_name)
                 
@@ -283,6 +291,7 @@ class ConcertDatabaseWriter:
                 artist = self.get_or_create_artist(
                     name=primary_artist_name,
                     playcount=playcount,
+                    playcount12month=playcount12month,
                     recent=is_recent,
                     mbid=mbid
                 )

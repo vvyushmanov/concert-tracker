@@ -18,6 +18,7 @@ class Artist(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String, unique=True, nullable=False, index=True)
     playcount = Column(Integer, nullable=False, default=0)
+    playcount12month = Column(Integer, nullable=False, default=0)  # Last 12 months playcount
     recent = Column(Boolean, nullable=False, default=False)
     mbid = Column(String, nullable=True)  # MusicBrainz ID
     imageUrl = Column(String, nullable=True)  # Last.fm artist image (large size)
