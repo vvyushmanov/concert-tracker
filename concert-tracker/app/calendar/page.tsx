@@ -26,6 +26,12 @@ export default async function CalendarPage() {
     orderBy: { country: 'asc' },
   });
 
+  const cities = await prisma.concert.findMany({
+    select: { normalizedCity: true, country: true },
+    distinct: ['normalizedCity', 'country'],
+    orderBy: { normalizedCity: 'asc' },
+  });
+
   return (
     <div className="min-h-screen p-8 bg-gray-50 dark:bg-gray-900">
       <main className="max-w-7xl mx-auto">
@@ -43,6 +49,7 @@ export default async function CalendarPage() {
           }))}
           artists={artists}
           countries={countries.map(c => c.country)}
+          cities={cities.map(c => ({ city: c.normalizedCity, country: c.country }))}
         />
       </main>
     </div>
