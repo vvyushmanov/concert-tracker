@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, startOfWeek, endOfWeek, addMonths, subMonths, isToday, isBefore, startOfDay } from 'date-fns';
 import Link from 'next/link';
 
@@ -12,6 +12,7 @@ type Concert = {
   dateEnd: number;
   venue: string;
   city: string;
+  normalizedCity: string;
   country: string;
   interested: boolean;
   artistId: number;
@@ -25,22 +26,40 @@ type CalendarViewProps = {
   initialConcerts: Concert[];
   artists: { id: number; name: string }[];
   countries: string[];
+  cities: { city: string; country: string }[];
 };
 
-export default function CalendarView({ initialConcerts, artists, countries }: CalendarViewProps) {
+export default function CalendarView({ initialConcerts, artists, countries, cities }: CalendarViewProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedArtist, setSelectedArtist] = useState<number | null>(null);
   const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
+  const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [showInterestedOnly, setShowInterestedOnly] = useState(false);
   const [showPastEvents, setShowPastEvents] = useState(false);
 
   const now = Math.floor(Date.now() / 1000); // Current time in Unix timestamp
 
+  // Filter cities based on selected country
+  const availableCities = selectedCountry
+    ? cities.filter(c => c.country === selectedCountry).map(c => c.city)
+    : cities.map(c => c.city);
+
+  // Remove duplicates and sort
+  const uniqueCities = Array.from(new Set(availableCities)).sort();
+
+  // Reset city selection if it's not in available cities when country changes
+  useEffect(() => {
+    if (selectedCity && !uniqueCities.includes(selectedCity)) {
+      setSelectedCity(null);
+    }
+  }, [selectedCountry, selectedCity, uniqueCities]);
+
   // Filter concerts
   const filteredConcerts = initialConcerts.filter(concert => {
     if (selectedArtist && concert.artistId !== selectedArtist) return false;
     if (selectedCountry && concert.country !== selectedCountry) return false;
+    if (selectedCity && concert.normalizedCity !== selectedCity) return false;
     if (showInterestedOnly && !concert.interested) return false;
     return true;
   });
@@ -75,7 +94,7 @@ export default function CalendarView({ initialConcerts, artists, countries }: Ca
     <div className="space-y-4">
       {/* Filters */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div>
             <label className="block text-sm font-medium mb-2">Artist</label>
             <select
@@ -104,6 +123,21 @@ export default function CalendarView({ initialConcerts, artists, countries }: Ca
             </select>
           </div>
 
+          <div>
+            <label className="block text-sm font-medium mb-2">City</label>
+            <select
+              value={selectedCity || ''}
+              onChange={(e) => setSelectedCity(e.target.value || null)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"
+              disabled={uniqueCities.length === 0}
+            >
+              <option value="">{selectedCountry ? 'All Cities' : 'Select Country First'}</option>
+              {uniqueCities.map(city => (
+                <option key={city} value={city}>{city}</option>
+              ))}
+            </select>
+          </div>
+
           <div className="flex items-end">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -121,6 +155,7 @@ export default function CalendarView({ initialConcerts, artists, countries }: Ca
               onClick={() => {
                 setSelectedArtist(null);
                 setSelectedCountry(null);
+                setSelectedCity(null);
                 setShowInterestedOnly(false);
               }}
               className="px-4 py-2 text-sm bg-gray-200 dark:bg-gray-700 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600"
