@@ -683,7 +683,7 @@ def main():
     parser.add_argument(
         '--db-path',
         type=str,
-        help='Path to SQLite database file (required for db/both output modes)',
+        help='Path to SQLite database file (optional if DATABASE_URL env var is set)',
         default=None
     )
     parser.add_argument(
@@ -727,9 +727,10 @@ def main():
         print("="*60 + "\n")
     
     # Validate database arguments (skip in dry run)
-    if not args.dry_run and args.output in ['db', 'both'] and not args.db_path:
-        parser.error("--db-path is required when using --output db or --output both")
-        return 1
+    if not args.dry_run and args.output in ['db', 'both']:
+        if not args.db_path and not os.getenv('DATABASE_URL'):
+            parser.error("Either --db-path or DATABASE_URL environment variable is required when using --output db or --output both")
+            return 1
     
     # Check if database module is available
     if args.output in ['db', 'both'] and not DB_AVAILABLE:
@@ -740,15 +741,22 @@ def main():
     # Initialize database writer if needed (skip in dry run)
     db_writer = None
     if not args.dry_run and args.output in ['db', 'both']:
-        print(f"Database output mode: {args.db_path}")
+        if args.db_path:
+            print(f"Database output mode: SQLite at {args.db_path}")
+        else:
+            print(f"Database output mode: Using DATABASE_URL environment variable")
         db_writer = ConcertDatabaseWriter(args.db_path, debug=args.debug)
     
     # Create a normalizer for display purposes (works in dry-run too)
-    # Use db_path if available, otherwise use a temporary in-memory database
+    # Use db_path if available, DATABASE_URL if set, otherwise use a temporary in-memory database
     from db_models import get_session
     from city_normalizer import CityNormalizer
-    db_path_for_display = args.db_path if args.db_path else ':memory:'
-    display_session = get_session(db_path_for_display)
+    if args.db_path:
+        display_session = get_session(args.db_path)
+    elif os.getenv('DATABASE_URL'):
+        display_session = get_session(None)  # Will use DATABASE_URL
+    else:
+        display_session = get_session(':memory:')
     display_normalizer = CityNormalizer(display_session, verbose=args.debug)
     
     # Use graceful shutdown handler for the entire main function

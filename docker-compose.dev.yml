@@ -1,4 +1,24 @@
 services:
+  # MySQL database
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./data/db:/var/lib/mysql
+      - ./concert-tracker/scripts/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # Next.js development server
   web:
     build:
@@ -11,17 +31,32 @@ services:
       - ./concert-tracker:/app
       # Mount node_modules as named volume for performance
       - concert-tracker-node-modules:/app/node_modules
-      # Mount shared database directory
+      # Mount shared database directory (for backups/exports)
       - ./data:/app/data
+      # Mount .env for configuration
+      - ./.env:/app/.env:ro
     environment:
       - NODE_ENV=development
-      - DATABASE_URL=file:/app/data/concerts.db
+      - DB_TYPE=${DB_TYPE:-mysql}
+      - DATABASE_URL=${DATABASE_URL:-mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@db:3306/${MYSQL_DATABASE}}
+      - MYSQL_HOST=db
+      - MYSQL_PORT=3306
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - SQLITE_DB_PATH=${SQLITE_DB_PATH:-file:/app/data/concerts.db}
+      - LASTFM_API_KEY=${LASTFM_API_KEY}
+      - LASTFM_USER=${LASTFM_USER}
+      - FANART_API_KEY=${FANART_API_KEY}
       - WATCHPACK_POLLING=true
       - PRISMA_QUERY_ENGINE_LIBRARY=/app/node_modules/.prisma/client/libquery_engine-linux-musl-openssl-3.0.x.so.node
       - PRISMA_QUERY_ENGINE_BINARY=/app/node_modules/.prisma/client/query-engine-linux-musl-openssl-3.0.x
-    command: sh -c "npm install && npx prisma generate && npm run dev"
+    command: sh scripts/startup.sh
     stdin_open: true
     tty: true
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   concert-tracker-node-modules:

@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from datetime import datetime
+import os
 
 Base = declarative_base()
 
@@ -86,22 +87,31 @@ class Concert(Base):
         return f"<Concert(id={self.id}, name='{self.eventName}', date={self.dateStart})>"
 
 
-def create_database(db_path: str):
+def create_database(db_path: str = None):
     """Create database and tables if they don't exist
     
     Args:
-        db_path: Path to SQLite database file
+        db_path: Path to SQLite database file (for SQLite) or None to use DATABASE_URL env var (for MySQL)
     """
-    engine = create_engine(f'sqlite:///{db_path}', echo=False)
+    if db_path:
+        # SQLite mode (legacy)
+        engine = create_engine(f'sqlite:///{db_path}', echo=False)
+    else:
+        # Use DATABASE_URL environment variable (supports MySQL and SQLite)
+        database_url = os.getenv('DATABASE_URL')
+        if not database_url:
+            raise ValueError("DATABASE_URL environment variable not set")
+        engine = create_engine(database_url, echo=False)
+    
     Base.metadata.create_all(engine)
     return engine
 
 
-def get_session(db_path: str):
+def get_session(db_path: str = None):
     """Get a database session
     
     Args:
-        db_path: Path to SQLite database file
+        db_path: Path to SQLite database file (for SQLite) or None to use DATABASE_URL env var (for MySQL)
         
     Returns:
         SQLAlchemy session

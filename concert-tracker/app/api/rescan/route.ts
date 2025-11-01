@@ -8,17 +8,17 @@ export async function POST() {
     const { prisma } = await import('@/lib/prisma');
     const beforeCount = await prisma.concert.count();
     
-    // Path to Python script and database (inside Docker container)
+    // Path to Python script (inside Docker container)
     const pythonScript = '/app/scripts/country_concert_parser.py';
-    const dbPath = '/app/data/concerts.db';
     
     console.log('🔍 Starting concert scan...');
     console.log(`📊 Current concert count: ${beforeCount}`);
     
     // Execute Python parser with spawn for real-time output
     // -u flag for unbuffered output so we see logs in real-time
+    // DATABASE_URL is set via environment variables, no --db-path needed
     return new Promise((resolve) => {
-      const process = spawn('python3', ['-u', pythonScript, '--output', 'db', '--db-path', dbPath, '--use-proxies', 'webshare'], {
+      const process = spawn('python3', ['-u', pythonScript, '--output', 'db', '--use-proxies', 'webshare'], {
         cwd: '/app/scripts',
       });
       
