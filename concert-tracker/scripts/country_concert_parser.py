@@ -727,21 +727,6 @@ def main():
         print("Useful for testing proxies, delays, and parsing logic.")
         print("="*60 + "\n")
     
-    # Validate database arguments (skip in dry run)
-    if not args.dry_run and args.output in ['db', 'both']:
-        # Check if we have valid database configuration
-        if not args.db_path:
-            db_type = os.getenv('DB_TYPE', '').lower()
-            if db_type == 'sqlite' and not os.getenv('SQLITE_DB_PATH'):
-                parser.error("DB_TYPE is 'sqlite' but SQLITE_DB_PATH environment variable is not set")
-                return 1
-            elif db_type == 'mysql' and not os.getenv('DATABASE_URL'):
-                parser.error("DB_TYPE is 'mysql' but DATABASE_URL environment variable is not set")
-                return 1
-            elif not db_type:
-                parser.error("Either --db-path argument or DB_TYPE environment variable must be set when using --output db or --output both")
-                return 1
-    
     # Check if database module is available
     if args.output in ['db', 'both'] and not DB_AVAILABLE:
         print("ERROR: Database output requested but SQLAlchemy is not installed")
@@ -757,17 +742,16 @@ def main():
             print(f"Database output mode: Using DATABASE_URL environment variable")
         db_writer = ConcertDatabaseWriter(args.db_path, debug=args.debug)
     
-    # Create a normalizer for display purposes (works in dry-run too)
-    # Use db_path if available, DATABASE_URL if set, otherwise use a temporary in-memory database
-    from db_models import get_session
-    from city_normalizer import CityNormalizer
-    if args.db_path:
-        display_session = get_session(args.db_path)
-    elif os.getenv('DATABASE_URL'):
-        display_session = get_session(None)  # Will use DATABASE_URL
+    # Get normalizer for display purposes
+    # In normal mode: use db_writer's normalizer
+    # In dry-run mode: create a temporary in-memory normalizer
+    if db_writer:
+        display_normalizer = db_writer.normalizer
     else:
+        from db_models import get_session
+        from city_normalizer import CityNormalizer
         display_session = get_session(':memory:')
-    display_normalizer = CityNormalizer(display_session, verbose=args.debug)
+        display_normalizer = CityNormalizer(display_session, verbose=args.debug)
     
     # Use graceful shutdown handler for the entire main function
     with GracefulShutdown() as shutdown:
