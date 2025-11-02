@@ -37,3 +37,9 @@ export function stopScan() {
   scannerState.isScanning = false;
   broadcastLog('Scan stopped by user', 'error');
 }
+
+// Metadata refresh state
+export const metadataState = {
+  isRefreshing: false,
+  process: null as ChildProcess | null,
+};

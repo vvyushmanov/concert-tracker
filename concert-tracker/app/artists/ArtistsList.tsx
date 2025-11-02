@@ -1,14 +1,16 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { useRouter } from 'next/navigation';
 
 type Artist = {
   id: number;
   name: string;
   imageUrl: string | null;
   playcount: number;
+  playcount12month: number;
   recent: boolean;
   upcomingConcertCount: number;
   countryCount: number;
@@ -21,7 +23,58 @@ type ArtistsListProps = {
 
 export default function ArtistsList({ artists }: ArtistsListProps) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState<'name' | 'playcount' | 'concerts'>('playcount');
+  const [sortBy, setSortBy] = useState<'name' | 'playcount' | 'playcount12month' | 'concerts'>('playcount12month');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const router = useRouter();
+
+  // Poll for refresh status
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+
+    const checkStatus = async () => {
+      try {
+        const response = await fetch('/api/metadata/status');
+        const data = await response.json();
+        
+        if (data.isRefreshing !== isRefreshing) {
+          setIsRefreshing(data.isRefreshing);
+          
+          // If refresh just completed, reload the page data
+          if (!data.isRefreshing && isRefreshing) {
+            router.refresh();
+          }
+        }
+      } catch (error) {
+        console.error('Error checking refresh status:', error);
+      }
+    };
+
+    if (isRefreshing) {
+      interval = setInterval(checkStatus, 2000); // Poll every 2 seconds
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isRefreshing, router]);
+
+  const handleRefreshMetadata = async () => {
+    try {
+      setIsRefreshing(true);
+      const response = await fetch('/api/metadata/refresh', {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        console.error('Failed to start metadata refresh:', error);
+        setIsRefreshing(false);
+      }
+    } catch (error) {
+      console.error('Error starting metadata refresh:', error);
+      setIsRefreshing(false);
+    }
+  };
 
   // Filter and sort artists
   const filteredArtists = useMemo(() => {
@@ -40,6 +93,8 @@ export default function ArtistsList({ artists }: ArtistsListProps) {
           return a.name.localeCompare(b.name);
         case 'playcount':
           return b.playcount - a.playcount;
+        case 'playcount12month':
+          return b.playcount12month - a.playcount12month;
         case 'concerts':
           return b.upcomingConcertCount - a.upcomingConcertCount;
         default:
@@ -75,7 +130,8 @@ export default function ArtistsList({ artists }: ArtistsListProps) {
               onChange={(e) => setSortBy(e.target.value as any)}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"
             >
-              <option value="playcount">Artist Popularity</option>
+              <option value="playcount">All-Time Plays</option>
+              <option value="playcount12month">12-Month Plays</option>
               <option value="concerts">Upcoming Concerts</option>
               <option value="name">Artist Name</option>
             </select>
@@ -87,14 +143,37 @@ export default function ArtistsList({ artists }: ArtistsListProps) {
           <div className="text-sm text-gray-600 dark:text-gray-400">
             Showing <span className="font-semibold text-gray-900 dark:text-gray-100">{filteredArtists.length}</span> of <span className="font-semibold text-gray-900 dark:text-gray-100">{artists.length}</span> artists
           </div>
-          {searchQuery && (
+          <div className="flex items-center gap-3">
             <button
-              onClick={() => setSearchQuery('')}
-              className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+              onClick={handleRefreshMetadata}
+              disabled={isRefreshing}
+              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                isRefreshing
+                  ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+              }`}
             >
-              Clear search
+              {isRefreshing ? (
+                <span className="flex items-center gap-2">
+                  <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Refreshing...
+                </span>
+              ) : (
+                '🔄 Refresh Metadata'
+              )}
             </button>
-          )}
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                Clear search
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -137,8 +216,12 @@ export default function ArtistsList({ artists }: ArtistsListProps) {
               
                 <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
                   <div className="flex items-center gap-2">
-                    <span className="text-base">🎸</span>
-                    <span>{artist.playcount.toLocaleString()} plays on Last.fm</span>
+                    <span className="text-base">🎧</span>
+                    <span>{artist.playcount12month.toLocaleString()} plays (12 months)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">🔊</span>
+                    <span>{artist.playcount.toLocaleString()} all-time plays</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-base">🎤</span>
