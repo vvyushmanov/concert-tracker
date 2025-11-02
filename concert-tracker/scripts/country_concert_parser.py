@@ -22,6 +22,7 @@ import sys
 
 from concert_utils import restructure_concerts_by_country_and_band, fetch_lastfm_artists
 from proxy_manager import ProxyManager
+from config_manager import ConfigManager
 
 # Import database writer if needed (lazy import to avoid dependency issues)
 try:
@@ -780,10 +781,11 @@ def main():
             validate = not args.no_proxy_validation
             
             if args.use_proxies == 'webshare':
-                webshare_url = os.getenv('WEBSHARE_PROXY_URL')
+                config = ConfigManager()
+                webshare_url = config.get('WEBSHARE_PROXY_URL')
                 if not webshare_url:
-                    print("❌ ERROR: WEBSHARE_PROXY_URL not found in .env file")
-                    print("   Add your Webshare download URL to .env:")
+                    print("❌ ERROR: WEBSHARE_PROXY_URL not found in settings")
+                    print("   Add your Webshare download URL to .env or settings:")
                     print("   WEBSHARE_PROXY_URL=https://proxy.webshare.io/api/v2/...")
                     return 1
                 
@@ -820,11 +822,13 @@ def main():
             print("   --use-proxies webshare  (add WEBSHARE_PROXY_URL to .env)")
             print("   --use-proxies custom    (create proxies.txt)\n")
         
-        # Get country codes from .env
-        country_codes_str = os.getenv('COUNTRY_CODES', 'tr,fr,de')
-        country_codes = [code.strip() for code in country_codes_str.split(',')]
+        # Get country codes from config
+        config = ConfigManager()
+        country_codes = config.get_list('COUNTRY_CODES')
+        if not country_codes:
+            country_codes = ['tr', 'fr', 'de']  # Fallback default
         
-        print(f"Country codes from .env: {', '.join(country_codes)}")
+        print(f"Country codes from config: {', '.join(country_codes)}")
         
         # Fetch Last.fm artists if filtering is enabled
         lastfm_artists = set()
@@ -832,17 +836,18 @@ def main():
         artist_playcounts = {}
         
         if not args.no_filter:
-            lastfm_api_key = os.getenv('LASTFM_API_KEY')
+            config = ConfigManager()
+            lastfm_api_key = config.get('LASTFM_API_KEY')
             if not lastfm_api_key:
-                print("ERROR: LASTFM_API_KEY not found in .env file")
+                print("ERROR: LASTFM_API_KEY not found in settings")
                 return 1
             
-            # Get Last.fm user from .env (default: Megalox2)
-            lastfm_user = os.getenv('LASTFM_USER', 'Megalox2')
+            # Get Last.fm user from config
+            lastfm_user = config.get('LASTFM_USER', 'Megalox2')
             print(f"Last.fm user: {lastfm_user}")
             
-            # Get min playcount from env (default 40)
-            min_playcount = int(os.getenv('MIN_PLAYCOUNT', '40'))
+            # Get min playcount from config
+            min_playcount = config.get_int('MIN_PLAYCOUNT', 40)
             print(f"Minimum playcount threshold: {min_playcount}")
             
             lastfm_artists, recent_artists, artist_playcounts, artist_playcounts_12month, artist_mbids = fetch_lastfm_artists(

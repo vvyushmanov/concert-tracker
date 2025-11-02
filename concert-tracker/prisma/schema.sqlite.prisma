@@ -68,3 +68,15 @@ model Concert {
   @@index([dateStart])
   @@index([eventUrl])
 }
+
+model Setting {
+  id          Int     @id @default(autoincrement())
+  key         String  @unique
+  value       String
+  valueType   String  // 'string' | 'int' | 'bool' | 'json'
+  description String?
+  createdAt   Int
+  updatedAt   Int
+
+  @@index([key])
+}

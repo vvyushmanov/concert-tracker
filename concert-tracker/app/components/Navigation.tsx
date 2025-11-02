@@ -97,6 +97,15 @@ export default function Navigation() {
               <span>💾</span>
               <span className="hidden sm:inline">Export</span>
             </a>
+            
+            <Link
+              href="/settings"
+              className="flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600"
+              title="Configure settings"
+            >
+              <span>⚙️</span>
+              <span className="hidden sm:inline">Settings</span>
+            </Link>
           </div>
         </div>
       </div>

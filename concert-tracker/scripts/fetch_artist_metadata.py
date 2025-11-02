@@ -25,6 +25,7 @@ from sqlalchemy.orm import sessionmaker
 from db_models import Artist
 from db_config import get_engine
 from concert_utils import fetch_all_user_artists, lookup_artist_playcounts
+from config_manager import ConfigManager
 
 # Load environment variables
 load_dotenv()
@@ -111,20 +112,21 @@ def fetch_metadata_for_new_artists(db_path: str = None, silent: bool = False) ->
         if not silent:
             log(message)
     
-    # Get API keys
-    fanart_api_key = os.getenv('FANART_API_KEY')
+    # Get API keys from config
+    config = ConfigManager()
+    fanart_api_key = config.get('FANART_API_KEY')
     if not fanart_api_key:
         if not silent:
             print("Warning: FANART_API_KEY not found - skipping image fetch")
         return 0
     
-    lastfm_api_key = os.getenv('LASTFM_API_KEY')
+    lastfm_api_key = config.get('LASTFM_API_KEY')
     if not lastfm_api_key:
         if not silent:
             print("Warning: LASTFM_API_KEY not found - skipping MBID repair")
         return 0
     
-    lastfm_user = os.getenv('LASTFM_USER', 'Megalox2')
+    lastfm_user = config.get('LASTFM_USER', 'Megalox2')
     
     # Connect to database
     try:
@@ -237,20 +239,21 @@ def main():
     
     args = parser.parse_args()
     
-    # Get API keys from environment
-    fanart_api_key = os.getenv('FANART_API_KEY')
+    # Get API keys from config
+    config = ConfigManager()
+    fanart_api_key = config.get('FANART_API_KEY')
     if not fanart_api_key:
-        print("Error: FANART_API_KEY not found in .env file")
+        print("Error: FANART_API_KEY not found in settings")
         print("Get your free API key from: https://fanart.tv/get-an-api-key/")
         return 1
     
-    lastfm_api_key = os.getenv('LASTFM_API_KEY')
+    lastfm_api_key = config.get('LASTFM_API_KEY')
     if not lastfm_api_key:
-        print("Error: LASTFM_API_KEY not found in .env file")
+        print("Error: LASTFM_API_KEY not found in settings")
         print("Get your API key from: https://www.last.fm/api/account/create")
         return 1
     
-    lastfm_user = os.getenv('LASTFM_USER', 'Megalox2')
+    lastfm_user = config.get('LASTFM_USER', 'Megalox2')
     log(f"Last.fm user: {lastfm_user}")
     
     # Connect to database
