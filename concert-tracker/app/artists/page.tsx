@@ -31,6 +31,7 @@ export default async function ArtistsPage() {
       name: artist.name,
       imageUrl: artist.imageUrl,
       playcount: artist.playcount,
+      playcount12month: artist.playcount12month,
       recent: artist.recent,
       upcomingConcertCount: upcomingConcerts.length,
       countryCount: uniqueCountries.size,

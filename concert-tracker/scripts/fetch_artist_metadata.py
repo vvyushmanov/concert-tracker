@@ -228,6 +228,12 @@ def main():
         action='store_true',
         help='Refresh playcounts for all artists (even those with MBID and images)'
     )
+    parser.add_argument(
+        '--delay',
+        type=float,
+        default=0.25,
+        help='Delay in seconds between API calls (default: 0.25)'
+    )
     
     args = parser.parse_args()
     
