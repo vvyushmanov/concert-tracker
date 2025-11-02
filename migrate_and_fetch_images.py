@@ -16,11 +16,12 @@ import time
 import requests
 from datetime import datetime
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 import sys
 sys.path.insert(0, 'concert-tracker/scripts')
 from db_models import Base, Artist
+from db_config import get_engine
 
 # Load environment variables
 load_dotenv('concert-tracker/scripts/.env')
@@ -194,7 +195,11 @@ def main():
     
     # Connect to database
     log(f"Connecting to database: {args.db_path}")
-    engine = create_engine(f'sqlite:///{args.db_path}')
+    try:
+        engine = get_engine(args.db_path)
+    except ValueError as e:
+        print(f"Error: {e}")
+        return 1
     
     # Migrate database
     if not args.skip_migration:
