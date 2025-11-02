@@ -88,6 +88,22 @@ class Concert(Base):
         return f"<Concert(id={self.id}, name='{self.eventName}', date={self.dateStart})>"
 
 
+class Setting(Base):
+    """Setting model for configuration management"""
+    __tablename__ = 'Setting'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    key = Column(String(100), unique=True, nullable=False, index=True)
+    value = Column(Text, nullable=False)
+    valueType = Column(String(20), nullable=False)  # 'string', 'int', 'bool', 'json'
+    description = Column(Text, nullable=True)
+    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()))
+    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()), onupdate=lambda: int(datetime.utcnow().timestamp()))
+    
+    def __repr__(self):
+        return f"<Setting(key='{self.key}', value='{self.value}', type='{self.valueType}')>"
+
+
 def create_database(db_path: str = None):
     """Create database and tables if they don't exist
     

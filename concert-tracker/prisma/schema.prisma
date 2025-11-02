@@ -1,4 +1,4 @@
-// Prisma schema for SQLite
+// Prisma schema for MySQL
 
 generator client {
   provider      = "prisma-client-js"
@@ -6,29 +6,29 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("SQLITE_DB_PATH")
+  provider = "mysql"
+  url      = env("DATABASE_URL")
 }
 
 model Artist {
   id              Int       @id @default(autoincrement())
-  name            String    @unique
+  name            String    @unique @db.VarChar(255)
   playcount       Int       @default(0)
   playcount12month Int      @default(0)
   recent          Boolean   @default(false)
-  mbid            String?
-  imageUrl        String?
+  mbid            String?   @db.VarChar(255)
+  imageUrl        String?   @db.VarChar(500)
   concerts        Concert[]
 }
 
 model CityMapping {
   id             Int     @id @default(autoincrement())
-  originalCity   String
-  country        String
-  normalizedCity String
-  latitude       String?
-  longitude      String?
-  source         String  // 'manual' | 'geocoded' | 'text_normalized'
+  originalCity   String  @db.VarChar(255)
+  country        String  @db.VarChar(100)
+  normalizedCity String  @db.VarChar(255)
+  latitude       String? @db.VarChar(50)
+  longitude      String? @db.VarChar(50)
+  source         String  @db.VarChar(50) // 'manual' | 'geocoded' | 'text_normalized'
   createdAt      Int
   updatedAt      Int
 
@@ -38,26 +38,26 @@ model CityMapping {
 
 model Concert {
   id             Int     @id @default(autoincrement())
-  eventName      String
-  eventUrl       String  @unique
+  eventName      String  @db.VarChar(500)
+  eventUrl       String  @unique @db.VarChar(500)
   dateStart      Int     // Unix timestamp (seconds since epoch)
   dateEnd        Int     // Unix timestamp (seconds since epoch)
-  venue          String
-  city           String  // Original city name
-  normalizedCity String  // Normalized city name for grouping
-  country        String
-  postalCode     String?
-  performers   String  // JSON array stored as text
-  imageUrl     String?
-  organizer    String?
-  organizerUrl String?
-  ticketLinks  String  // JSON array stored as text
+  venue          String  @db.VarChar(500)
+  city           String  @db.VarChar(255) // Original city name
+  normalizedCity String  @db.VarChar(255) // Normalized city name for grouping
+  country        String  @db.VarChar(100)
+  postalCode     String? @db.VarChar(20)
+  performers   String  @db.Text // JSON array stored as text
+  imageUrl     String? @db.VarChar(500)
+  organizer    String? @db.VarChar(255)
+  organizerUrl String? @db.VarChar(500)
+  ticketLinks  String  @db.Text // JSON array stored as text
   artistId     Int
   artist       Artist  @relation(fields: [artistId], references: [id])
   
   // User interaction fields
   interested   Boolean @default(false)
-  notes        String?
+  notes        String? @db.Text
   createdAt    Int     // Unix timestamp
   updatedAt    Int     // Unix timestamp
 
@@ -67,4 +67,16 @@ model Concert {
   @@index([country])
   @@index([dateStart])
   @@index([eventUrl])
+}
+
+model Setting {
+  id          Int     @id @default(autoincrement())
+  key         String  @unique @db.VarChar(100)
+  value       String  @db.Text
+  valueType   String  @db.VarChar(20)  // 'string' | 'int' | 'bool' | 'json'
+  description String? @db.Text
+  createdAt   Int
+  updatedAt   Int
+
+  @@index([key])
 }
