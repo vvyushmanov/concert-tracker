@@ -728,9 +728,18 @@ def main():
     
     # Validate database arguments (skip in dry run)
     if not args.dry_run and args.output in ['db', 'both']:
-        if not args.db_path and not os.getenv('DATABASE_URL'):
-            parser.error("Either --db-path or DATABASE_URL environment variable is required when using --output db or --output both")
-            return 1
+        # Check if we have valid database configuration
+        if not args.db_path:
+            db_type = os.getenv('DB_TYPE', '').lower()
+            if db_type == 'sqlite' and not os.getenv('SQLITE_DB_PATH'):
+                parser.error("DB_TYPE is 'sqlite' but SQLITE_DB_PATH environment variable is not set")
+                return 1
+            elif db_type == 'mysql' and not os.getenv('DATABASE_URL'):
+                parser.error("DB_TYPE is 'mysql' but DATABASE_URL environment variable is not set")
+                return 1
+            elif not db_type:
+                parser.error("Either --db-path argument or DB_TYPE environment variable must be set when using --output db or --output both")
+                return 1
     
     # Check if database module is available
     if args.output in ['db', 'both'] and not DB_AVAILABLE:

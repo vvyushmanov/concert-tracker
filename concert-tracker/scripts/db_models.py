@@ -3,11 +3,12 @@ SQLAlchemy database models for concert tracker
 Matches Prisma schema for Next.js web app
 """
 
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from datetime import datetime
-import os
+
+from db_config import get_engine
 
 Base = declarative_base()
 
@@ -91,18 +92,9 @@ def create_database(db_path: str = None):
     """Create database and tables if they don't exist
     
     Args:
-        db_path: Path to SQLite database file (for SQLite) or None to use DATABASE_URL env var (for MySQL)
+        db_path: Path to SQLite database file (for SQLite) or None to use DB_TYPE-based configuration
     """
-    if db_path:
-        # SQLite mode (legacy)
-        engine = create_engine(f'sqlite:///{db_path}', echo=False)
-    else:
-        # Use DATABASE_URL environment variable (supports MySQL and SQLite)
-        database_url = os.getenv('DATABASE_URL')
-        if not database_url:
-            raise ValueError("DATABASE_URL environment variable not set")
-        engine = create_engine(database_url, echo=False)
-    
+    engine = get_engine(db_path, echo=False)
     Base.metadata.create_all(engine)
     return engine
 
@@ -111,7 +103,7 @@ def get_session(db_path: str = None):
     """Get a database session
     
     Args:
-        db_path: Path to SQLite database file (for SQLite) or None to use DATABASE_URL env var (for MySQL)
+        db_path: Path to SQLite database file (for SQLite) or None to use DB_TYPE-based configuration
         
     Returns:
         SQLAlchemy session

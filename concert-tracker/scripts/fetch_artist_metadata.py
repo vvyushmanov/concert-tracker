@@ -19,10 +19,11 @@ import time
 import requests
 from datetime import datetime
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from db_models import Artist
+from db_config import get_engine
 from concert_utils import fetch_all_user_artists, lookup_artist_playcounts
 
 # Load environment variables
@@ -126,13 +127,11 @@ def fetch_metadata_for_new_artists(db_path: str = None, silent: bool = False) ->
     lastfm_user = os.getenv('LASTFM_USER', 'Megalox2')
     
     # Connect to database
-    if db_path:
-        engine = create_engine(f'sqlite:///{db_path}')
-    else:
-        database_url = os.getenv('DATABASE_URL')
-        if not database_url:
-            raise ValueError("DATABASE_URL environment variable not set")
-        engine = create_engine(database_url)
+    try:
+        engine = get_engine(db_path)
+    except ValueError as e:
+        raise ValueError(f"Database configuration error: {e}")
+    
     Session = sessionmaker(bind=engine)
     session = Session()
     
@@ -249,16 +248,15 @@ def main():
     log(f"Last.fm user: {lastfm_user}")
     
     # Connect to database
-    if args.db_path:
-        log(f"Connecting to database: {args.db_path}")
-        engine = create_engine(f'sqlite:///{args.db_path}')
-    else:
-        database_url = os.getenv('DATABASE_URL')
-        if not database_url:
-            print("Error: Either --db-path or DATABASE_URL environment variable must be set")
-            return 1
-        log(f"Connecting to database via DATABASE_URL")
-        engine = create_engine(database_url)
+    try:
+        if args.db_path:
+            log(f"Connecting to database: {args.db_path}")
+        else:
+            log(f"Connecting to database via DB_TYPE configuration")
+        engine = get_engine(args.db_path)
+    except ValueError as e:
+        print(f"Error: {e}")
+        return 1
     
     # Check if playcount12month column exists, add it if not
     try:
