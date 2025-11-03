@@ -32,13 +32,29 @@ class Artist(Base):
         return f"<Artist(id={self.id}, name='{self.name}', playcount={self.playcount})>"
 
 
+class Country(Base):
+    """Country model - stores country metadata"""
+    __tablename__ = 'Country'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, unique=True, nullable=False, index=True)  # Full name: "Turkey", "France"
+    code = Column(String, unique=True, nullable=False, index=True)  # ISO code: "tr", "fr"
+    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()))
+    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()), onupdate=lambda: int(datetime.utcnow().timestamp()))
+    
+    # Relationships will be added in Phase 3
+    
+    def __repr__(self):
+        return f"<Country(id={self.id}, name='{self.name}', code='{self.code}')>"
+
+
 class CityMapping(Base):
     """City mapping model for normalization"""
     __tablename__ = 'CityMapping'
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     originalCity = Column(String, nullable=False)
-    country = Column(String, nullable=False)
+    countryId = Column(Integer, ForeignKey('Country.id'), nullable=False, index=True)  # Now required
     normalizedCity = Column(String, nullable=False, index=True)
     latitude = Column(String, nullable=True)  # Store as string for precision
     longitude = Column(String, nullable=True)  # Store as string for precision
@@ -47,7 +63,7 @@ class CityMapping(Base):
     updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()), onupdate=lambda: int(datetime.utcnow().timestamp()))
     
     def __repr__(self):
-        return f"<CityMapping('{self.originalCity}' -> '{self.normalizedCity}', {self.country})>"
+        return f"<CityMapping('{self.originalCity}' -> '{self.normalizedCity}', countryId={self.countryId})>"
 
 
 class Concert(Base):
@@ -62,7 +78,7 @@ class Concert(Base):
     venue = Column(String, nullable=False)
     city = Column(String, nullable=False, index=True)  # Original city name
     normalizedCity = Column(String, nullable=False, index=True)  # Normalized city name for grouping
-    country = Column(String, nullable=False, index=True)
+    countryId = Column(Integer, ForeignKey('Country.id'), nullable=False, index=True)  # Now required
     postalCode = Column(String, nullable=True)
     performers = Column(Text, nullable=False)  # JSON array stored as text
     imageUrl = Column(String, nullable=True)

@@ -14,7 +14,11 @@ interface Concert {
   dateEnd: number;
   venue: string;
   city: string;
-  country: string;
+  countryObj?: {
+    id: number;
+    name: string;
+    code: string;
+  } | null;
   postalCode: string | null;
   performers: string[];
   imageUrl: string | null;
@@ -204,7 +208,7 @@ export default function ConcertDetailPage() {
                   <div className="text-gray-600 dark:text-gray-400">
                     {concert.venue}
                     <br />
-                    {concert.city}, {concert.country}
+                    {concert.city}, {concert.countryObj?.name}
                     {concert.postalCode && ` ${concert.postalCode}`}
                   </div>
                 </div>

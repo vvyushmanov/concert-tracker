@@ -130,8 +130,8 @@ export default function ArtistsList({ artists }: ArtistsListProps) {
               onChange={(e) => setSortBy(e.target.value as any)}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"
             >
-              <option value="playcount">All-Time Plays</option>
               <option value="playcount12month">12-Month Plays</option>
+              <option value="playcount">All-Time Plays</option>              
               <option value="concerts">Upcoming Concerts</option>
               <option value="name">Artist Name</option>
             </select>

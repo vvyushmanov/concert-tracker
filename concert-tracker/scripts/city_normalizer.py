@@ -12,6 +12,7 @@ import requests
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from db_models import CityMapping
+from country_helper import get_or_create_country
 
 
 class CityNormalizer:
@@ -105,9 +106,14 @@ class CityNormalizer:
         Returns:
             CityMapping object if found, None otherwise
         """
+        # Get country object first
+        country_obj = get_or_create_country(self.db, country, verbose=False)
+        if not country_obj:
+            return None
+        
         return self.db.query(CityMapping).filter(
             CityMapping.originalCity == city,
-            CityMapping.country == country
+            CityMapping.countryId == country_obj.id
         ).first()
     
     def _normalize_text(self, city: str) -> str:
@@ -330,8 +336,13 @@ class CityNormalizer:
             Name of cluster center city if found, None otherwise
         """
         # Find all cities in the same country that have coordinates
+        # Get country object first
+        country_obj = get_or_create_country(self.db, country, verbose=False)
+        if not country_obj:
+            return None
+        
         nearby_cities = self.db.query(CityMapping).filter(
-            CityMapping.country == country,
+            CityMapping.countryId == country_obj.id,
             CityMapping.latitude.isnot(None),
             CityMapping.longitude.isnot(None)
         ).all()
@@ -551,11 +562,15 @@ class CityNormalizer:
         if existing:
             return  # Don't overwrite existing mappings
         
+        # Get or create country
+        country_obj = get_or_create_country(self.db, country, verbose=self.verbose)
+        country_id = country_obj.id if country_obj else None
+        
         # Create new mapping
         now = int(datetime.utcnow().timestamp())
         mapping = CityMapping(
             originalCity=original_city,
-            country=country,
+            countryId=country_id,
             normalizedCity=normalized_city,
             latitude=str(latitude) if latitude is not None else None,
             longitude=str(longitude) if longitude is not None else None,

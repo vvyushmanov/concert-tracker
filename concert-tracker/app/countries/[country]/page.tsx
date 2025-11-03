@@ -10,7 +10,11 @@ export default async function CountryDetailPage({ params }: { params: Promise<{ 
   const country = decodeURIComponent(countryParam);
 
   const concerts = await prisma.concert.findMany({
-    where: { country },
+    where: {
+      countryObj: {
+        name: country
+      }
+    },
     include: {
       artist: {
         select: {

@@ -13,7 +13,11 @@ type Concert = {
   dateEnd: number;
   venue: string;
   city: string;
-  country: string;
+  countryObj?: {
+    id: number;
+    name: string;
+    code: string;
+  } | null;
   interested: boolean;
   artistId: number;
   artist: {
@@ -57,7 +61,7 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
       if (selectedArtist && concert.artistId !== selectedArtist) return false;
 
       // Country filter
-      if (selectedCountry && concert.country !== selectedCountry) return false;
+      if (selectedCountry && concert.countryObj?.name !== selectedCountry) return false;
 
       // Interested filter
       if (showInterestedOnly && !concert.interested) return false;
@@ -257,7 +261,7 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
                     </p>
                     <p className="flex items-start gap-2">
                       <span className="text-base">📍</span>
-                      <span>{concert.venue}, {concert.city}, {concert.country}</span>
+                      <span>{concert.venue}, {concert.city}, {concert.countryObj?.name}</span>
                     </p>
                   </div>
                 </div>
@@ -319,7 +323,7 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
                       </p>
                       <p className="flex items-start gap-2">
                         <span className="text-base">📍</span>
-                        <span>{concert.venue}, {concert.city}, {concert.country}</span>
+                        <span>{concert.venue}, {concert.city}, {concert.countryObj?.name}</span>
                       </p>
                     </div>
                   </div>

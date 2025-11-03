@@ -7,7 +7,7 @@ export async function GET() {
       prisma.concert.count(),
       prisma.artist.count(),
       prisma.concert.groupBy({
-        by: ['country'],
+        by: ['countryId'],
         _count: true,
       }),
       prisma.concert.groupBy({
@@ -25,7 +25,7 @@ export async function GET() {
     return NextResponse.json({
       totalConcerts,
       totalArtists,
-      countries: countries.map(c => ({ country: c.country, count: c._count })),
+      countries: countries.map(c => ({ countryId: c.countryId, count: c._count })),
       topCities: cities.map(c => ({ city: c.city, count: c._count })),
     });
   } catch (error) {

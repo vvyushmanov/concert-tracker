@@ -21,19 +21,35 @@ model Artist {
   concerts        Concert[]
 }
 
+model Country {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique @db.VarChar(100) // Full country name: "Turkey", "France"
+  code      String    @unique @db.VarChar(10)  // ISO country code: "tr", "fr"
+  createdAt Int
+  updatedAt Int
+
+  concerts     Concert[]
+  cityMappings CityMapping[]
+
+  @@index([code])
+  @@index([name])
+}
+
 model CityMapping {
-  id             Int     @id @default(autoincrement())
-  originalCity   String  @db.VarChar(255)
-  country        String  @db.VarChar(100)
-  normalizedCity String  @db.VarChar(255)
-  latitude       String? @db.VarChar(50)
-  longitude      String? @db.VarChar(50)
-  source         String  @db.VarChar(50) // 'manual' | 'geocoded' | 'text_normalized'
+  id             Int      @id @default(autoincrement())
+  originalCity   String   @db.VarChar(255)
+  countryId      Int      // Foreign key (now required)
+  countryObj     Country  @relation(fields: [countryId], references: [id])
+  normalizedCity String   @db.VarChar(255)
+  latitude       String?  @db.VarChar(50)
+  longitude      String?  @db.VarChar(50)
+  source         String   @db.VarChar(50) // 'manual' | 'geocoded' | 'text_normalized'
   createdAt      Int
   updatedAt      Int
 
-  @@unique([originalCity, country])
-  @@index([normalizedCity, country])
+  @@unique([originalCity, countryId])
+  @@index([normalizedCity, countryId])
+  @@index([countryId])
 }
 
 model Concert {
@@ -43,10 +59,11 @@ model Concert {
   dateStart      Int     // Unix timestamp (seconds since epoch)
   dateEnd        Int     // Unix timestamp (seconds since epoch)
   venue          String  @db.VarChar(500)
-  city           String  @db.VarChar(255) // Original city name
-  normalizedCity String  @db.VarChar(255) // Normalized city name for grouping
-  country        String  @db.VarChar(100)
-  postalCode     String? @db.VarChar(20)
+  city           String   @db.VarChar(255) // Original city name
+  normalizedCity String   @db.VarChar(255) // Normalized city name for grouping
+  countryId      Int      // Foreign key (now required)
+  countryObj     Country  @relation(fields: [countryId], references: [id])
+  postalCode     String?  @db.VarChar(20)
   performers   String  @db.Text // JSON array stored as text
   imageUrl     String? @db.VarChar(500)
   organizer    String? @db.VarChar(255)
@@ -64,7 +81,7 @@ model Concert {
   @@index([artistId])
   @@index([city])
   @@index([normalizedCity])
-  @@index([country])
+  @@index([countryId])
   @@index([dateStart])
   @@index([eventUrl])
 }

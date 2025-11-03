@@ -13,7 +13,11 @@ type Concert = {
   dateEnd: number;
   venue: string;
   city: string;
-  country: string;
+  countryObj?: {
+    id: number;
+    name: string;
+    code: string;
+  } | null;
   interested: boolean;
 };
 
@@ -33,10 +37,11 @@ export default function ArtistConcerts({ concerts }: ArtistConcertsProps) {
   // Group by country
   const groupByCountry = (concertList: Concert[]) => {
     return concertList.reduce((acc, concert) => {
-      if (!acc[concert.country]) {
-        acc[concert.country] = [];
+      const countryName = concert.countryObj?.name;
+      if (!acc[countryName]) {
+        acc[countryName] = [];
       }
-      acc[concert.country].push(concert);
+      acc[countryName].push(concert);
       return acc;
     }, {} as Record<string, Concert[]>);
   };

@@ -17,6 +17,7 @@ export default async function Home() {
     ],
     include: {
       artist: true,
+      countryObj: true, // Include country relation
     },
   });
 
@@ -26,10 +27,10 @@ export default async function Home() {
     select: { id: true, name: true },
   });
 
-  const countries = await prisma.concert.findMany({
-    select: { country: true },
-    distinct: ['country'],
-    orderBy: { country: 'asc' },
+  // Get countries from Country table
+  const countries = await prisma.country.findMany({
+    orderBy: { name: 'asc' },
+    select: { id: true, name: true, code: true },
   });
 
   return (
@@ -45,7 +46,7 @@ export default async function Home() {
         <ConcertGrid
           initialConcerts={concerts}
           artists={artists}
-          countries={countries.map(c => c.country)}
+          countries={countries.map(c => c.name)}
         />
       </main>
     </div>

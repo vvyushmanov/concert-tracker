@@ -18,6 +18,9 @@ export default async function ArtistDetailPage({ params }: { params: Promise<{ i
     where: { id: artistId },
     include: {
       concerts: {
+        include: {
+          countryObj: true,
+        },
         orderBy: [
           { interested: 'desc' }, // Pinned concerts first
           { dateStart: 'asc' },
@@ -31,7 +34,7 @@ export default async function ArtistDetailPage({ params }: { params: Promise<{ i
   }
 
   // Get unique countries
-  const countries = [...new Set(artist.concerts.map(c => c.country))];
+  const countries = [...new Set(artist.concerts.map(c => c.countryObj?.name || 'Unknown'))];
 
   return (
     <div className="min-h-screen p-8 bg-gray-50 dark:bg-gray-900">
