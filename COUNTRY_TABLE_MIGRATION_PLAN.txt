@@ -1,0 +1,794 @@
+================================================================================
+COUNTRY TABLE MIGRATION PLAN - AI-FRIENDLY PHASE-BASED APPROACH
+================================================================================
+
+PROJECT: lastfm-parser Concert Tracker
+GOAL: Move country data from string field to dedicated Country table
+REQUIREMENTS: 
+  - Each country has: ID (int), full name (string), country code (string)
+  - ZERO logic breakage
+  - Support both MySQL and SQLite
+  - Maintain backward compatibility during migration
+
+================================================================================
+CURRENT STATE ANALYSIS
+================================================================================
+
+1. CURRENT SCHEMA
+   - Concert.country: String field (VarChar(100) in MySQL, String in SQLite)
+   - CityMapping.country: String field (VarChar(100) in MySQL, String in SQLite)
+   - No Country table exists
+   - Country stored as FULL NAME (e.g., "Turkey", "France", "Germany")
+
+2. COUNTRY DATA SOURCES
+   a) Parser Input: country_code (e.g., 'tr', 'fr', 'de')
+      - From ConfigManager.get_list('COUNTRY_CODES')
+      - Used in URL: https://en.concerts-metal.com/country/{code}
+   
+   b) Scraped Data: country full name (e.g., "Turkey")
+      - From HTML meta tag: <meta itemprop="addressCountry" content="Turkey">
+      - Stored in Concert.country and CityMapping.country
+   
+   c) Display: Full country names everywhere in UI
+
+3. ALL LOCATIONS WHERE COUNTRY IS USED
+
+   A. DATABASE SCHEMA (3 files)
+      - concert-tracker/prisma/schema.mysql.prisma
+        * Concert.country: String @db.VarChar(100)
+        * CityMapping.country: String @db.VarChar(100)
+      - concert-tracker/prisma/schema.sqlite.prisma
+        * Concert.country: String
+        * CityMapping.country: String
+      - concert-tracker/scripts/db_models.py
+        * Concert.country: Column(String, nullable=False, index=True)
+        * CityMapping.country: Column(String, nullable=False)
+
+   B. PYTHON SCRIPTS (5 files)
+      - concert-tracker/scripts/country_concert_parser.py
+        * __init__(country_code: str) - stores country_code
+        * parse_venue_info() - extracts country from HTML meta tag
+        * Passes country string to concert data dict
+      
+      - concert-tracker/scripts/db_writer.py
+        * upsert_concert() - reads concert_data.get('country', '')
+        * Stores country string in Concert.country
+        * Passes country to normalizer.normalize(city, country)
+      
+      - concert-tracker/scripts/city_normalizer.py
+        * normalize(city: str, country: str) - uses country for lookups
+        * _check_manual_mapping() - filters by country string
+        * _find_nearby_cities() - filters by country string
+        * _store_mapping() - stores country string in CityMapping
+      
+      - concert-tracker/scripts/config_manager.py
+        * COUNTRY_CODES setting - stores JSON array of country codes
+        * Used by parser to determine which countries to scan
+      
+      - concert-tracker/scripts/concert_utils.py
+        * group_concerts_by_country() - uses concert['country'] as dict key
+
+   C. NEXT.JS FRONTEND (11 files)
+      - concert-tracker/app/page.tsx
+        * Queries: prisma.concert.findMany({ distinct: ['country'] })
+        * Passes countries array to ConcertGrid
+      
+      - concert-tracker/app/ConcertGrid.tsx
+        * Filter: selectedCountry state (string)
+        * Filter logic: concert.country !== selectedCountry
+        * Dropdown: countries.map(country => <option value={country}>)
+      
+      - concert-tracker/app/countries/page.tsx
+        * Groups concerts by concert.country
+        * Displays country name as heading
+        * Links: /countries/{country}
+      
+      - concert-tracker/app/countries/[country]/page.tsx
+        * Query: prisma.concert.findMany({ where: { country } })
+        * Displays country name in header
+        * URL param: decodeURIComponent(countryParam)
+      
+      - concert-tracker/app/countries/[country]/CountryConcerts.tsx
+        * Client-side filtering by country (already filtered by page)
+      
+      - concert-tracker/app/calendar/page.tsx
+        * Queries: prisma.concert.findMany({ distinct: ['country'] })
+        * Passes countries array to CalendarView
+      
+      - concert-tracker/app/calendar/CalendarView.tsx
+        * Filter: selectedCountry state (string)
+        * Filter logic: concert.country !== selectedCountry
+        * Dropdown: countries.map(country => <option>)
+      
+      - concert-tracker/app/artists/[id]/ArtistConcerts.tsx
+        * Groups concerts by concert.country
+        * Displays country name as section heading
+      
+      - concert-tracker/app/api/concerts/route.ts
+        * Query param: country (string)
+        * Where clause: where.country = country
+      
+      - concert-tracker/app/api/export/route.ts
+        * Groups by concert.country as dict key
+        * Exports country as top-level key in JSON
+
+   D. SETTINGS/CONFIG (1 file)
+      - concert-tracker/app/settings/page.tsx
+        * CountryCodeEditor component for COUNTRY_CODES setting
+        * Manages JSON array of country codes (e.g., ["tr", "fr", "de"])
+
+4. CRITICAL RELATIONSHIPS
+   - Concert.country ← used for filtering, grouping, display
+   - CityMapping.country ← used for city normalization lookups
+   - Both must reference same country identifier
+   - Country codes (tr, fr, de) only used for parser input
+   - Full names (Turkey, France, Germany) used everywhere else
+
+================================================================================
+MIGRATION STRATEGY
+================================================================================
+
+APPROACH: Gradual migration with backward compatibility
+
+KEY DECISIONS:
+1. Country table will have: id (PK), name (full name), code (2-letter code)
+2. Concert.country → Concert.countryId (foreign key)
+3. CityMapping.country → CityMapping.countryId (foreign key)
+4. Keep country codes in COUNTRY_CODES setting (parser input)
+5. Build country code → name mapping (hardcoded or from first scrape)
+
+PHASES:
+1. Schema Addition (backward compatible)
+2. Data Migration (populate Country table)
+3. Code Updates (dual-write period)
+4. Schema Migration (add foreign keys, keep old columns)
+5. Cleanup (remove old string columns)
+
+================================================================================
+PHASE 1: ADD COUNTRY TABLE (BACKWARD COMPATIBLE)
+================================================================================
+
+GOAL: Add Country table without breaking existing functionality
+
+FILES TO MODIFY:
+1. concert-tracker/prisma/schema.mysql.prisma
+2. concert-tracker/prisma/schema.sqlite.prisma
+3. concert-tracker/scripts/db_models.py
+
+CHANGES:
+
+A. Prisma Schemas (MySQL & SQLite)
+   Add new model:
+   ```prisma
+   model Country {
+     id       Int       @id @default(autoincrement())
+     name     String    @unique @db.VarChar(100)  // "Turkey", "France"
+     code     String    @unique @db.VarChar(10)   // "tr", "fr"
+     createdAt Int
+     updatedAt Int
+     
+     concerts     Concert[]
+     cityMappings CityMapping[]
+     
+     @@index([code])
+     @@index([name])
+   }
+   ```
+
+B. SQLAlchemy Model (db_models.py)
+   Add new class:
+   ```python
+   class Country(Base):
+       __tablename__ = 'Country'
+       
+       id = Column(Integer, primary_key=True, autoincrement=True)
+       name = Column(String, unique=True, nullable=False, index=True)
+       code = Column(String, unique=True, nullable=False, index=True)
+       createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()))
+       updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()))
+       
+       # Relationships
+       concerts = relationship('Concert', back_populates='country_obj')
+       city_mappings = relationship('CityMapping', back_populates='country_obj')
+   ```
+
+TESTING:
+- Run: npx prisma generate
+- Run: python -c "from db_models import Country; print('OK')"
+- Verify: Table created but no foreign keys yet
+
+ROLLBACK: Drop Country table if issues arise
+
+================================================================================
+PHASE 2: POPULATE COUNTRY TABLE
+================================================================================
+
+GOAL: Extract unique countries from existing data and populate Country table
+
+FILES TO CREATE:
+1. concert-tracker/scripts/migrate_countries_step1_populate.py
+
+SCRIPT LOGIC:
+```python
+# 1. Query distinct countries from Concert table
+# 2. For each country name:
+#    - Determine country code (from mapping or reverse lookup)
+#    - Insert into Country table
+# 3. Handle duplicates gracefully
+```
+
+COUNTRY CODE MAPPING:
+Create hardcoded mapping for common countries:
+```python
+COUNTRY_NAME_TO_CODE = {
+    'Turkey': 'tr',
+    'France': 'fr',
+    'Germany': 'de',
+    'United States': 'us',
+    'United Kingdom': 'gb',
+    # ... add more as needed
+}
+```
+
+EDGE CASES:
+- Unknown country names → use 'xx' code or skip
+- Duplicate names → handle with unique constraint
+- Empty/null countries → skip or use 'Unknown'
+
+TESTING:
+- Run migration script
+- Verify: SELECT * FROM Country shows all countries
+- Verify: All existing Concert.country values have matching Country.name
+
+ROLLBACK: DELETE FROM Country
+
+================================================================================
+PHASE 3: ADD FOREIGN KEY COLUMNS (DUAL-WRITE PERIOD)
+================================================================================
+
+GOAL: Add countryId columns while keeping old country columns
+
+FILES TO MODIFY:
+1. concert-tracker/prisma/schema.mysql.prisma
+2. concert-tracker/prisma/schema.sqlite.prisma
+3. concert-tracker/scripts/db_models.py
+
+CHANGES:
+
+A. Concert Model
+   ```prisma
+   model Concert {
+     // ... existing fields ...
+     country      String  @db.VarChar(100)  // KEEP for now
+     countryId    Int?                       // NEW (nullable during migration)
+     countryObj   Country? @relation(fields: [countryId], references: [id])
+     // ... rest of fields ...
+   }
+   ```
+
+B. CityMapping Model
+   ```prisma
+   model CityMapping {
+     // ... existing fields ...
+     country      String  @db.VarChar(100)  // KEEP for now
+     countryId    Int?                       // NEW (nullable during migration)
+     countryObj   Country? @relation(fields: [countryId], references: [id])
+     // ... rest of fields ...
+   }
+   ```
+
+C. SQLAlchemy Models
+   Add to Concert and CityMapping:
+   ```python
+   countryId = Column(Integer, ForeignKey('Country.id'), nullable=True, index=True)
+   country_obj = relationship('Country', back_populates='concerts')
+   ```
+
+TESTING:
+- Run: npx prisma migrate dev --name add_country_fk
+- Verify: Columns added with NULL values
+- Verify: No data loss in existing country columns
+
+ROLLBACK: Drop countryId columns
+
+================================================================================
+PHASE 4: POPULATE FOREIGN KEYS
+================================================================================
+
+GOAL: Set countryId values based on existing country strings
+
+FILES TO CREATE:
+1. concert-tracker/scripts/migrate_countries_step2_link.py
+
+SCRIPT LOGIC:
+```python
+# 1. For each Concert:
+#    - Look up Country by name (Concert.country)
+#    - Set Concert.countryId = Country.id
+# 2. For each CityMapping:
+#    - Look up Country by name (CityMapping.country)
+#    - Set CityMapping.countryId = Country.id
+# 3. Verify all records have countryId set
+```
+
+EDGE CASES:
+- Country name not found in Country table → log error, skip
+- NULL country values → leave countryId as NULL
+
+TESTING:
+- Run migration script
+- Verify: SELECT COUNT(*) FROM Concert WHERE countryId IS NULL = 0
+- Verify: SELECT COUNT(*) FROM CityMapping WHERE countryId IS NULL = 0
+- Verify: Join queries work: Concert JOIN Country ON countryId
+
+ROLLBACK: UPDATE Concert SET countryId = NULL
+
+================================================================================
+PHASE 5: UPDATE PYTHON SCRIPTS (DUAL-WRITE)
+================================================================================
+
+GOAL: Update scripts to write to both country and countryId
+
+FILES TO MODIFY:
+1. concert-tracker/scripts/db_writer.py
+2. concert-tracker/scripts/city_normalizer.py
+3. concert-tracker/scripts/country_concert_parser.py (minimal)
+
+CHANGES:
+
+A. db_writer.py - upsert_concert()
+   ```python
+   # Get or create country
+   country_name = concert_data.get('country', '')
+   country_obj = self.session.query(Country).filter_by(name=country_name).first()
+   if not country_obj:
+       # Create new country (with code lookup or default)
+       country_code = COUNTRY_NAME_TO_CODE.get(country_name, 'xx')
+       country_obj = Country(
+           name=country_name,
+           code=country_code,
+           createdAt=int(datetime.utcnow().timestamp()),
+           updatedAt=int(datetime.utcnow().timestamp())
+       )
+       self.session.add(country_obj)
+       self.session.flush()  # Get ID
+   
+   # Set both fields
+   concert.country = country_name      # OLD (keep for now)
+   concert.countryId = country_obj.id  # NEW
+   ```
+
+B. city_normalizer.py - _store_mapping()
+   ```python
+   # Similar logic: look up or create Country, set both fields
+   country_obj = self.db.query(Country).filter_by(name=country).first()
+   if not country_obj:
+       # Create or log error
+       pass
+   
+   mapping.country = country              # OLD
+   mapping.countryId = country_obj.id     # NEW
+   ```
+
+C. Add helper function
+   ```python
+   def get_or_create_country(session, country_name: str) -> Country:
+       """Get existing country or create new one"""
+       country = session.query(Country).filter_by(name=country_name).first()
+       if not country:
+           code = COUNTRY_NAME_TO_CODE.get(country_name, 'xx')
+           country = Country(
+               name=country_name,
+               code=code,
+               createdAt=int(datetime.utcnow().timestamp()),
+               updatedAt=int(datetime.utcnow().timestamp())
+           )
+           session.add(country)
+           session.flush()
+       return country
+   ```
+
+TESTING:
+- Run parser on test country
+- Verify: New concerts have both country and countryId set
+- Verify: Country table grows with new countries
+- Verify: Existing functionality unchanged
+
+ROLLBACK: Revert code changes, keep data
+
+================================================================================
+PHASE 6: UPDATE NEXT.JS QUERIES (READ FROM COUNTRY TABLE)
+================================================================================
+
+GOAL: Update frontend to use Country table via relations
+
+FILES TO MODIFY:
+1. concert-tracker/app/page.tsx
+2. concert-tracker/app/calendar/page.tsx
+3. concert-tracker/app/countries/page.tsx
+4. concert-tracker/app/countries/[country]/page.tsx
+5. concert-tracker/app/ConcertGrid.tsx
+6. concert-tracker/app/calendar/CalendarView.tsx
+7. concert-tracker/app/artists/[id]/ArtistConcerts.tsx
+8. concert-tracker/app/api/concerts/route.ts
+9. concert-tracker/app/api/export/route.ts
+
+CHANGES:
+
+A. Queries - Replace distinct country with Country table
+   BEFORE:
+   ```typescript
+   const countries = await prisma.concert.findMany({
+     select: { country: true },
+     distinct: ['country'],
+     orderBy: { country: 'asc' },
+   });
+   ```
+   
+   AFTER:
+   ```typescript
+   const countries = await prisma.country.findMany({
+     orderBy: { name: 'asc' },
+     select: { id: true, name: true, code: true },
+   });
+   ```
+
+B. Filters - Use countryId instead of country string
+   BEFORE:
+   ```typescript
+   where: { country: selectedCountry }
+   ```
+   
+   AFTER:
+   ```typescript
+   where: { countryId: selectedCountryId }
+   ```
+
+C. Includes - Add country relation
+   ```typescript
+   include: {
+     artist: true,
+     countryObj: true,  // NEW
+   }
+   ```
+
+D. Display - Use countryObj.name
+   BEFORE:
+   ```typescript
+   concert.country
+   ```
+   
+   AFTER:
+   ```typescript
+   concert.countryObj?.name || concert.country  // Fallback during migration
+   ```
+
+E. Grouping - Use countryId or countryObj.name
+   BEFORE:
+   ```typescript
+   const grouped = concerts.reduce((acc, c) => {
+     if (!acc[c.country]) acc[c.country] = [];
+     acc[c.country].push(c);
+     return acc;
+   }, {});
+   ```
+   
+   AFTER:
+   ```typescript
+   const grouped = concerts.reduce((acc, c) => {
+     const key = c.countryObj?.name || c.country;
+     if (!acc[key]) acc[key] = [];
+     acc[key].push(c);
+     return acc;
+   }, {});
+   ```
+
+F. URL Routes - Use country ID or name
+   OPTION 1: Keep name in URL (SEO-friendly)
+   ```typescript
+   href={`/countries/${encodeURIComponent(country.name)}`}
+   ```
+   
+   OPTION 2: Use ID in URL (cleaner)
+   ```typescript
+   href={`/countries/${country.id}`}
+   // Update [country] to [id] and query by ID
+   ```
+
+TESTING:
+- Test all pages: /, /countries, /countries/[country], /calendar, /artists/[id]
+- Verify: Filters work correctly
+- Verify: Grouping displays correctly
+- Verify: No broken links
+- Verify: Export API works
+
+ROLLBACK: Revert code changes
+
+================================================================================
+PHASE 7: MAKE FOREIGN KEYS NON-NULLABLE
+================================================================================
+
+GOAL: Enforce data integrity by making countryId required
+
+FILES TO MODIFY:
+1. concert-tracker/prisma/schema.mysql.prisma
+2. concert-tracker/prisma/schema.sqlite.prisma
+3. concert-tracker/scripts/db_models.py
+
+CHANGES:
+
+A. Prisma Schemas
+   ```prisma
+   model Concert {
+     // ... existing fields ...
+     countryId    Int      // Remove ? to make non-nullable
+     countryObj   Country  @relation(fields: [countryId], references: [id])
+     // ... rest of fields ...
+   }
+   ```
+
+B. SQLAlchemy Models
+   ```python
+   countryId = Column(Integer, ForeignKey('Country.id'), nullable=False, index=True)
+   ```
+
+PREREQUISITES:
+- All Concert.countryId values must be set (no NULLs)
+- All CityMapping.countryId values must be set (no NULLs)
+
+TESTING:
+- Run: npx prisma migrate dev --name make_country_fk_required
+- Verify: Migration succeeds (no NULL constraint violations)
+- Verify: New concerts require countryId
+
+ROLLBACK: Revert migration, make nullable again
+
+================================================================================
+PHASE 8: REMOVE OLD COUNTRY STRING COLUMNS
+================================================================================
+
+GOAL: Clean up by removing deprecated country string columns
+
+FILES TO MODIFY:
+1. concert-tracker/prisma/schema.mysql.prisma
+2. concert-tracker/prisma/schema.sqlite.prisma
+3. concert-tracker/scripts/db_models.py
+4. concert-tracker/scripts/db_writer.py
+5. concert-tracker/scripts/city_normalizer.py
+
+CHANGES:
+
+A. Remove from Schemas
+   ```prisma
+   model Concert {
+     // DELETE: country String @db.VarChar(100)
+     countryId    Int
+     countryObj   Country @relation(fields: [countryId], references: [id])
+   }
+   ```
+
+B. Remove from SQLAlchemy
+   ```python
+   # DELETE: country = Column(String, nullable=False, index=True)
+   countryId = Column(Integer, ForeignKey('Country.id'), nullable=False, index=True)
+   ```
+
+C. Remove from Python Scripts
+   - Remove all references to concert_data['country'] string
+   - Use only countryId and country_obj
+   - Update normalizer to accept country_id instead of country_name
+
+TESTING:
+- Run: npx prisma migrate dev --name remove_country_string
+- Verify: All queries still work
+- Verify: Parser still works
+- Verify: Frontend still works
+
+ROLLBACK: Revert migration, add columns back
+
+================================================================================
+PHASE 9: UPDATE COUNTRY CODE MANAGEMENT
+================================================================================
+
+GOAL: Link COUNTRY_CODES setting to Country table
+
+FILES TO MODIFY:
+1. concert-tracker/scripts/config_manager.py
+2. concert-tracker/scripts/country_concert_parser.py
+3. concert-tracker/app/settings/page.tsx (optional)
+
+CHANGES:
+
+A. Parser - Use Country table for validation
+   ```python
+   # Get country codes from config
+   country_codes = config.get_list('COUNTRY_CODES')
+   
+   # Validate against Country table
+   session = Session()
+   valid_codes = []
+   for code in country_codes:
+       country = session.query(Country).filter_by(code=code).first()
+       if country:
+           valid_codes.append(code)
+       else:
+           print(f"Warning: Country code '{code}' not found in database")
+   
+   # Use valid_codes for parsing
+   ```
+
+B. Settings UI - Show country names alongside codes
+   ```typescript
+   // Fetch countries from database
+   const countries = await prisma.country.findMany();
+   
+   // Display: "TR - Turkey" instead of just "TR"
+   ```
+
+TESTING:
+- Add new country code to settings
+- Verify: Parser validates against Country table
+- Verify: Warning shown for invalid codes
+
+ROLLBACK: Revert code changes
+
+================================================================================
+CRITICAL TESTING CHECKLIST
+================================================================================
+
+After each phase, verify:
+
+1. DATABASE INTEGRITY
+   [ ] No NULL values in required fields
+   [ ] All foreign keys valid
+   [ ] Indexes present on countryId
+   [ ] Unique constraints on Country.name and Country.code
+
+2. PYTHON SCRIPTS
+   [ ] Parser runs without errors
+   [ ] New concerts created successfully
+   [ ] City normalization works
+   [ ] Country auto-creation works for new countries
+
+3. NEXT.JS FRONTEND
+   [ ] Home page loads and filters work
+   [ ] Countries page lists all countries
+   [ ] Country detail page loads
+   [ ] Calendar filters work
+   [ ] Artist detail page groups by country
+   [ ] Export API works
+
+4. DATA CONSISTENCY
+   [ ] All concerts have valid countryId
+   [ ] All city mappings have valid countryId
+   [ ] Country names match between old and new system
+   [ ] No orphaned records
+
+5. PERFORMANCE
+   [ ] Queries with JOIN on Country table are fast
+   [ ] Indexes used in query plans
+   [ ] No N+1 query issues
+
+================================================================================
+ROLLBACK STRATEGY
+================================================================================
+
+Each phase has a rollback plan. General approach:
+
+PHASE 1-2: Drop Country table
+  ```sql
+  DROP TABLE Country;
+  ```
+
+PHASE 3-4: Drop foreign key columns
+  ```sql
+  ALTER TABLE Concert DROP COLUMN countryId;
+  ALTER TABLE CityMapping DROP COLUMN countryId;
+  ```
+
+PHASE 5-6: Revert code changes
+  - Git revert commits
+  - Redeploy previous version
+
+PHASE 7-8: Restore from backup
+  - Keep database backup before these phases
+  - Restore if issues arise
+
+FULL ROLLBACK:
+1. Stop all services
+2. Restore database from backup
+3. Revert all code changes
+4. Restart services
+
+================================================================================
+ESTIMATED TIMELINE
+================================================================================
+
+Phase 1: Schema Addition           - 1 hour
+Phase 2: Populate Country Table    - 2 hours
+Phase 3: Add Foreign Keys          - 1 hour
+Phase 4: Populate Foreign Keys     - 2 hours
+Phase 5: Update Python Scripts     - 4 hours
+Phase 6: Update Next.js Frontend   - 6 hours
+Phase 7: Make FKs Non-Nullable     - 1 hour
+Phase 8: Remove Old Columns        - 2 hours
+Phase 9: Update Config Management  - 2 hours
+
+TOTAL: ~21 hours (3 days of focused work)
+
+Testing and validation: +8 hours
+Buffer for issues: +8 hours
+
+REALISTIC TOTAL: 5-7 days
+
+================================================================================
+RISK MITIGATION
+================================================================================
+
+HIGH RISK AREAS:
+1. Country name variations (e.g., "USA" vs "United States")
+   - Mitigation: Normalize names during Phase 2
+   - Create comprehensive mapping table
+
+2. NULL country values in existing data
+   - Mitigation: Handle in Phase 4 with default "Unknown" country
+   - Log all NULL cases for manual review
+
+3. Performance degradation from JOINs
+   - Mitigation: Add indexes on countryId
+   - Use Prisma includes efficiently
+   - Monitor query performance
+
+4. Breaking changes during dual-write period
+   - Mitigation: Keep both columns until Phase 8
+   - Fallback to old column if new one fails
+
+5. Frontend URL changes (if using country ID in URLs)
+   - Mitigation: Keep using country name in URLs
+   - Add redirects for old URLs if needed
+
+================================================================================
+SUCCESS CRITERIA
+================================================================================
+
+Migration is successful when:
+1. All concerts have valid countryId references
+2. All city mappings have valid countryId references
+3. Country table contains all unique countries
+4. Frontend displays countries correctly
+5. Filters and grouping work as before
+6. Parser creates new countries automatically
+7. No performance degradation
+8. All tests pass
+9. No data loss
+10. Old country columns removed
+
+================================================================================
+POST-MIGRATION ENHANCEMENTS
+================================================================================
+
+After successful migration, consider:
+
+1. Country metadata
+   - Add flag emoji or icon URL
+   - Add timezone information
+   - Add currency information
+
+2. Country-based features
+   - Filter by region (Europe, Asia, etc.)
+   - Sort countries by concert count
+   - Country statistics page
+
+3. Admin interface
+   - Manage country mappings
+   - Merge duplicate countries
+   - Edit country codes
+
+4. Data quality
+   - Validate country codes against ISO 3166-1
+   - Auto-correct common misspellings
+   - Flag suspicious country names
+
+================================================================================
+END OF MIGRATION PLAN
+================================================================================

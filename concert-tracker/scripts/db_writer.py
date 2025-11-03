@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from db_models import Artist, Concert, get_session
 from city_normalizer import CityNormalizer
+from country_helper import get_or_create_country
 
 
 class ConcertDatabaseWriter:
@@ -172,9 +173,13 @@ class ConcertDatabaseWriter:
         
         # Normalize city name
         original_city = concert_data.get('city', '')
-        country = concert_data.get('country', '')
-        normalized_city = self.normalizer.normalize(original_city, country)
+        country_name = concert_data.get('country', '')
+        normalized_city = self.normalizer.normalize(original_city, country_name)
         self.stats['cities_normalized'] += 1
+        
+        # Get or create country
+        country_obj = get_or_create_country(self.session, country_name, verbose=self.debug)
+        country_id = country_obj.id if country_obj else None
         
         if concert:
             # Check if any fields have changed
@@ -188,7 +193,7 @@ class ConcertDatabaseWriter:
                 'venue': concert_data.get('venue', ''),
                 'city': original_city,
                 'normalizedCity': normalized_city,
-                'country': country,
+                'countryId': country_id,
                 'postalCode': concert_data.get('postal_code'),
                 'performers': performers_json,
                 'imageUrl': concert_data.get('image_url'),
@@ -227,7 +232,7 @@ class ConcertDatabaseWriter:
                 venue=concert_data.get('venue', ''),
                 city=original_city,
                 normalizedCity=normalized_city,
-                country=country,
+                countryId=country_id,
                 postalCode=concert_data.get('postal_code'),
                 performers=performers_json,
                 imageUrl=concert_data.get('image_url'),
@@ -245,7 +250,7 @@ class ConcertDatabaseWriter:
                 print(f"     - Date: {concert_data.get('date_start')}")
                 print(f"     - Venue: {concert_data.get('venue', 'Unknown')}")
                 print(f"     - City: {original_city} → {normalized_city}")
-                print(f"     - Country: {country}")
+                print(f"     - Country: {country_name}")
         
         return normalized_city
     

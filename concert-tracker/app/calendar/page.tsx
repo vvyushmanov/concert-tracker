@@ -8,6 +8,7 @@ export default async function CalendarPage() {
   const concerts = await prisma.concert.findMany({
     include: {
       artist: true,
+      countryObj: true, // Include country relation
     },
     orderBy: {
       dateStart: 'asc',
@@ -20,15 +21,20 @@ export default async function CalendarPage() {
     select: { id: true, name: true },
   });
 
-  const countries = await prisma.concert.findMany({
-    select: { country: true },
-    distinct: ['country'],
-    orderBy: { country: 'asc' },
+  // Get countries from Country table
+  const countries = await prisma.country.findMany({
+    orderBy: { name: 'asc' },
+    select: { id: true, name: true, code: true },
   });
 
   const cities = await prisma.concert.findMany({
-    select: { normalizedCity: true, country: true },
-    distinct: ['normalizedCity', 'country'],
+    select: { 
+      normalizedCity: true, 
+      countryObj: {
+        select: { name: true }
+      }
+    },
+    distinct: ['normalizedCity', 'countryId'],
     orderBy: { normalizedCity: 'asc' },
   });
 
@@ -48,8 +54,8 @@ export default async function CalendarPage() {
             artist: c.artist,
           }))}
           artists={artists}
-          countries={countries.map(c => c.country)}
-          cities={cities.map(c => ({ city: c.normalizedCity, country: c.country }))}
+          countries={countries.map(c => c.name)}
+          cities={cities.map(c => ({ city: c.normalizedCity, country: c.countryObj?.name || 'Unknown' }))}
         />
       </main>
     </div>

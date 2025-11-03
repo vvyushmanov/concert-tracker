@@ -11,7 +11,9 @@ export default async function ArtistsPage() {
     include: {
       concerts: {
         select: {
-          country: true,
+          countryObj: {
+            select: { name: true }
+          },
           dateStart: true,
         }
       }
@@ -24,7 +26,7 @@ export default async function ArtistsPage() {
   // Calculate stats with upcoming concerts only
   const artistsWithStats = artists.map(artist => {
     const upcomingConcerts = artist.concerts.filter(c => c.dateStart >= now);
-    const uniqueCountries = new Set(upcomingConcerts.map(c => c.country));
+    const uniqueCountries = new Set(upcomingConcerts.map(c => c.countryObj?.name || 'Unknown'));
     
     return {
       id: artist.id,

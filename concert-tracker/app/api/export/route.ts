@@ -7,6 +7,7 @@ export async function GET() {
     const concerts = await prisma.concert.findMany({
       include: {
         artist: true,
+        countryObj: true,
       },
       orderBy: {
         dateStart: 'asc',
@@ -17,7 +18,7 @@ export async function GET() {
     const exportData: Record<string, Record<string, any>> = {};
 
     for (const concert of concerts) {
-      const country = concert.country;
+      const country = concert.countryObj?.name;
       const artistName = concert.artist.name;
 
       // Initialize country if not exists

@@ -7,7 +7,7 @@ export default async function CountriesPage() {
   // Get all concerts grouped by country
   const concerts = await prisma.concert.findMany({
     select: {
-      country: true,
+      countryObj: true,
       city: true,
       normalizedCity: true,
       id: true,
@@ -24,16 +24,17 @@ export default async function CountriesPage() {
 
   // Group concerts by country
   const concertsByCountry = concerts.reduce((acc, concert) => {
-    if (!acc[concert.country]) {
-      acc[concert.country] = {
+    const countryName = concert.countryObj?.name;
+    if (!acc[countryName]) {
+      acc[countryName] = {
         count: 0,
         cities: new Set<string>(),
         artists: new Set<string>(),
       };
     }
-    acc[concert.country].count++;
-    acc[concert.country].cities.add(concert.normalizedCity);
-    acc[concert.country].artists.add(concert.artist.name);
+    acc[countryName].count++;
+    acc[countryName].cities.add(concert.normalizedCity);
+    acc[countryName].artists.add(concert.artist.name);
     return acc;
   }, {} as Record<string, { count: number; cities: Set<string>; artists: Set<string> }>);
 

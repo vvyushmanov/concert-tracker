@@ -13,7 +13,11 @@ type Concert = {
   venue: string;
   city: string;
   normalizedCity: string;
-  country: string;
+  countryObj?: {
+    id: number;
+    name: string;
+    code: string;
+  } | null;
   interested: boolean;
   artistId: number;
   artist: {
@@ -58,7 +62,8 @@ export default function CalendarView({ initialConcerts, artists, countries, citi
   // Filter concerts
   const filteredConcerts = initialConcerts.filter(concert => {
     if (selectedArtist && concert.artistId !== selectedArtist) return false;
-    if (selectedCountry && concert.country !== selectedCountry) return false;
+    // Country filter
+    if (selectedCountry && concert.countryObj?.name !== selectedCountry) return false;
     if (selectedCity && concert.normalizedCity !== selectedCity) return false;
     if (showInterestedOnly && !concert.interested) return false;
     return true;
@@ -281,7 +286,7 @@ export default function CalendarView({ initialConcerts, artists, countries, citi
                         </div>
                         <h4 className="font-bold mb-1">{concert.eventName}</h4>
                         <p className="text-sm text-gray-600 dark:text-gray-400">
-                          📍 {concert.venue}, {concert.city}, {concert.country}
+                          📍 {concert.venue}, {concert.city}, {concert.countryObj?.name}
                         </p>
                       </Link>
                       <a
@@ -340,7 +345,7 @@ export default function CalendarView({ initialConcerts, artists, countries, citi
                           </div>
                           <h4 className="font-bold">{concert.eventName}</h4>
                           <p className="text-sm text-gray-600 dark:text-gray-400">
-                            📍 {concert.venue}, {concert.city}, {concert.country}
+                            📍 {concert.venue}, {concert.city}, {concert.countryObj?.name}
                           </p>
                         </Link>
                         
@@ -389,7 +394,7 @@ export default function CalendarView({ initialConcerts, artists, countries, citi
                             </div>
                             <h4 className="font-bold">{concert.eventName}</h4>
                             <p className="text-sm text-gray-600 dark:text-gray-400">
-                              📍 {concert.venue}, {concert.city}, {concert.country}
+                              📍 {concert.venue}, {concert.city}, {concert.countryObj?.name}
                             </p>
                           </Link>
                           
