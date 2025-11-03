@@ -324,3 +324,28 @@ lastfm-parser/
 - Add loading skeletons for better UX
 - Optimize image loading with blur placeholders
 - Add error boundaries for better error handling
+
+# Future Improvements and Features
+
+## Features
+
+1. Get latest setlist from setlist.fm and update concert details
+2. Add user authentication and profiles (including LastFM user)
+3. Add map visualization of concerts, including grouping of concerts within a timerange for multiple users
+4. Add Spotify integration for:
+- Play artist
+- Add setlist as playlist
+- Load recommended artists/concerts
+5. Regular background scans
+6. 
+
+## Technical Improvements
+
+1. Add pagination for large concert lists
+2. Implement caching for faster page loads
+3. Add loading skeletons for better UX
+4. Optimize image loading with blur placeholders
+5. Add error boundaries for better error handling
+
+
+
