@@ -25,7 +25,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
 
 from db_config import get_engine
-from db_models import Setting, Base
+from db_models import Setting, Base, Country
 
 # Load environment variables
 load_dotenv()
@@ -339,6 +339,36 @@ class ConfigManager:
     def _get_default(self, key: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """Internal: Get default value, type, and description"""
         return self.DEFAULTS.get(key, (None, None, None))
+    
+    def get_active_country_codes(self) -> list[str]:
+        """
+        Get list of active country codes from database with env var fallback
+        
+        Returns:
+            List of country codes (e.g., ['tr', 'fr', 'de'])
+        """
+        if not self._Session:
+            # Fallback to COUNTRY_CODES env var/setting
+            return self.get_list('COUNTRY_CODES', ['tr', 'fr', 'de'])
+        
+        session = self._Session()
+        try:
+            # Query active countries from database
+            active_countries = session.query(Country).filter(Country.active == True).all()
+            
+            if active_countries:
+                # Return codes from active countries
+                return [country.code for country in active_countries]
+            else:
+                # No active countries found, fallback to COUNTRY_CODES setting
+                return self.get_list('COUNTRY_CODES', ['tr', 'fr', 'de'])
+                
+        except Exception as e:
+            print(f"Warning: Failed to query active countries: {e}")
+            # Fallback to COUNTRY_CODES setting
+            return self.get_list('COUNTRY_CODES', ['tr', 'fr', 'de'])
+        finally:
+            session.close()
 
 
 # Convenience function for quick access
