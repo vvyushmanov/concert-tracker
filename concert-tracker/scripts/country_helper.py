@@ -145,7 +145,7 @@ def resolve_country_info(country_name: str) -> Tuple[str, str]:
     return (country_name, 'xx')
 
 
-def get_or_create_country(session, country_name: str, verbose: bool = False) -> Country:
+def get_or_create_country(session, country_name: str, active: bool = True, verbose: bool = False) -> Country:
     """
     Get existing country or create new one with automatic code resolution
     
@@ -201,6 +201,7 @@ def get_or_create_country(session, country_name: str, verbose: bool = False) -> 
     country = Country(
         name=resolved_name,  # Use resolved name (may be normalized by API)
         code=country_code,
+        active=active,
         createdAt=now,
         updatedAt=now
     )

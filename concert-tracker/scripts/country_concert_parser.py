@@ -737,9 +737,9 @@ def main():
     db_writer = None
     if not args.dry_run and args.output in ['db', 'both']:
         if args.db_path:
-            print(f"Database output mode: SQLite at {args.db_path}")
+            print(f"Local database output mode: SQLite at {args.db_path}")
         else:
-            print(f"Database output mode: Using DATABASE_URL environment variable")
+            print(f"Using configured database")
         db_writer = ConcertDatabaseWriter(args.db_path, debug=args.debug)
     
     # Get normalizer for display purposes
@@ -806,11 +806,9 @@ def main():
             print("   --use-proxies webshare  (add WEBSHARE_PROXY_URL to .env)")
             print("   --use-proxies custom    (create proxies.txt)\n")
         
-        # Get country codes from config
+        # Get active country codes from config (database-first with fallback)
         config = ConfigManager()
-        country_codes = config.get_list('COUNTRY_CODES')
-        if not country_codes:
-            country_codes = ['tr', 'fr', 'de']  # Fallback default
+        country_codes = config.get_active_country_codes()
         
         print(f"Country codes from config: {', '.join(country_codes)}")
         
