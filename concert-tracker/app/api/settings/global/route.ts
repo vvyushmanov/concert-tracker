@@ -27,24 +27,29 @@ export async function PATCH(request: Request) {
   for (const { key, value, valueType } of updates) {
     // Get old value for audit log
     const oldSetting = await prisma.setting.findUnique({ where: { key } });
+    const newValue = String(value);
+    const oldValue = oldSetting?.value || null;
     
-    // Update setting
-    await prisma.setting.upsert({
-      where: { key },
-      update: { value: String(value), valueType, updatedAt: now },
-      create: { key, value: String(value), valueType, createdAt: now, updatedAt: now }
-    });
+    // Only update and log if value actually changed
+    if (oldValue !== newValue) {
+      // Update setting
+      await prisma.setting.upsert({
+        where: { key },
+        update: { value: newValue, valueType, updatedAt: now },
+        create: { key, value: newValue, valueType, createdAt: now, updatedAt: now }
+      });
 
-    // Create audit log entry
-    await prisma.settingAuditLog.create({
-      data: {
-        userId,
-        key,
-        oldValue: oldSetting?.value || null,
-        newValue: String(value),
-        createdAt: now
-      }
-    });
+      // Create audit log entry only for actual changes
+      await prisma.settingAuditLog.create({
+        data: {
+          userId,
+          key,
+          oldValue,
+          newValue,
+          createdAt: now
+        }
+      });
+    }
   }
 
   return Response.json({ success: true });
