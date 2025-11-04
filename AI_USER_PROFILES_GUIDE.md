@@ -895,6 +895,67 @@ export async function POST() {
    - Separate section showing all active scans
    - Read-only view of other users' scans
    - Ability to see which users are scanning
+   - A "debug" button to start a scan with --debug flag
+
+4. **Refresh Metadata Button** (User-Based)
+   - Add "Refresh Artist Metadata" button to scanner page
+   - Calls `fetch_artist_metadata.py` with user's ID
+   - Updates artist images and MBIDs for user's artists only
+   - Shows progress/completion status
+
+**API Route (`app/api/scanner/refresh-metadata/route.ts`):**
+```ts
+import { auth } from '@/auth';
+import { spawn } from 'child_process';
+
+export async function POST() {
+  const session = await auth();
+  if (!session) return new Response('Unauthorized', { status: 401 });
+
+  const userId = parseInt(session.user.id);
+
+  // Spawn metadata refresh with user ID
+  const process = spawn('python', [
+    '/app/scripts/fetch_artist_metadata.py',
+    '--user-id', userId.toString(),
+    // Loads user's Last.fm credentials from DB
+  ]);
+
+  let output = '';
+  process.stdout.on('data', (data) => {
+    output += data.toString();
+  });
+
+  process.on('close', (code) => {
+    if (code === 0) {
+      return Response.json({ 
+        success: true, 
+        message: 'Metadata refresh completed',
+        output 
+      });
+    }
+  });
+
+  return Response.json({ success: true, message: 'Metadata refresh started' });
+}
+```
+
+**Frontend Button:**
+```tsx
+<button
+  onClick={async () => {
+    setRefreshing(true);
+    const res = await fetch('/api/scanner/refresh-metadata', { method: 'POST' });
+    const data = await res.json();
+    setRefreshing(false);
+    alert(data.message);
+  }}
+  disabled={refreshing}
+  className="px-4 py-2 bg-purple-600 text-white rounded-lg"
+>
+  {refreshing ? 'Refreshing...' : '🔄 Refresh Artist Metadata'}
+</button>
+```
 
 ## Phase 6.5 – UI Feature Restoration (User-Specific Data Integration)
 
@@ -1148,7 +1209,77 @@ export default async function CalendarPage() {
 
 ---
 
-### 6. Client Components Updates
+### 6. Country Detail Page (`app/countries/[country]/page.tsx`) ✅ COMPLETED
+
+**Implementation:**
+```ts
+import { auth } from '@/auth';
+
+export default async function CountryDetailPage({ params }: { params: Promise<{ country: string }> }) {
+  const { country: countryParam } = await params;
+  const country = decodeURIComponent(countryParam);
+  
+  const session = await auth();
+  const userId = session?.user?.id ? parseInt(session.user.id) : null;
+
+  const concerts = await prisma.concert.findMany({
+    where: {
+      countryObj: { name: country }
+    },
+    include: {
+      artist: {
+        select: {
+          id: true,
+          name: true,
+          userStats: userId ? {
+            where: { userId },
+            select: {
+              playcount: true,
+              playcount12month: true,
+              recent: true,
+            }
+          } : false,
+        },
+      },
+      userInteractions: userId ? {
+        where: { userId },
+        select: {
+          interested: true,
+          notes: true,
+        }
+      } : false,
+    },
+    orderBy: [{ dateStart: 'asc' }],
+  });
+
+  // Transform data to flatten user-specific fields
+  const transformedConcerts = concerts.map(concert => ({
+    ...concert,
+    artist: {
+      id: concert.artist.id,
+      name: concert.artist.name,
+      playcount: concert.artist.userStats?.[0]?.playcount || 0,
+      playcount12month: concert.artist.userStats?.[0]?.playcount12month || 0,
+      recent: concert.artist.userStats?.[0]?.recent || false,
+    },
+    interested: concert.userInteractions?.[0]?.interested || false,
+    notes: concert.userInteractions?.[0]?.notes || null,
+  }));
+
+  return <CountryConcerts concerts={transformedConcerts} />;
+}
+```
+
+**Client Component (`CountryConcerts.tsx`):**
+- ✅ Restored `interested` field with ⭐ star icon
+- ✅ Restored "Show Interested Only" checkbox filter
+- ✅ Restored "Artist Popularity" sort option (by playcount)
+- ✅ Restored interested-first sorting logic
+- ✅ All user-specific data properly displayed
+
+---
+
+### 7. Client Components Updates
 
 **Update `ConcertGrid.tsx`, `ConcertCard.tsx`, etc.:**
 - Accept `interested` and `notes` as props (now from `userConcerts` join)
@@ -1168,6 +1299,9 @@ After implementing Phase 6.5:
 - [ ] Home page shows interested concerts first (user-specific)
 - [ ] Concert detail page can mark interested and add notes
 - [ ] Artist pages show correct playcount for logged-in user
+- [x] **Country detail page shows user-specific data (interested, playcount)**
+- [x] **Country detail page filters by interested status**
+- [x] **Country detail page sorts by artist popularity**
 - [ ] Multiple users see different interested flags for same concert
 - [ ] Multiple users see different playcounts for same artist
 - [ ] Unauthenticated users see default values (0 playcount, not interested)
