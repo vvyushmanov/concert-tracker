@@ -609,7 +609,7 @@ def finalize_and_cleanup(db_writer, args, data_to_save, all_concerts, lastfm_art
             print(f"\n🔄 Fetching metadata for {db_writer.stats['artists_created']} new artists...")
             try:
                 from fetch_artist_metadata import fetch_metadata_for_new_artists
-                result = fetch_metadata_for_new_artists(args.db_path, silent=False)
+                result = fetch_metadata_for_new_artists(args.db_path, silent=False, user_id=args.user_id)
                 if result == 0:
                     print("✅ Metadata fetch completed")
                 else:

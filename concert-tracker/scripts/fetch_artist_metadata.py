@@ -17,7 +17,7 @@ import argparse
 import os
 import time
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
@@ -56,7 +56,7 @@ def update_user_artist_stats(session, user_id: int, artist: Artist, playcount: i
         # Update existing
         user_artist.playcount = playcount
         user_artist.playcount12month = playcount12month
-        user_artist.updatedAt = int(datetime.utcnow().timestamp())
+        user_artist.updatedAt = int(datetime.now(timezone.utc).timestamp())
     else:
         # Create new
         user_artist = UserArtist(
@@ -128,7 +128,7 @@ def fetch_fanart_image(mbid: str, api_key: str) -> tuple:
         log(f"  Error fetching fanart for {mbid}: {e}")
         return None, None
 
-def fetch_metadata_for_new_artists(db_path: str = None, silent: bool = False) -> int:
+def fetch_metadata_for_new_artists(db_path: str = None, silent: bool = False, user_id: int = None) -> int:
     """Fetch metadata (MBID + images) for artists without complete metadata
     
     This is a simplified version optimized for calling after parser runs.
@@ -137,6 +137,7 @@ def fetch_metadata_for_new_artists(db_path: str = None, silent: bool = False) ->
     Args:
         db_path: Path to SQLite database (for SQLite) or None to use DATABASE_URL env var (for MySQL)
         silent: If True, suppress most output
+        user_id: If provided, only process artists associated with this user
         
     Returns:
         0 on success, 1 on error
@@ -171,8 +172,22 @@ def fetch_metadata_for_new_artists(db_path: str = None, silent: bool = False) ->
     session = Session()
     
     try:
-        # Get all artists
-        all_artists = session.query(Artist).all()
+        # Get artists - filter by user if user_id provided
+        if user_id:
+            # Get only artists associated with this user via UserArtist table
+            user_artist_ids = session.query(UserArtist.artistId).filter_by(userId=user_id).distinct().all()
+            user_artist_ids = [id[0] for id in user_artist_ids]
+            
+            if not user_artist_ids:
+                log_internal(f"  No artists found for user ID {user_id}")
+                return 0
+            
+            all_artists = session.query(Artist).filter(Artist.id.in_(user_artist_ids)).all()
+            log_internal(f"  Processing {len(all_artists)} artists for user ID {user_id}")
+        else:
+            # Legacy mode: all artists
+            all_artists = session.query(Artist).all()
+            log_internal(f"  Processing all {len(all_artists)} artists")
         
         # MBID Auto-Repair for artists without MBID
         artists_missing_mbid = [a for a in all_artists if not a.mbid]
@@ -330,8 +345,22 @@ def main():
     Session = sessionmaker(bind=engine)
     session = Session()
     
-    # Query all artists
-    all_artists = session.query(Artist).all()
+    # Query artists - filter by user if user_id provided
+    if args.user_id:
+        # Get only artists associated with this user via UserArtist table
+        user_artist_ids = session.query(UserArtist.artistId).filter_by(userId=args.user_id).distinct().all()
+        user_artist_ids = [id[0] for id in user_artist_ids]
+        
+        if not user_artist_ids:
+            log(f"No artists found for user ID {args.user_id}")
+            return 0
+        
+        all_artists = session.query(Artist).filter(Artist.id.in_(user_artist_ids)).all()
+        log(f"Processing {len(all_artists)} artists for user ID {args.user_id}")
+    else:
+        # Legacy mode: all artists
+        all_artists = session.query(Artist).all()
+        log(f"Processing all {len(all_artists)} artists (no user filter)")
     
     # PHASE 0: Automatic MBID repair (runs always, regardless of flags)
     # This efficiently discovers and fills in missing MBIDs using bulk fetch
@@ -462,7 +491,7 @@ def main():
             if mbid:
                 log(f"  ✓ Found MBID: {mbid}")
                 artist.mbid = mbid
-                artist.updatedAt = int(datetime.utcnow().timestamp())
+                artist.updatedAt = int(datetime.now(timezone.utc).timestamp())
                 stats['mbid_fetched'] += 1
             else:
                 log(f"  ✗ MBID not found")

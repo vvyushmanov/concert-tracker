@@ -637,33 +637,14 @@ ALTER TABLE `Country` DROP COLUMN `active`;
    </div>
    ```
 
-## Phase 4 – Concert & Artist Data Flow
+## Phase 4 – Concert & Artist Data Flow ✅ COMPLETED
 
-### API Updates
-- Modify server-side data fetching to include user context:
-  ```ts
-  const concerts = await prisma.concert.findMany({
-    include: {
-      userInteractions: {
-        where: { userId: sessionUserId }
-      }
-    }
-  });
-  ```
-  Merge `interested/notes` from `UserConcert` before returning to UI.
+### API Updates (Deferred to Phase 6.5)
+- Server-side data fetching with user context will be implemented in Phase 6.5
+- Concert detail API updates will be part of UI restoration
+- Artist endpoints will include user-specific overlays in Phase 6.5
 
-- Update `/api/concerts/[id]` PATCH to upsert into `UserConcert`:
-  ```ts
-  await prisma.userConcert.upsert({
-    where: { userId_concertId: { userId, concertId } },
-    update: { interested, notes, updatedAt: now },
-    create: { userId, concertId, interested, notes, createdAt: now, updatedAt: now }
-  });
-  ```
-
-- Artist endpoints include both shared data and optional per-user overlay from `UserArtist`.
-
-### Python Parser Compatibility
+### Python Parser Compatibility ✅
 
 **Parser runs per-user, loading settings from database:**
 
@@ -761,28 +742,53 @@ def upsert_user_artist_metrics(session, user_id, artist_id, playcount, playcount
         session.add(user_artist)
 ```
 
-#### Migration Strategy for Python Scripts
+#### Migration Strategy for Python Scripts ✅ COMPLETED
 
-**Phase 4 Implementation Order:**
-1. Update `config_manager.py` with user settings loaders
-2. Update `db_writer.py` with UserArtist upsert functions
-3. Update `country_concert_parser.py` to use new loaders
-4. Update `fetch_artist_metadata.py` for optional user context
-5. Test standalone mode (env vars) still works
-6. Test scanner mode (--user-id) with database settings
+**Phase 4 Implementation - All Complete:**
+1. ✅ Updated `user_config.py` with `load_user_config()` function
+2. ✅ Updated `db_writer.py` with `get_or_create_user_artist()` function
+3. ✅ Updated `country_concert_parser.py` with `--user-id` argument and user config loading
+4. ✅ Updated `fetch_artist_metadata.py` with `--user-id` argument and user-specific playcount updates
+5. ✅ Standalone mode (env vars) still works as fallback
+6. ✅ Scanner mode ready for `--user-id` parameter
 
-## Phase 5 – Admin & User Workflows
+## Phase 5 – Admin & User Workflows ✅ COMPLETED
 
-### Admin Tools
-- **User Management Page**
-  - List users with role badges, created date, "Reset Password" button.
-  - Form to create a new user (username, temporary password, role).
+### Admin Tools ✅
+- **User Management Page** (`/admin/users`)
+  - ✅ List users with role badges, stats (artists, concerts, countries)
+  - ✅ Create new user form (username, password, role)
+  - ✅ Inline password reset
+  - ✅ Role toggle (USER ↔ ADMIN)
+  - ✅ Delete user with transaction-based cleanup
+  - ✅ All actions logged to audit log
+  
+- **Settings Integration**
+  - ✅ "Admin Tools" banner in Settings page (admin-only)
+  - ✅ "👥 User Management" button for easy access
+  
 - **Audit Viewer**
-  - Data table pulling from `/api/settings/audit`.
+  - ✅ Data table pulling from `/api/settings/audit`
+  - ✅ Clickable rows open modal with full details
+  - ✅ Filter by setting key
+  - ✅ Adjustable entry limit (25/50/100/200)
+
+### API Routes ✅
+- ✅ `GET/POST /api/admin/users` - List and create users
+- ✅ `GET/PATCH/DELETE /api/admin/users/[id]` - Individual user operations
+- ✅ All operations with validation, error handling, and audit logging
+- ✅ Manual cascade delete (UserSetting, UserConcert, UserArtist, UserActiveCountry)
+
+### Security ✅
+- ✅ Admin-only access with role checks
+- ✅ Self-deletion prevention
+- ✅ Password hashing with bcrypt (min 6 chars)
+- ✅ Complete audit trail in SettingAuditLog
 
 ### User Onboarding Flow
-- After admin creates user, prompt them to change password on first login (optional) or rely on admin-supplied credentials.
-- Wizard on first login: configure Last.fm credentials, set minimum playcount, choose active countries.
+- After admin creates user, user can log in with provided credentials
+- User configures Last.fm credentials and settings in Settings page
+- User activates countries in Countries tab
 
 ## Phase 6 – Scanner Enhancements
 
@@ -897,16 +903,38 @@ export async function POST() {
    - Ability to see which users are scanning
    - A "debug" button to start a scan with --debug flag
 
-4. **Refresh Metadata Button** (User-Based)
-   - Add "Refresh Artist Metadata" button to scanner page
-   - Calls `fetch_artist_metadata.py` with user's ID
-   - Updates artist images and MBIDs for user's artists only
-   - Shows progress/completion status
+4. **Refresh Metadata Button** (User-Based) ⚠️ NEEDS UPDATE
 
-**API Route (`app/api/scanner/refresh-metadata/route.ts`):**
+**Current Implementation:**
+- ✅ Button exists on Artists page (`app/artists/ArtistsList.tsx`)
+- ✅ API routes: `/api/metadata/refresh` (POST) and `/api/metadata/status` (GET)
+- ✅ Python script supports `--user-id` parameter
+- ❌ API route doesn't pass `--user-id` to script (runs in global mode)
+- ❌ Uses global state lock (prevents multi-user refresh)
+- ❌ No authentication check in API routes
+
+**What Needs to Change:**
+
+1. **Update `/api/metadata/refresh/route.ts`:**
+   - Add authentication check with `auth()`
+   - Track per-user refresh state (not global)
+   - Pass `--user-id` to Python script
+   - Pass `--refresh-playcounts` flag
+
+2. **Update `/api/metadata/status/route.ts`:**
+   - Add authentication check
+   - Return user-specific refresh status
+
+3. **Update `/api/state.ts`:**
+   - Change `metadataState` from single object to `Map<userId, state>`
+   - Allow multiple users to refresh simultaneously
+
+**Updated API Route (`app/api/metadata/refresh/route.ts`):**
 ```ts
-import { auth } from '@/auth';
+import { NextResponse } from 'next/server';
 import { spawn } from 'child_process';
+import { auth } from '@/auth';
+import { metadataRefreshState } from '../state';
 
 export async function POST() {
   const session = await auth();
@@ -914,48 +942,105 @@ export async function POST() {
 
   const userId = parseInt(session.user.id);
 
-  // Spawn metadata refresh with user ID
-  const process = spawn('python', [
-    '/app/scripts/fetch_artist_metadata.py',
-    '--user-id', userId.toString(),
-    // Loads user's Last.fm credentials from DB
-  ]);
+  // Check if user already has a refresh running
+  if (metadataRefreshState.has(userId)) {
+    return NextResponse.json({ 
+      error: 'You already have a metadata refresh in progress' 
+    }, { status: 409 });
+  }
 
-  let output = '';
-  process.stdout.on('data', (data) => {
-    output += data.toString();
-  });
+  try {
+    // Spawn with user ID and refresh-playcounts flag
+    const process = spawn('python3', [
+      '-u',
+      '/app/scripts/fetch_artist_metadata.py',
+      '--user-id', userId.toString(),
+      '--refresh-playcounts'
+    ], {
+      cwd: '/app/scripts',
+    });
 
-  process.on('close', (code) => {
-    if (code === 0) {
-      return Response.json({ 
-        success: true, 
-        message: 'Metadata refresh completed',
-        output 
-      });
-    }
-  });
+    // Track user's refresh
+    metadataRefreshState.set(userId, {
+      isRefreshing: true,
+      process,
+      startTime: Date.now()
+    });
 
-  return Response.json({ success: true, message: 'Metadata refresh started' });
+    // Capture stdout
+    process.stdout.on('data', (data) => {
+      const output = data.toString().trim();
+      if (output) {
+        console.log(`🔄 Metadata Refresh [User ${userId}]:`, output);
+      }
+    });
+
+    // Capture stderr
+    process.stderr.on('data', (data) => {
+      const output = data.toString().trim();
+      if (output) {
+        console.error(`⚠️  Metadata Refresh stderr [User ${userId}]:`, output);
+      }
+    });
+
+    // Handle completion
+    process.on('close', (code: number) => {
+      console.log(`✅ Metadata refresh [User ${userId}] exited with code ${code}`);
+      metadataRefreshState.delete(userId);
+    });
+
+    process.on('error', (error: Error) => {
+      console.error(`❌ Metadata refresh [User ${userId}] error:`, error);
+      metadataRefreshState.delete(userId);
+    });
+
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Metadata refresh started with your Last.fm credentials'
+    });
+
+  } catch (error) {
+    console.error('Metadata refresh error:', error);
+    metadataRefreshState.delete(userId);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
+  }
 }
 ```
 
-**Frontend Button:**
-```tsx
-<button
-  onClick={async () => {
-    setRefreshing(true);
-    const res = await fetch('/api/scanner/refresh-metadata', { method: 'POST' });
-    const data = await res.json();
-    setRefreshing(false);
-    alert(data.message);
-  }}
-  disabled={refreshing}
-  className="px-4 py-2 bg-purple-600 text-white rounded-lg"
->
-  {refreshing ? 'Refreshing...' : '🔄 Refresh Artist Metadata'}
-</button>
+**Updated Status Route (`app/api/metadata/status/route.ts`):**
+```ts
+import { NextResponse } from 'next/server';
+import { auth } from '@/auth';
+import { metadataRefreshState } from '../state';
+
+export async function GET() {
+  const session = await auth();
+  if (!session) return new Response('Unauthorized', { status: 401 });
+
+  const userId = parseInt(session.user.id);
+  const userState = metadataRefreshState.get(userId);
+
+  return NextResponse.json({ 
+    isRefreshing: userState?.isRefreshing ?? false
+  });
+}
 ```
+
+**Updated State (`app/api/state.ts`):**
+```ts
+// Add to existing state.ts file:
+export const metadataRefreshState = new Map<number, {
+  isRefreshing: boolean;
+  process: ChildProcess | null;
+  startTime: number;
+}>();
+```
+
+**No Frontend Changes Needed:**
+- `ArtistsList.tsx` already polls `/api/metadata/status` correctly
+- Button behavior remains the same
+- Multi-user support is transparent to UI
 
 ## Phase 6.5 – UI Feature Restoration (User-Specific Data Integration)
 
