@@ -15,6 +15,7 @@ export async function GET() {
     
     return NextResponse.json({
       isScanning: userState?.isScanning ?? false,
+      stats: userState?.lastStats ?? null,
     });
   } catch (error) {
     console.error('Failed to get scan status:', error);

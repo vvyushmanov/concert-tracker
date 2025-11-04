@@ -34,21 +34,47 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
 
   useEffect(() => {
     // Check if there's an active scan on mount
-    checkScanStatus();
-  }, []);
-
-  const checkScanStatus = async () => {
-    try {
-      const res = await fetch('/api/scanner/status');
-      const data = await res.json();
-      if (data.isScanning) {
-        setIsScanning(true);
-        connectToLogs();
+    const checkStatus = async () => {
+      try {
+        const res = await fetch('/api/scanner/status');
+        const data = await res.json();
+        
+        if (data.isScanning) {
+          // Scan is running - ensure we're connected to logs
+          if (!eventSourceRef.current) {
+            setIsScanning(true);
+            connectToLogs();
+          }
+        } else {
+          // Scan is not running
+          setIsScanning((prevIsScanning) => {
+            if (prevIsScanning) {
+              // Was scanning but now stopped - scan completed while we were away
+              if (eventSourceRef.current) {
+                eventSourceRef.current.close();
+                eventSourceRef.current = null;
+              }
+              // Fetch final stats if available
+              if (data.stats) {
+                setStats(data.stats);
+                showToast(`Scan complete! Found ${data.stats.new} new concerts.`, 'success');
+              }
+            }
+            return false;
+          });
+        }
+      } catch (error) {
+        console.error('Failed to check scan status:', error);
       }
-    } catch (error) {
-      console.error('Failed to check scan status:', error);
-    }
-  };
+    };
+    
+    checkStatus();
+    
+    // Poll status every 2 seconds to detect completion
+    const interval = setInterval(checkStatus, 2000);
+    
+    return () => clearInterval(interval);
+  }, []);
 
   const connectToLogs = () => {
     if (eventSourceRef.current) return;
@@ -87,16 +113,19 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
       setStats(null);
       setIsScanning(true);
       
+      const currentDebugMode = debugMode;
+      setDebugMode(false); // Reset debug mode checkbox after starting
+      
       const res = await fetch('/api/scanner/start', { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ debug: debugMode })
+        body: JSON.stringify({ debug: currentDebugMode })
       });
       const data = await res.json();
       
       if (data.success) {
         connectToLogs();
-        showToast(debugMode ? 'Scan started in DEBUG mode!' : 'Scan started!', 'success');
+        showToast(currentDebugMode ? 'Scan started in DEBUG mode!' : 'Scan started!', 'success');
       } else {
         setIsScanning(false);
         showToast(data.error || 'Failed to start scan', 'error');

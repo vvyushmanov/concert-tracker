@@ -8,6 +8,7 @@ export const scannerState = new Map<number, {
   process: ChildProcess | null;
   listeners: LogListener[];
   startTime: number;
+  lastStats?: { before: number; after: number; new: number };
 }>();
 
 export function addLogListener(userId: number, listener: LogListener) {

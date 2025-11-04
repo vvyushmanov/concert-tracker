@@ -81,12 +81,6 @@ export async function startScan(userId: number, debug: boolean = false) {
     process.on('close', async (code) => {
       console.log(`✅ Concert Parser [User ${userId}] exited with code ${code}`);
       
-      const state = scannerState.get(userId);
-      if (state) {
-        state.isScanning = false;
-        state.process = null;
-      }
-      
       // Get counts after scan - concerts associated with user via UserConcert
       const afterCount = await prisma.userConcert.count({
         where: { userId }
@@ -100,6 +94,14 @@ export async function startScan(userId: number, debug: boolean = false) {
         after: afterCount,
         new: newConcerts,
       };
+      
+      // Update state with completion info
+      const state = scannerState.get(userId);
+      if (state) {
+        state.isScanning = false;
+        state.process = null;
+        state.lastStats = stats; // Save stats for later retrieval
+      }
       
       if (code === 0) {
         broadcastLog(userId, `Scan complete! Found ${newConcerts} new concerts.`, 'complete', stats);
