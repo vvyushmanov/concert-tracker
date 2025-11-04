@@ -10,6 +10,11 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Role {
+  USER
+  ADMIN
+}
+
 model Artist {
   id              Int       @id @default(autoincrement())
   name            String    @unique @db.VarChar(255)
@@ -19,6 +24,7 @@ model Artist {
   mbid            String?   @db.VarChar(255)
   imageUrl        String?   @db.VarChar(500)
   concerts        Concert[]
+  userStats       UserArtist[]
 }
 
 model Country {
@@ -31,6 +37,7 @@ model Country {
 
   concerts     Concert[]
   cityMappings CityMapping[]
+  userActiveCountries UserActiveCountry[]
 
   @@index([code])
   @@index([name])
@@ -73,12 +80,10 @@ model Concert {
   ticketLinks  String  @db.Text // JSON array stored as text
   artistId     Int
   artist       Artist  @relation(fields: [artistId], references: [id])
-  
-  // User interaction fields
-  interested   Boolean @default(false)
-  notes        String? @db.Text
   createdAt    Int     // Unix timestamp
   updatedAt    Int     // Unix timestamp
+
+  userInteractions UserConcert[]
 
   @@index([artistId])
   @@index([city])
@@ -98,4 +103,97 @@ model Setting {
   updatedAt   Int
 
   @@index([key])
+}
+
+model User {
+  id             Int       @id @default(autoincrement())
+  username       String    @unique @db.VarChar(100)
+  hashedPassword String    @db.VarChar(255)
+  role           Role      @default(USER)
+  createdAt      Int
+  updatedAt      Int
+
+  settings        UserSetting[]
+  concerts        UserConcert[]
+  artists         UserArtist[]
+  activeCountries UserActiveCountry[]
+  auditLogs       SettingAuditLog[]
+}
+
+model UserSetting {
+  id        Int    @id @default(autoincrement())
+  userId    Int
+  key       String  @db.VarChar(100)
+  value     String  @db.Text
+  valueType String  @db.VarChar(20)
+  createdAt Int
+  updatedAt Int
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, key])
+  @@index([userId])
+}
+
+model UserConcert {
+  id         Int     @id @default(autoincrement())
+  userId     Int
+  concertId  Int
+  interested Boolean @default(false)
+  notes      String? @db.Text
+  createdAt  Int
+  updatedAt  Int
+
+  user    User    @relation(fields: [userId], references: [id])
+  concert Concert @relation(fields: [concertId], references: [id])
+
+  @@unique([userId, concertId])
+  @@index([userId])
+  @@index([concertId])
+}
+
+model UserArtist {
+  id               Int     @id @default(autoincrement())
+  userId           Int
+  artistId         Int
+  playcount        Int     @default(0)
+  playcount12month Int     @default(0)
+  recent           Boolean @default(false)
+  createdAt        Int
+  updatedAt        Int
+
+  user   User   @relation(fields: [userId], references: [id])
+  artist Artist @relation(fields: [artistId], references: [id])
+
+  @@unique([userId, artistId])
+  @@index([userId])
+  @@index([artistId])
+}
+
+model UserActiveCountry {
+  id        Int @id @default(autoincrement())
+  userId    Int
+  countryId Int
+  createdAt Int
+
+  user    User    @relation(fields: [userId], references: [id])
+  country Country @relation(fields: [countryId], references: [id])
+
+  @@unique([userId, countryId])
+  @@index([userId])
+  @@index([countryId])
+}
+
+model SettingAuditLog {
+  id        Int     @id @default(autoincrement())
+  userId    Int
+  key       String  @db.VarChar(100)
+  oldValue  String? @db.Text
+  newValue  String  @db.Text
+  createdAt Int
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([key])
+  @@index([userId])
 }

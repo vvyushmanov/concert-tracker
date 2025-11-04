@@ -8,7 +8,7 @@ This guide provides an agent-friendly, step-by-step plan to introduce multi-user
 - **Settings split**: Global (admin-controlled) vs per-user overrides
 - **Default user settings**: `MIN_PLAYCOUNT=1`, blank `LASTFM_*`, all countries inactive
 - **Per-user data**: Interested concerts, notes, artist metrics, active countries, Last.fm credentials
-- **Scanner**: runs per-user with their settings; multiple scans can run simultaneously
+- **Scanner**: each user may run at most one active scan; multiple users can scan simultaneously
 - **Audit logging**: required for changes to global settings
 
 ## Phase 1 – Data Layer Foundations
@@ -286,14 +286,15 @@ Perform equivalent operations for SQLite using `INSERT INTO ... SELECT` without 
 ### Backend
 - Extend `/api/scanner/start` to require authentication, then:
   1. Fetch per-user settings and active countries.
-  2. Spawn parser process with env vars: `LASTFM_USER`, `LASTFM_API_KEY`, `MIN_PLAYCOUNT`, plus `USER_ID` for per-user logging.
-  3. Track process ID tied to user in server memory or DB (for concurrent runs).
+  2. If the user already has an active scan, return a conflict error (or provide resume link).
+  3. Otherwise spawn parser process with env vars: `LASTFM_USER`, `LASTFM_API_KEY`, `MIN_PLAYCOUNT`, plus `USER_ID` for per-user logging.
+  4. Track process ID tied to user in server memory or DB to enforce single active scan per user while allowing concurrent scans across users.
 
 ### Frontend
 - Show scanner card per user with status list:
   - Running scans (PID, start time, last log line).
-  - Actions: Stop (only own processes), view logs.
-- Admins optionally see overview of all active scans (read-only).
+  - Actions: Stop (only own process), view logs, retry once no scans active.
+- Admins optionally see overview of all active scans (read-only) to monitor per-user limits.
 
 ## Phase 7 – Security, Testing, and Monitoring
 
@@ -318,7 +319,7 @@ Perform equivalent operations for SQLite using `INSERT INTO ... SELECT` without 
 - Optionally expose Prometheus metrics for active scans, login failures, audit events.
 
 ## Phase 8 – Rollout Plan
-1. Apply migrations in staging; populate initial admin.
+1. Run database migrations (Prisma + SQLAlchemy scripts) in staging; verify schema changes and populate initial admin.
 2. Deploy NextAuth-enabled backend & updated frontend simultaneously to avoid schema mismatch.
 3. Update Python parser deployment to latest SQLAlchemy models.
 4. Post-deploy validation checklist:
