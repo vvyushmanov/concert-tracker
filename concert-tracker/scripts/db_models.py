@@ -40,13 +40,12 @@ class Country(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String, unique=True, nullable=False, index=True)  # Full name: "Turkey", "France"
     code = Column(String, unique=True, nullable=False, index=True)  # ISO code: "tr", "fr"
-    active = Column(Boolean, nullable=False, default=False, index=True)  # Whether this country is active for scanning
     createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()))
     updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()), onupdate=lambda: int(datetime.utcnow().timestamp()))
     user_active_countries = relationship('UserActiveCountry', back_populates='country', cascade='all, delete-orphan')
 
     def __repr__(self):
-        return f"<Country(id={self.id}, name='{self.name}', code='{self.code}', active={self.active})>"
+        return f"<Country(id={self.id}, name='{self.name}', code='{self.code}')>"
 
 
 class CityMapping(Base):

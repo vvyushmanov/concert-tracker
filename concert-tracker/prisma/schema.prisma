@@ -31,7 +31,6 @@ model Country {
   id        Int       @id @default(autoincrement())
   name      String    @unique @db.VarChar(100) // Full country name: "Turkey", "France"
   code      String    @unique @db.VarChar(10)  // ISO country code: "tr", "fr"
-  active    Boolean   @default(false)          // Whether this country is active for scanning
   createdAt Int
   updatedAt Int
 
@@ -41,7 +40,6 @@ model Country {
 
   @@index([code])
   @@index([name])
-  @@index([active])
 }
 
 model CityMapping {

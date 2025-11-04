@@ -10,9 +10,9 @@ export default async function Home() {
   };
 
   // Query with all fields including dates (now Unix timestamps)
+  // Note: 'interested' is now per-user in UserConcert table (Phase 4)
   const concerts = await prisma.concert.findMany({
     orderBy: [
-      { interested: 'desc' }, // Pinned concerts first
       { dateStart: 'asc' },
     ],
     include: {
