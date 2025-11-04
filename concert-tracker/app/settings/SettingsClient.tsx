@@ -202,6 +202,24 @@ export default function SettingsClient({ isAdmin, userId }: { isAdmin: boolean; 
         </nav>
       </div>
 
+      {/* Admin Quick Actions */}
+      {isAdmin && (
+        <div className="mb-6 p-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-semibold text-purple-900 dark:text-purple-100">Admin Tools</h3>
+              <p className="text-sm text-purple-700 dark:text-purple-300">Manage users and system settings</p>
+            </div>
+            <button
+              onClick={() => router.push('/admin/users')}
+              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+            >
+              👥 User Management
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Render Tab Content */}
       {activeTab === 'countries' ? (
         <CountriesTab isAdmin={isAdmin} />

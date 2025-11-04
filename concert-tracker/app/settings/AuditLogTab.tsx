@@ -20,6 +20,7 @@ export default function AuditLogTab() {
   const [error, setError] = useState<string | null>(null);
   const [filterKey, setFilterKey] = useState('');
   const [limit, setLimit] = useState(50);
+  const [selectedLog, setSelectedLog] = useState<AuditLogEntry | null>(null);
 
   useEffect(() => {
     fetchLogs();
@@ -160,7 +161,11 @@ export default function AuditLogTab() {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {logs.map((log) => (
-                  <tr key={log.id} className="hover:bg-gray-50">
+                  <tr 
+                    key={log.id} 
+                    onClick={() => setSelectedLog(log)}
+                    className="hover:bg-gray-50 cursor-pointer transition-colors"
+                  >
                     <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
                       {formatDate(log.createdAt)}
                     </td>
@@ -187,6 +192,98 @@ export default function AuditLogTab() {
           Showing {logs.length} {logs.length === 1 ? 'entry' : 'entries'}
         </div>
       </div>
+
+      {/* Modal for full log details */}
+      {selectedLog && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+          onClick={() => setSelectedLog(null)}
+        >
+          <div 
+            className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                  Audit Log Details
+                </h3>
+                <button
+                  onClick={() => setSelectedLog(null)}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                    Date & Time
+                  </label>
+                  <div className="text-gray-900 dark:text-gray-100 bg-gray-50 dark:bg-gray-700 p-3 rounded">
+                    {formatDate(selectedLog.createdAt)}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                    User
+                  </label>
+                  <div className="text-gray-900 dark:text-gray-100 bg-gray-50 dark:bg-gray-700 p-3 rounded">
+                    {selectedLog.user.username} (ID: {selectedLog.userId})
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                    Setting Key
+                  </label>
+                  <div className="text-gray-900 dark:text-gray-100 bg-gray-50 dark:bg-gray-700 p-3 rounded font-mono">
+                    {selectedLog.key}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                    Old Value
+                  </label>
+                  <div className="text-gray-900 dark:text-gray-100 bg-gray-50 dark:bg-gray-700 p-3 rounded whitespace-pre-wrap break-words font-mono text-sm">
+                    {selectedLog.oldValue || <span className="text-gray-400 italic">empty</span>}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                    New Value
+                  </label>
+                  <div className="text-gray-900 dark:text-gray-100 bg-gray-50 dark:bg-gray-700 p-3 rounded whitespace-pre-wrap break-words font-mono text-sm">
+                    {selectedLog.newValue}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                    Entry ID
+                  </label>
+                  <div className="text-gray-900 dark:text-gray-100 bg-gray-50 dark:bg-gray-700 p-3 rounded font-mono text-sm">
+                    #{selectedLog.id}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 flex justify-end">
+                <button
+                  onClick={() => setSelectedLog(null)}
+                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

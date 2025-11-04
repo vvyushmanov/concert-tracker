@@ -16,15 +16,15 @@ enum Role {
 }
 
 model Artist {
-  id              Int       @id @default(autoincrement())
-  name            String    @unique
-  playcount       Int       @default(0)
-  playcount12month Int      @default(0)
-  recent          Boolean   @default(false)
-  mbid            String?
-  imageUrl        String?
-  concerts        Concert[]
-  userStats       UserArtist[]
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  mbid      String?
+  imageUrl  String?
+  createdAt Int       @default(0)
+  updatedAt Int       @default(0)
+  
+  concerts  Concert[]
+  userStats UserArtist[]
 }
 
 model Country {

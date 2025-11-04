@@ -1,26 +1,51 @@
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/auth';
 import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
 
 export default async function CountriesPage() {
-  // Get all concerts grouped by country
-  const concerts = await prisma.concert.findMany({
+  const session = await auth();
+  
+  // Require authentication
+  if (!session) {
+    return (
+      <div className="min-h-screen p-8 bg-gray-50 dark:bg-gray-900">
+        <main className="max-w-7xl mx-auto">
+          <div className="text-center py-16">
+            <h1 className="text-3xl font-bold mb-4">Please Log In</h1>
+            <p className="text-gray-600 dark:text-gray-400">
+              You need to be logged in to view your countries.
+            </p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  const userId = parseInt(session.user.id);
+
+  // Get only user's concerts
+  const userConcerts = await prisma.userConcert.findMany({
+    where: { userId },
     select: {
-      countryObj: true,
-      city: true,
-      normalizedCity: true,
-      id: true,
-      artist: {
+      concert: {
         select: {
-          name: true,
-        },
-      },
-    },
-    orderBy: {
-      dateStart: 'asc',
-    },
+          countryObj: true,
+          city: true,
+          normalizedCity: true,
+          id: true,
+          artist: {
+            select: {
+              name: true,
+            },
+          },
+        }
+      }
+    }
   });
+
+  const concerts = userConcerts.map(uc => uc.concert);
 
   // Group concerts by country
   const concertsByCountry = concerts.reduce((acc, concert) => {

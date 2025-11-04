@@ -14,23 +14,22 @@ Base = declarative_base()
 
 
 class Artist(Base):
-    """Artist model - matches Prisma Artist schema"""
+    """Artist model - shared artist data (no user-specific fields)"""
     __tablename__ = 'Artist'
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String, unique=True, nullable=False, index=True)
-    playcount = Column(Integer, nullable=False, default=0)
-    playcount12month = Column(Integer, nullable=False, default=0)  # Last 12 months playcount
-    recent = Column(Boolean, nullable=False, default=False)
     mbid = Column(String, nullable=True)  # MusicBrainz ID
-    imageUrl = Column(String, nullable=True)  # Last.fm artist image (large size)
+    imageUrl = Column(String, nullable=True)  # Artist image from fanart.tv or Last.fm
+    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()))
+    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()), onupdate=lambda: int(datetime.utcnow().timestamp()))
     
     # Relationship
     concerts = relationship('Concert', back_populates='artist', cascade='all, delete-orphan')
     user_stats = relationship('UserArtist', back_populates='artist', cascade='all, delete-orphan')
     
     def __repr__(self):
-        return f"<Artist(id={self.id}, name='{self.name}', playcount={self.playcount})>"
+        return f"<Artist(id={self.id}, name='{self.name}', mbid={self.mbid})>"
 
 
 class Country(Base):
@@ -159,8 +158,8 @@ class UserConcert(Base):
     __tablename__ = 'UserConcert'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    userId = Column(Integer, ForeignKey('User.id'), nullable=False, index=True)
-    concertId = Column(Integer, ForeignKey('Concert.id'), nullable=False, index=True)
+    userId = Column(Integer, ForeignKey('User.id'), nullable=False)
+    concertId = Column(Integer, ForeignKey('Concert.id'), nullable=False)
     interested = Column(Boolean, nullable=False, default=False)
     notes = Column(Text, nullable=True)
     createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()))
@@ -181,8 +180,8 @@ class UserArtist(Base):
     __tablename__ = 'UserArtist'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    userId = Column(Integer, ForeignKey('User.id'), nullable=False, index=True)
-    artistId = Column(Integer, ForeignKey('Artist.id'), nullable=False, index=True)
+    userId = Column(Integer, ForeignKey('User.id'), nullable=False)
+    artistId = Column(Integer, ForeignKey('Artist.id'), nullable=False)
     playcount = Column(Integer, nullable=False, default=0)
     playcount12month = Column(Integer, nullable=False, default=0)
     recent = Column(Boolean, nullable=False, default=False)
@@ -204,8 +203,8 @@ class UserActiveCountry(Base):
     __tablename__ = 'UserActiveCountry'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    userId = Column(Integer, ForeignKey('User.id'), nullable=False, index=True)
-    countryId = Column(Integer, ForeignKey('Country.id'), nullable=False, index=True)
+    userId = Column(Integer, ForeignKey('User.id'), nullable=False)
+    countryId = Column(Integer, ForeignKey('Country.id'), nullable=False)
     createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()))
 
     user = relationship('User', back_populates='activeCountries')

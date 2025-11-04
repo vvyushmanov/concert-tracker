@@ -15,10 +15,13 @@ type Concert = {
   city: string;
   normalizedCity: string;
   interested: boolean;
+  notes: string | null;
   artist: {
     id: number;
     name: string;
     playcount: number;
+    playcount12month: number;
+    recent: boolean;
   };
 };
 
@@ -106,6 +109,7 @@ export default function CountryConcerts({ concerts }: CountryConcertsProps) {
     return {
       upcomingConcerts: sortConcerts(upcoming),
       pastConcerts: sortConcerts(past),
+      totalFiltered: showInterestedOnly ? filtered.filter(c => c.interested).length : filtered.length,
     };
   }, [concerts, searchQuery, selectedArtist, selectedCity, showInterestedOnly, sortBy, now]);
   
@@ -135,11 +139,6 @@ export default function CountryConcerts({ concerts }: CountryConcertsProps) {
         href={`/concerts/${concert.id}`}
         className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow block relative"
       >
-        {concert.interested && (
-          <div className="absolute top-2 right-2 z-10 bg-yellow-400 text-yellow-900 px-2 py-1 rounded-full text-xs font-bold">
-            ⭐ Pinned
-          </div>
-        )}
         {concert.imageUrl && (
           <Image 
             src={concert.imageUrl} 
@@ -150,10 +149,13 @@ export default function CountryConcerts({ concerts }: CountryConcertsProps) {
           />
         )}
         <div className="p-4">
-          <div className="mb-2">
+          <div className="mb-2 flex items-center justify-between">
             <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">
               {concert.artist.name}
             </span>
+            {concert.interested && (
+              <span className="text-yellow-500 text-xl" title="Interested">⭐</span>
+            )}
           </div>
           <h3 className="font-bold mb-2 line-clamp-2">
             {concert.eventName}
@@ -241,9 +243,9 @@ export default function CountryConcerts({ concerts }: CountryConcertsProps) {
                 type="checkbox"
                 checked={showInterestedOnly}
                 onChange={(e) => setShowInterestedOnly(e.target.checked)}
-                className="w-4 h-4"
+                className="w-4 h-4 rounded"
               />
-              <span className="text-sm font-medium">Interested Only</span>
+              <span className="text-sm whitespace-nowrap">⭐ Interested Only</span>
             </label>
           </div>
 

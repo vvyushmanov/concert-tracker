@@ -715,6 +715,12 @@ def main():
         action='store_true',
         help='Enable debug mode with verbose logging and timing information'
     )
+    parser.add_argument(
+        '--user-id',
+        type=int,
+        help='User ID for per-user data (creates UserArtist and UserConcert links)',
+        default=None
+    )
     
     args = parser.parse_args()
     
@@ -740,7 +746,9 @@ def main():
             print(f"Local database output mode: SQLite at {args.db_path}")
         else:
             print(f"Using configured database")
-        db_writer = ConcertDatabaseWriter(args.db_path, debug=args.debug)
+        if args.user_id:
+            print(f"User-specific mode: Writing to UserArtist and UserConcert for user ID {args.user_id}")
+        db_writer = ConcertDatabaseWriter(args.db_path, user_id=args.user_id, debug=args.debug)
     
     # Get normalizer for display purposes
     # In normal mode: use db_writer's normalizer
@@ -806,11 +814,41 @@ def main():
             print("   --use-proxies webshare  (add WEBSHARE_PROXY_URL to .env)")
             print("   --use-proxies custom    (create proxies.txt)\n")
         
-        # Get active country codes from config (database-first with fallback)
-        config = ConfigManager()
-        country_codes = config.get_active_country_codes()
-        
-        print(f"Country codes from config: {', '.join(country_codes)}")
+        # Load user-specific or global config
+        if args.user_id:
+            # User-specific mode: load from UserSetting and UserActiveCountry
+            from user_config import load_user_config
+            try:
+                user_config_data = load_user_config(args.user_id, args.db_path)
+                user_settings = user_config_data['settings']
+                country_codes = user_config_data['active_countries']
+                
+                print(f"User: {user_config_data['user'].username} (ID: {args.user_id})")
+                print(f"Active countries for user: {', '.join(country_codes) if country_codes else 'None'}")
+                
+                if not country_codes:
+                    print("ERROR: No active countries configured for this user")
+                    print("Please activate countries in the Settings page before running the scanner")
+                    return 1
+                
+                # Get Last.fm settings from user config
+                lastfm_api_key = user_settings.get('LASTFM_API_KEY')
+                lastfm_user = user_settings.get('LASTFM_USER')
+                min_playcount = int(user_settings.get('MIN_PLAYCOUNT', '1'))
+                
+            except ValueError as e:
+                print(f"ERROR: {e}")
+                return 1
+        else:
+            # Global mode: use ConfigManager (legacy)
+            config = ConfigManager()
+            country_codes = config.get_active_country_codes()
+            
+            print(f"Country codes from config: {', '.join(country_codes)}")
+            
+            lastfm_api_key = config.get('LASTFM_API_KEY')
+            lastfm_user = config.get('LASTFM_USER', 'Megalox2')
+            min_playcount = config.get_int('MIN_PLAYCOUNT', 40)
         
         # Fetch Last.fm artists if filtering is enabled
         lastfm_artists = set()
@@ -818,18 +856,15 @@ def main():
         artist_playcounts = {}
         
         if not args.no_filter:
-            config = ConfigManager()
-            lastfm_api_key = config.get('LASTFM_API_KEY')
             if not lastfm_api_key:
                 print("ERROR: LASTFM_API_KEY not found in settings")
                 return 1
             
-            # Get Last.fm user from config
-            lastfm_user = config.get('LASTFM_USER', 'Megalox2')
-            print(f"Last.fm user: {lastfm_user}")
+            if not lastfm_user:
+                print("ERROR: LASTFM_USER not found in settings")
+                return 1
             
-            # Get min playcount from config
-            min_playcount = config.get_int('MIN_PLAYCOUNT', 40)
+            print(f"Last.fm user: {lastfm_user}")
             print(f"Minimum playcount threshold: {min_playcount}")
             
             lastfm_artists, recent_artists, artist_playcounts, artist_playcounts_12month, artist_mbids = fetch_lastfm_artists(

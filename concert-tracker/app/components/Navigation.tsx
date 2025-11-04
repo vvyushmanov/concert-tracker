@@ -2,12 +2,10 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useState } from 'react';
 
 export default function Navigation() {
   const pathname = usePathname();
   const router = useRouter();
-  const [isRefreshing, setIsRefreshing] = useState(false);
   
   const navItems = [
     { href: '/', label: 'All Concerts', icon: '🎸' },
@@ -15,19 +13,6 @@ export default function Navigation() {
     { href: '/countries', label: 'By Country', icon: '🌍' },
     { href: '/calendar', label: 'Calendar', icon: '📅' },
   ];
-  
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    try {
-      // First revalidate the cache
-      await fetch('/api/revalidate', { method: 'POST' });
-      router.refresh();
-    } catch (error) {
-      console.error('Failed to refresh:', error);
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
   
   const handleRescan = () => {
     router.push('/scanner');
@@ -70,16 +55,6 @@ export default function Navigation() {
             </div>
             
             <button
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              className="flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-200 hover:bg-blue-200 dark:hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Refresh page data"
-            >
-              <span>🔄</span>
-              <span className="hidden sm:inline">Refresh</span>
-            </button>
-            
-            <button
               onClick={handleRescan}
               className="flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200 hover:bg-green-200 dark:hover:bg-green-800"
               title="Open concert scanner"
@@ -87,16 +62,6 @@ export default function Navigation() {
               <span>🔍</span>
               <span className="hidden sm:inline">Scanner</span>
             </button>
-            
-            <a
-              href="/api/export"
-              className="flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-200 hover:bg-purple-200 dark:hover:bg-purple-800"
-              title="Export all data to JSON"
-              download
-            >
-              <span>💾</span>
-              <span className="hidden sm:inline">Export</span>
-            </a>
             
             <Link
               href="/settings"

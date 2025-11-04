@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/auth';
 import Link from 'next/link';
 import Image from 'next/image';
 import { notFound } from 'next/navigation';
@@ -7,6 +8,7 @@ import ArtistConcerts from './ArtistConcerts';
 export const dynamic = 'force-dynamic';
 
 export default async function ArtistDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const session = await auth();
   const { id } = await params;
   const artistId = parseInt(id);
   
@@ -14,27 +16,69 @@ export default async function ArtistDetailPage({ params }: { params: Promise<{ i
     notFound();
   }
 
+  // Require authentication
+  if (!session) {
+    return (
+      <div className="min-h-screen p-8 bg-gray-50 dark:bg-gray-900">
+        <main className="max-w-7xl mx-auto">
+          <div className="text-center py-16">
+            <h1 className="text-3xl font-bold mb-4">Please Log In</h1>
+            <p className="text-gray-600 dark:text-gray-400">
+              You need to be logged in to view artist details.
+            </p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  const userId = parseInt(session.user.id);
+
   const artist = await prisma.artist.findUnique({
     where: { id: artistId },
-    include: {
-      concerts: {
-        include: {
-          countryObj: true,
-        },
-        orderBy: [
-          { interested: 'desc' }, // Pinned concerts first
-          { dateStart: 'asc' },
-        ],
-      },
-    },
   });
 
   if (!artist) {
     notFound();
   }
 
+  // Get only user's concerts for this artist
+  const userConcerts = await prisma.userConcert.findMany({
+    where: { 
+      userId,
+      concert: {
+        artistId
+      }
+    },
+    include: {
+      concert: {
+        include: {
+          countryObj: true,
+        }
+      }
+    },
+    orderBy: {
+      concert: {
+        dateStart: 'asc'
+      }
+    }
+  });
+
+  const concerts = userConcerts.map(uc => ({
+    ...uc.concert,
+    interested: uc.interested,
+    notes: uc.notes,
+  }));
+
+  // Get user-specific artist stats
+  const userArtistStats = await prisma.userArtist.findUnique({
+    where: {
+      userId_artistId: { userId, artistId }
+    }
+  });
+
   // Get unique countries
-  const countries = [...new Set(artist.concerts.map(c => c.countryObj?.name || 'Unknown'))];
+  const countries = [...new Set(concerts.map(c => c.countryObj?.name || 'Unknown'))];
 
   return (
     <div className="min-h-screen p-8 bg-gray-50 dark:bg-gray-900">
@@ -69,7 +113,7 @@ export default async function ArtistDetailPage({ params }: { params: Promise<{ i
             <div className="flex-1">
               <div className="flex items-start justify-between mb-4">
                 <h1 className="text-4xl font-bold">{artist.name}</h1>
-                {artist.recent && (
+                {userArtistStats?.recent && (
                   <span className="text-sm bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 px-3 py-1 rounded-full">
                     Recently Played
                   </span>
@@ -79,15 +123,15 @@ export default async function ArtistDetailPage({ params }: { params: Promise<{ i
               <div className="flex flex-wrap gap-6 text-gray-600 dark:text-gray-400">
                 <div className="flex items-center gap-2">
                   <span className="text-xl">🎧</span>
-                  <span>{artist.playcount12month.toLocaleString()} plays (12 months)</span>
+                  <span>{(userArtistStats?.playcount12month || 0).toLocaleString()} plays (12 months)</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xl">🔊</span>
-                  <span>{artist.playcount.toLocaleString()} all-time plays</span>
+                  <span>{(userArtistStats?.playcount || 0).toLocaleString()} all-time plays</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xl">🎤</span>
-                  <span>{artist.concerts.length} {artist.concerts.length === 1 ? 'concert' : 'concerts'}</span>
+                  <span>{concerts.length} {concerts.length === 1 ? 'concert' : 'concerts'}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xl">🌍</span>
@@ -118,7 +162,7 @@ export default async function ArtistDetailPage({ params }: { params: Promise<{ i
         </div>
 
         {/* Concerts */}
-        <ArtistConcerts concerts={artist.concerts} />
+        <ArtistConcerts concerts={concerts} />
       </main>
     </div>
   );

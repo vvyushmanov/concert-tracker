@@ -22,10 +22,11 @@ from dotenv import load_dotenv
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
-from db_models import Artist
+from db_models import Artist, UserArtist
 from db_config import get_engine
 from concert_utils import fetch_all_user_artists, lookup_artist_playcounts
 from config_manager import ConfigManager
+from user_config import load_user_config
 
 # Load environment variables
 load_dotenv()
@@ -34,6 +35,38 @@ def log(message: str):
     """Log message with timestamp"""
     timestamp = datetime.now().strftime("%H:%M:%S")
     print(f"[{timestamp}] {message}")
+
+
+def update_user_artist_stats(session, user_id: int, artist: Artist, playcount: int, playcount12month: int):
+    """Update or create UserArtist stats for a specific user
+    
+    Args:
+        session: Database session
+        user_id: User ID
+        artist: Artist object
+        playcount: Overall playcount
+        playcount12month: 12-month playcount
+    """
+    user_artist = session.query(UserArtist).filter_by(
+        userId=user_id,
+        artistId=artist.id
+    ).first()
+    
+    if user_artist:
+        # Update existing
+        user_artist.playcount = playcount
+        user_artist.playcount12month = playcount12month
+        user_artist.updatedAt = int(datetime.utcnow().timestamp())
+    else:
+        # Create new
+        user_artist = UserArtist(
+            userId=user_id,
+            artistId=artist.id,
+            playcount=playcount,
+            playcount12month=playcount12month,
+            recent=False  # Will be updated by parser
+        )
+        session.add(user_artist)
 
 
 def fetch_fanart_image(mbid: str, api_key: str) -> tuple:
@@ -216,6 +249,11 @@ def main():
         help='Path to SQLite database (optional if DATABASE_URL env var is set)'
     )
     parser.add_argument(
+        '--user-id',
+        type=int,
+        help='User ID for per-user playcount updates (recommended)'
+    )
+    parser.add_argument(
         '--limit',
         type=int,
         help='Limit number of artists to process (for testing)'
@@ -239,22 +277,42 @@ def main():
     
     args = parser.parse_args()
     
-    # Get API keys from config
-    config = ConfigManager()
-    fanart_api_key = config.get('FANART_API_KEY')
+    # Load user-specific or global config
+    if args.user_id:
+        # User-specific mode
+        try:
+            user_config_data = load_user_config(args.user_id, args.db_path)
+            user_settings = user_config_data['settings']
+            lastfm_api_key = user_settings.get('LASTFM_API_KEY')
+            lastfm_user = user_settings.get('LASTFM_USER')
+            log(f"User-specific mode: {user_config_data['user'].username} (ID: {args.user_id})")
+            log(f"Last.fm user: {lastfm_user}")
+        except ValueError as e:
+            print(f"Error: {e}")
+            return 1
+        
+        # Get FANART_API_KEY from global config (shared resource)
+        config = ConfigManager()
+        fanart_api_key = config.get('FANART_API_KEY')
+    else:
+        # Global mode (legacy)
+        log("WARNING: Running in legacy mode without --user-id")
+        log("Playcounts will not be saved. Use --user-id for full functionality.")
+        config = ConfigManager()
+        fanart_api_key = config.get('FANART_API_KEY')
+        lastfm_api_key = config.get('LASTFM_API_KEY')
+        lastfm_user = config.get('LASTFM_USER', 'Megalox2')
+        log(f"Last.fm user: {lastfm_user}")
+    
     if not fanart_api_key:
         print("Error: FANART_API_KEY not found in settings")
         print("Get your free API key from: https://fanart.tv/get-an-api-key/")
         return 1
     
-    lastfm_api_key = config.get('LASTFM_API_KEY')
     if not lastfm_api_key:
         print("Error: LASTFM_API_KEY not found in settings")
         print("Get your API key from: https://www.last.fm/api/account/create")
         return 1
-    
-    lastfm_user = config.get('LASTFM_USER', 'Megalox2')
-    log(f"Last.fm user: {lastfm_user}")
     
     # Connect to database
     try:
@@ -267,24 +325,7 @@ def main():
         print(f"Error: {e}")
         return 1
     
-    # Check if playcount12month column exists, add it if not
-    try:
-        with engine.connect() as conn:
-            # Try to query the column
-            result = conn.execute(text("SELECT playcount12month FROM Artist LIMIT 1"))
-            result.close()
-            log("Database schema is up to date")
-    except Exception:
-        # Column doesn't exist, add it
-        log("Adding playcount12month column to Artist table...")
-        try:
-            with engine.connect() as conn:
-                conn.execute(text("ALTER TABLE Artist ADD COLUMN playcount12month INTEGER NOT NULL DEFAULT 0"))
-                conn.commit()
-                log("✓ Successfully added playcount12month column")
-        except Exception as e:
-            log(f"Error adding column: {e}")
-            return 1
+    # Schema check removed - playcounts are now in UserArtist table
     
     Session = sessionmaker(bind=engine)
     session = Session()
@@ -408,7 +449,7 @@ def main():
         for artist in artists_without_mbid:
             current_index += 1
             log(f"[{current_index}/{total_count}] Processing: {artist.name}")
-            log(f"  Current: playcount={artist.playcount}, playcount12month={artist.playcount12month}, MBID=None")
+            log(f"  Current: MBID=None")
             
             # Look up playcounts and MBID from pre-fetched data
             playcount, playcount_12month, mbid = lookup_artist_playcounts(
@@ -421,16 +462,16 @@ def main():
             if mbid:
                 log(f"  ✓ Found MBID: {mbid}")
                 artist.mbid = mbid
+                artist.updatedAt = int(datetime.utcnow().timestamp())
                 stats['mbid_fetched'] += 1
             else:
                 log(f"  ✗ MBID not found")
                 stats['mbid_not_found'] += 1
             
-            # Update playcounts
-            if playcount > 0 or playcount_12month > 0:
-                log(f"  ✓ Updated playcounts: overall={playcount}, 12-month={playcount_12month}")
-                artist.playcount = playcount
-                artist.playcount12month = playcount_12month
+            # Update user-specific playcounts
+            if args.user_id and (playcount > 0 or playcount_12month > 0):
+                log(f"  ✓ Updated user playcounts: overall={playcount}, 12-month={playcount_12month}")
+                update_user_artist_stats(session, args.user_id, artist, playcount, playcount_12month)
                 stats['playcounts_updated'] += 1
             
             # Try to fetch image from fanart.tv if we have MBID
@@ -523,7 +564,6 @@ def main():
         
         for idx, artist in enumerate(artists_for_playcount_refresh, 1):
             log(f"[{idx}/{total_to_refresh}] Refreshing playcounts: {artist.name}")
-            log(f"  Current: playcount={artist.playcount}, playcount12month={artist.playcount12month}")
             
             # Look up playcounts from pre-fetched data
             playcount, playcount_12month, _ = lookup_artist_playcounts(
@@ -533,13 +573,12 @@ def main():
                 month12_dict
             )
             
-            if playcount > 0 or playcount_12month > 0:
-                log(f"  ✓ Updated playcounts: overall={playcount}, 12-month={playcount_12month}")
-                artist.playcount = playcount
-                artist.playcount12month = playcount_12month
+            if args.user_id and (playcount > 0 or playcount_12month > 0):
+                log(f"  ✓ Updated user playcounts: overall={playcount}, 12-month={playcount_12month}")
+                update_user_artist_stats(session, args.user_id, artist, playcount, playcount_12month)
                 stats['playcounts_updated'] += 1
             else:
-                log(f"  ✗ No playcount data found")
+                log(f"  ✗ No playcount data found or no user-id specified")
             
             # Commit after each artist to save progress
             try:

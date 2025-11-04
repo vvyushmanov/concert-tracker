@@ -9,7 +9,7 @@ from typing import List, Dict, Set
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from db_models import Artist, Concert, get_session
+from db_models import Artist, Concert, UserArtist, UserConcert, get_session
 from city_normalizer import CityNormalizer
 from country_helper import get_or_create_country
 
@@ -17,15 +17,17 @@ from country_helper import get_or_create_country
 class ConcertDatabaseWriter:
     """Writes concert data to database (SQLite or MySQL)"""
     
-    def __init__(self, db_path: str = None, auto_add_mappings: bool = False, debug: bool = False):
+    def __init__(self, db_path: str = None, user_id: int = None, auto_add_mappings: bool = False, debug: bool = False):
         """Initialize database writer
         
         Args:
             db_path: Path to SQLite database file (for SQLite) or None to use DATABASE_URL env var (for MySQL)
+            user_id: User ID for per-user data (UserArtist, UserConcert). If None, uses legacy global mode.
             auto_add_mappings: If True, automatically add common manual city mappings
             debug: If True, enable verbose logging in normalizer
         """
         self.db_path = db_path
+        self.user_id = user_id
         self.debug = debug
         self.session = get_session(db_path)
         self.normalizer = CityNormalizer(self.session, verbose=debug)
@@ -39,6 +41,9 @@ class ConcertDatabaseWriter:
             'artists_updated': 0,
             'concerts_created': 0,
             'concerts_updated': 0,
+            'user_artists_created': 0,
+            'user_artists_updated': 0,
+            'user_concerts_created': 0,
             'cities_normalized': 0,
             'errors': 0
         }
@@ -86,14 +91,11 @@ class ConcertDatabaseWriter:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
     
-    def get_or_create_artist(self, name: str, playcount: int = 0, playcount12month: int = 0, recent: bool = False, mbid: str = None) -> Artist:
-        """Get existing artist or create new one
+    def get_or_create_artist(self, name: str, mbid: str = None) -> Artist:
+        """Get existing artist or create new one (shared data only)
         
         Args:
             name: Artist name
-            playcount: Last.fm overall playcount
-            playcount12month: Last.fm 12-month playcount
-            recent: Whether artist is recently listened to
             mbid: MusicBrainz ID for fetching images later
             
         Returns:
@@ -102,29 +104,94 @@ class ConcertDatabaseWriter:
         artist = self.session.query(Artist).filter_by(name=name).first()
         
         if artist:
-            # Update playcount, playcount12month, recent flag, and mbid if changed
-            updated = False
-            if artist.playcount != playcount:
-                artist.playcount = playcount
-                updated = True
-            if artist.playcount12month != playcount12month:
-                artist.playcount12month = playcount12month
-                updated = True
-            if artist.recent != recent:
-                artist.recent = recent
-                updated = True
+            # Update mbid if provided and changed
             if mbid and artist.mbid != mbid:
                 artist.mbid = mbid
-                updated = True
-            if updated:
+                artist.updatedAt = int(datetime.utcnow().timestamp())
                 self.stats['artists_updated'] += 1
         else:
-            # Create new artist
-            artist = Artist(name=name, playcount=playcount, playcount12month=playcount12month, recent=recent, mbid=mbid)
+            # Create new artist (shared data only)
+            artist = Artist(name=name, mbid=mbid)
             self.session.add(artist)
             self.stats['artists_created'] += 1
         
         return artist
+    
+    def get_or_create_user_artist(self, artist: Artist, playcount: int = 0, playcount12month: int = 0, recent: bool = False) -> UserArtist:
+        """Get existing UserArtist or create new one (user-specific artist metrics)
+        
+        Args:
+            artist: Artist object
+            playcount: Last.fm overall playcount for this user
+            playcount12month: Last.fm 12-month playcount for this user
+            recent: Whether artist is recently listened to by this user
+            
+        Returns:
+            UserArtist object
+        """
+        if not self.user_id:
+            raise ValueError("user_id must be set to use per-user artist metrics")
+        
+        user_artist = self.session.query(UserArtist).filter_by(
+            userId=self.user_id,
+            artistId=artist.id
+        ).first()
+        
+        if user_artist:
+            # Update metrics if changed
+            updated = False
+            if user_artist.playcount != playcount:
+                user_artist.playcount = playcount
+                updated = True
+            if user_artist.playcount12month != playcount12month:
+                user_artist.playcount12month = playcount12month
+                updated = True
+            if user_artist.recent != recent:
+                user_artist.recent = recent
+                updated = True
+            if updated:
+                user_artist.updatedAt = int(datetime.utcnow().timestamp())
+                self.stats['user_artists_updated'] += 1
+        else:
+            # Create new UserArtist
+            user_artist = UserArtist(
+                userId=self.user_id,
+                artistId=artist.id,
+                playcount=playcount,
+                playcount12month=playcount12month,
+                recent=recent
+            )
+            self.session.add(user_artist)
+            self.stats['user_artists_created'] += 1
+        
+        return user_artist
+    
+    def create_user_concert_link(self, concert: Concert):
+        """Create UserConcert link if it doesn't exist
+        
+        Args:
+            concert: Concert object to link to user
+        """
+        if not self.user_id:
+            raise ValueError("user_id must be set to create user-concert links")
+        
+        # Check if link already exists
+        existing = self.session.query(UserConcert).filter_by(
+            userId=self.user_id,
+            concertId=concert.id
+        ).first()
+        
+        if not existing:
+            user_concert = UserConcert(
+                userId=self.user_id,
+                concertId=concert.id,
+                interested=False,
+                notes=None
+            )
+            self.session.add(user_concert)
+            self.stats['user_concerts_created'] += 1
+            if self.debug:
+                print(f"[DB] Created UserConcert link for concert ID {concert.id}")
     
     def parse_date(self, date_str: str) -> int:
         """Parse date string to Unix timestamp
@@ -223,7 +290,7 @@ class ConcertDatabaseWriter:
                 if self.debug:
                     print(f"[DB] No changes for concert: {concert_data.get('event_name', 'Unknown')} (skipped update)")
         else:
-            # Create new concert
+            # Create new concert (without interested/notes - those are in UserConcert now)
             concert = Concert(
                 eventName=concert_data.get('event_name', ''),
                 eventUrl=event_url,
@@ -239,9 +306,7 @@ class ConcertDatabaseWriter:
                 organizer=concert_data.get('organizer'),
                 organizerUrl=concert_data.get('organizer_url'),
                 ticketLinks=ticket_links_json,
-                artistId=artist.id,
-                interested=False,
-                notes=None
+                artistId=artist.id
             )
             self.session.add(concert)
             self.stats['concerts_created'] += 1
@@ -292,14 +357,24 @@ class ConcertDatabaseWriter:
                 is_recent = primary_artist_name in recent_artists
                 mbid = artist_mbids.get(primary_artist_name)
                 
-                # Get or create artist
+                # Get or create artist (global Artist table - shared data only)
                 artist = self.get_or_create_artist(
                     name=primary_artist_name,
-                    playcount=playcount,
-                    playcount12month=playcount12month,
-                    recent=is_recent,
                     mbid=mbid
                 )
+                
+                # Create/update UserArtist with user-specific stats
+                if self.user_id:
+                    self.get_or_create_user_artist(
+                        artist=artist,
+                        playcount=playcount,
+                        playcount12month=playcount12month,
+                        recent=is_recent
+                    )
+                else:
+                    # Legacy mode: warn that user_id should be provided
+                    if self.debug:
+                        print(f"[DB] WARNING: Running without --user-id. User-specific stats will not be saved.")
                 
                 # Upsert concert and get normalized city
                 normalized_city = self.upsert_concert(
@@ -308,6 +383,14 @@ class ConcertDatabaseWriter:
                     artist_playcounts,
                     recent_artists
                 )
+                
+                # If user_id is set, create UserConcert link
+                if self.user_id:
+                    # Need to get the concert object after upsert
+                    event_url = concert_data.get('event_url')
+                    concert = self.session.query(Concert).filter_by(eventUrl=event_url).first()
+                    if concert:
+                        self.create_user_concert_link(concert)
                 
                 # Store normalized city back in concert_data for display purposes
                 if normalized_city:
@@ -335,6 +418,10 @@ class ConcertDatabaseWriter:
         print(f"Artists updated: {self.stats['artists_updated']}")
         print(f"Concerts created: {self.stats['concerts_created']}")
         print(f"Concerts updated: {self.stats['concerts_updated']}")
+        if self.user_id:
+            print(f"User-Artist links created: {self.stats['user_artists_created']}")
+            print(f"User-Artist links updated: {self.stats['user_artists_updated']}")
+            print(f"User-Concert links created: {self.stats['user_concerts_created']}")
         print(f"Cities normalized: {self.stats['cities_normalized']}")
         if self.stats['errors'] > 0:
             print(f"Errors: {self.stats['errors']}")

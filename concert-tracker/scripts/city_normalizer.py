@@ -25,7 +25,7 @@ class CityNormalizer:
     # Configuration
     GEOCODING_ENABLED = True
     GEOCODING_PROVIDER = 'nominatim'
-    RATE_LIMIT = 1.0  # requests per second
+    RATE_LIMIT = 1.1  # requests per second
     TIMEOUT = 5  # seconds
     CLUSTER_RADIUS_KM = 35  # cities within this radius are considered same metro area
     MIN_MAJOR_CITY_POPULATION = 400000  # cities above this population won't be clustered
@@ -48,6 +48,7 @@ class CityNormalizer:
         """
         self.db = db_session
         self.last_geocode_time = 0
+        self.last_overpass_time = 0
         self._geocode_cache = {}  # In-memory cache for current session
         self.verbose = verbose
         
@@ -206,8 +207,20 @@ class CityNormalizer:
         if largest_nearby:
             # Text-normalize the Overpass result
             nearby_normalized = self._normalize_text(largest_nearby['name'])
-            # Only cluster if it's a different city (distance > 1 km to avoid same-city matches)
-            if nearby_normalized != normalized_text and largest_nearby['distance'] > 1.0:
+            
+            # If it's the same city (distance <= 1 km), use it directly
+            # This prevents falling through to municipality fallback
+            if largest_nearby['distance'] <= 1.0:
+                if self.verbose:
+                    print(f"[CLUSTER] Overpass confirmed same city: '{nearby_normalized}'")
+                self._store_mapping(original_city, country, nearby_normalized, 
+                                  largest_nearby['lat'], largest_nearby['lon'], 'geocoded')
+                self._geocode_cache[cache_key] = {'normalized': nearby_normalized, 
+                                                 'lat': largest_nearby['lat'], 'lon': largest_nearby['lon']}
+                return nearby_normalized
+            
+            # Only cluster to a different city if distance > 1 km
+            if nearby_normalized != normalized_text:
                 if self.verbose:
                     print(f"[CLUSTER] Using Overpass result: '{normalized_text}' → '{nearby_normalized}'")
                 self._store_mapping(original_city, country, nearby_normalized, 
@@ -414,6 +427,14 @@ class CityNormalizer:
         retry_delay = 2  # seconds
         
         for attempt in range(max_retries):
+            # Rate limiting (only on first attempt, not on retries)
+            if attempt == 0:
+                elapsed = time.time() - self.last_overpass_time
+                if elapsed < self.RATE_LIMIT:
+                    if self.verbose:
+                        print(f"[OVERPASS] Rate limiting: waiting {self.RATE_LIMIT - elapsed:.2f}s")
+                    time.sleep(self.RATE_LIMIT - elapsed)
+            
             try:
                 if self.verbose:
                     if attempt == 0:
@@ -423,6 +444,7 @@ class CityNormalizer:
                 
                 url = 'https://overpass-api.de/api/interpreter'
                 response = requests.post(url, data={'data': query}, timeout=30)
+                self.last_overpass_time = time.time()
                 
                 if response.status_code != 200:
                     if self.verbose:

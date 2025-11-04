@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/auth';
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await auth();
     const { id } = await params;
     const concertId = parseInt(id);
     
@@ -20,6 +22,10 @@ export async function GET(
       where: { id: concertId },
       include: {
         artist: true,
+        userInteractions: session ? {
+          where: { userId: parseInt(session.user.id) },
+          select: { interested: true, notes: true }
+        } : false,
       },
     });
 
@@ -30,11 +36,17 @@ export async function GET(
       );
     }
 
+    // Merge user-specific data
+    const userInteraction = concert.userInteractions?.[0];
+    
     // Parse JSON fields
     const concertWithParsedData = {
       ...concert,
       performers: JSON.parse(concert.performers),
       ticketLinks: JSON.parse(concert.ticketLinks),
+      interested: userInteraction?.interested || false,
+      notes: userInteraction?.notes || '',
+      userInteractions: undefined, // Remove from response
     };
 
     return NextResponse.json(concertWithParsedData);
@@ -52,8 +64,17 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await auth();
+    if (!session) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { id } = await params;
     const concertId = parseInt(id);
+    const userId = parseInt(session.user.id);
     
     if (isNaN(concertId)) {
       return NextResponse.json(
@@ -80,24 +101,57 @@ export async function PATCH(
       );
     }
 
-    // Update concert
-    const updatedConcert = await prisma.concert.update({
-      where: { id: concertId },
-      data: {
+    const now = Math.floor(Date.now() / 1000);
+
+    // Upsert into UserConcert table
+    await prisma.userConcert.upsert({
+      where: {
+        userId_concertId: { userId, concertId }
+      },
+      update: {
         ...(interested !== undefined && { interested }),
         ...(notes !== undefined && { notes }),
-        updatedAt: Math.floor(Date.now() / 1000),
+        updatedAt: now,
       },
-      include: {
-        artist: true,
+      create: {
+        userId,
+        concertId,
+        interested: interested ?? false,
+        notes: notes ?? '',
+        createdAt: now,
+        updatedAt: now,
       },
     });
 
+    // Fetch updated concert with user data
+    const concert = await prisma.concert.findUnique({
+      where: { id: concertId },
+      include: {
+        artist: true,
+        userInteractions: {
+          where: { userId },
+          select: { interested: true, notes: true }
+        },
+      },
+    });
+
+    if (!concert) {
+      return NextResponse.json(
+        { error: 'Concert not found' },
+        { status: 404 }
+      );
+    }
+
+    const userInteraction = concert.userInteractions[0];
+
     // Parse JSON fields
     const concertWithParsedData = {
-      ...updatedConcert,
-      performers: JSON.parse(updatedConcert.performers),
-      ticketLinks: JSON.parse(updatedConcert.ticketLinks),
+      ...concert,
+      performers: JSON.parse(concert.performers),
+      ticketLinks: JSON.parse(concert.ticketLinks),
+      interested: userInteraction?.interested || false,
+      notes: userInteraction?.notes || '',
+      userInteractions: undefined,
     };
 
     return NextResponse.json(concertWithParsedData);
