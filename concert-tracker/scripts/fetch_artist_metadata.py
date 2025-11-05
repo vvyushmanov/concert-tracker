@@ -160,7 +160,7 @@ def fetch_metadata_for_new_artists(db_path: str = None, silent: bool = False, us
             print("Warning: LASTFM_API_KEY not found - skipping MBID repair")
         return 0
     
-    lastfm_user = config.get('LASTFM_USER', 'Megalox2')
+    lastfm_user = config.get('LASTFM_USER', '')
     
     # Connect to database
     try:
@@ -316,7 +316,7 @@ def main():
         config = ConfigManager()
         fanart_api_key = config.get('FANART_API_KEY')
         lastfm_api_key = config.get('LASTFM_API_KEY')
-        lastfm_user = config.get('LASTFM_USER', 'Megalox2')
+        lastfm_user = config.get('LASTFM_USER', '')
         log(f"Last.fm user: {lastfm_user}")
     
     if not fanart_api_key:

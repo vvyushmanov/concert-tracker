@@ -42,7 +42,7 @@ class ConfigManager:
     # Configuration keys with defaults (value, type, description)
     DEFAULTS = {
         'LASTFM_API_KEY': ('', 'string', 'Last.fm API key for fetching artist data'),
-        'LASTFM_USER': ('Megalox2', 'string', 'Last.fm username to fetch top artists from'),
+        'LASTFM_USER': ('', 'string', 'Last.fm username to fetch top artists from'),
         'COUNTRY_CODES': ('["tr","fr","de"]', 'json', 'Country codes to scan for concerts'),
         'MIN_PLAYCOUNT': ('40', 'int', 'Minimum playcount threshold for filtering artists'),
         'FANART_API_KEY': ('', 'string', 'Fanart.tv API key for fetching artist images'),

@@ -934,7 +934,7 @@ def main():
             print(f"Country codes from config: {', '.join(country_codes)}")
             
             lastfm_api_key = config.get('LASTFM_API_KEY')
-            lastfm_user = config.get('LASTFM_USER', 'Megalox2')
+            lastfm_user = config.get('LASTFM_USER', '')
             min_playcount = config.get_int('MIN_PLAYCOUNT', 40)
         
         # Fetch Last.fm artists if filtering is enabled
