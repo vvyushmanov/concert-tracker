@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { signOut } from 'next-auth/react';
 
 export default function Navigation() {
   const pathname = usePathname();
@@ -16,6 +17,10 @@ export default function Navigation() {
   
   const handleRescan = () => {
     router.push('/scanner');
+  };
+  
+  const handleLogout = async () => {
+    await signOut({ callbackUrl: '/login' });
   };
   
   return (
@@ -71,6 +76,15 @@ export default function Navigation() {
               <span>⚙️</span>
               <span className="hidden sm:inline">Settings</span>
             </Link>
+            
+            <button
+              onClick={handleLogout}
+              className="flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-200 hover:bg-red-200 dark:hover:bg-red-800"
+              title="Logout"
+            >
+              <span>🚪</span>
+              <span className="hidden sm:inline">Logout</span>
+            </button>
           </div>
         </div>
       </div>
