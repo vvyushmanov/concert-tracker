@@ -2,9 +2,10 @@ import { spawn } from 'child_process';
 import { scannerState, broadcastLog } from './state';
 
 export async function startScan(userId: number, debug: boolean = false) {
-  // Check if user already has a scan running
+  // Check if user already has a scan running or stopping
   const existingState = scannerState.get(userId);
-  if (existingState?.isScanning) {
+  if (existingState?.isScanning || existingState?.isStopping) {
+    console.log(`⚠️  Cannot start scan for user ${userId}: ${existingState?.isStopping ? 'previous scan is stopping' : 'scan already running'}`);
     return;
   }
   
@@ -12,15 +13,19 @@ export async function startScan(userId: number, debug: boolean = false) {
   if (existingState) {
     // Update existing state, keep listeners
     existingState.isScanning = true;
+    existingState.isStopping = false;
     existingState.process = null;
     existingState.startTime = Date.now();
+    existingState.lastStats = null;
   } else {
     // Create new state
     scannerState.set(userId, {
       isScanning: true,
+      isStopping: false,
       process: null,
       listeners: [],
-      startTime: Date.now()
+      startTime: Date.now(),
+      lastStats: null
     });
   }
   
@@ -99,6 +104,7 @@ export async function startScan(userId: number, debug: boolean = false) {
       const state = scannerState.get(userId);
       if (state) {
         state.isScanning = false;
+        state.isStopping = false; // Clear stopping flag
         state.process = null;
         state.lastStats = stats; // Save stats for later retrieval
       }
@@ -115,6 +121,7 @@ export async function startScan(userId: number, debug: boolean = false) {
       const state = scannerState.get(userId);
       if (state) {
         state.isScanning = false;
+        state.isStopping = false;
         state.process = null;
       }
       broadcastLog(userId, `Failed to start scan: ${error.message}`, 'error');
@@ -125,6 +132,7 @@ export async function startScan(userId: number, debug: boolean = false) {
     const state = scannerState.get(userId);
     if (state) {
       state.isScanning = false;
+      state.isStopping = false;
       state.process = null;
     }
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';

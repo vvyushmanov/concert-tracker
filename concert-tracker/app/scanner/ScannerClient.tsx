@@ -12,14 +12,22 @@ interface ScannerClientProps {
   activeCountries: string[];
 }
 
+interface ScannerStatus {
+  isScanning: boolean;
+  isStopping: boolean;
+  stats: { before: number; after: number; new: number } | null;
+}
+
 export default function ScannerClient({ isAdmin, userSettings, activeCountries }: ScannerClientProps) {
-  const [isScanning, setIsScanning] = useState(false);
+  // Server state is the single source of truth
+  const [serverStatus, setServerStatus] = useState<ScannerStatus>({ isScanning: false, isStopping: false, stats: null });
   const [debugMode, setDebugMode] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
-  const [stats, setStats] = useState<{ before: number; after: number; new: number } | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [showStats, setShowStats] = useState(false); // Only show stats after scan completes in current session
   const logsEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const statusIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const router = useRouter();
 
   const scrollToBottom = () => {
@@ -32,55 +40,58 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
     }
   }, [logs]);
 
+  // Poll server status every 500ms - server is single source of truth
   useEffect(() => {
-    // Check if there's an active scan on mount
     const checkStatus = async () => {
       try {
         const res = await fetch('/api/scanner/status');
         const data = await res.json();
         
-        if (data.isScanning) {
-          // Scan is running - ensure we're connected to logs
-          if (!eventSourceRef.current) {
-            setIsScanning(true);
-            connectToLogs();
-          }
-        } else {
-          // Scan is not running
-          setIsScanning((prevIsScanning) => {
-            if (prevIsScanning) {
-              // Was scanning but now stopped - scan completed while we were away
-              if (eventSourceRef.current) {
-                eventSourceRef.current.close();
-                eventSourceRef.current = null;
-              }
-              // Fetch final stats if available
-              if (data.stats) {
-                setStats(data.stats);
-                showToast(`Scan complete! Found ${data.stats.new} new concerts.`, 'success');
-              }
+        setServerStatus((prevStatus) => {
+          const wasScanning = prevStatus.isScanning;
+          const nowScanning = data.isScanning;
+          
+          // Handle state transitions
+          if (nowScanning && !wasScanning) {
+            // Scan just started - connect to logs
+            if (!eventSourceRef.current) {
+              connectToLogs();
             }
-            return false;
-          });
-        }
+          } else if (!nowScanning && wasScanning) {
+            // Scan just finished - close SSE and show completion
+            if (eventSourceRef.current) {
+              eventSourceRef.current.close();
+              eventSourceRef.current = null;
+            }
+            if (data.stats) {
+              setShowStats(true); // Enable stats display for this session
+              showToast(`Scan complete! Found ${data.stats.new} new concerts.`, 'success');
+            }
+          }
+          
+          return {
+            isScanning: nowScanning,
+            isStopping: data.isStopping || false,
+            stats: data.stats || prevStatus.stats
+          };
+        });
       } catch (error) {
         console.error('Failed to check scan status:', error);
       }
     };
     
-    checkStatus();
+    checkStatus(); // Initial check
+    statusIntervalRef.current = setInterval(checkStatus, 500);
     
-    // Poll status every 2 seconds to detect completion
-    // Only poll if we don't have an active SSE connection
-    const interval = setInterval(() => {
-      // Skip polling if we have an active SSE connection
-      // SSE is the source of truth for scan completion
-      if (!eventSourceRef.current) {
-        checkStatus();
+    return () => {
+      if (statusIntervalRef.current) {
+        clearInterval(statusIntervalRef.current);
       }
-    }, 2000);
-    
-    return () => clearInterval(interval);
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+    };
   }, []);
 
   const connectToLogs = () => {
@@ -94,36 +105,28 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
       
       if (data.type === 'log') {
         setLogs((prev) => [...prev, data.message]);
-      } else if (data.type === 'complete') {
-        setIsScanning(false);
-        setStats(data.stats);
-        showToast(`Scan complete! Found ${data.stats.new} new concerts.`, 'success');
-        eventSource.close();
-        eventSourceRef.current = null;
-      } else if (data.type === 'error') {
-        setIsScanning(false);
-        showToast(`Scan failed: ${data.message}`, 'error');
-        eventSource.close();
-        eventSourceRef.current = null;
       }
+      // Note: Don't handle 'complete' or 'error' here
+      // Status polling will detect completion and handle it
     };
 
     eventSource.onerror = () => {
-      console.error('SSE connection error - will rely on polling to detect scan status');
+      console.log('SSE connection lost - status polling will handle state');
       eventSource.close();
       eventSourceRef.current = null;
-      // Don't set isScanning = false here - let polling detect the actual state
+      // Status polling continues and will reconnect SSE if scan still running
     };
   };
 
   const startScan = async () => {
     try {
       setLogs([]);
-      setStats(null);
-      setIsScanning(true);
+      // Clear old stats when starting new scan
+      setServerStatus(prev => ({ ...prev, stats: null }));
+      setShowStats(false); // Hide stats panel until new scan completes
       
       const currentDebugMode = debugMode;
-      setDebugMode(false); // Reset debug mode checkbox after starting
+      setDebugMode(false);
       
       const res = await fetch('/api/scanner/start', { 
         method: 'POST',
@@ -133,14 +136,12 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
       const data = await res.json();
       
       if (data.success) {
-        connectToLogs();
         showToast(currentDebugMode ? 'Scan started in DEBUG mode!' : 'Scan started!', 'success');
+        // Status polling will detect the scan and connect to logs
       } else {
-        setIsScanning(false);
         showToast(data.error || 'Failed to start scan', 'error');
       }
     } catch (error) {
-      setIsScanning(false);
       showToast('Failed to start scan', 'error');
     }
   };
@@ -151,12 +152,8 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
       const data = await res.json();
       
       if (data.success) {
-        setIsScanning(false);
-        if (eventSourceRef.current) {
-          eventSourceRef.current.close();
-          eventSourceRef.current = null;
-        }
         showToast('Scan stopped', 'success');
+        // Status polling will detect the stop and update UI
       } else {
         showToast(data.error || 'Failed to stop scan', 'error');
       }
@@ -216,19 +213,19 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
         </div>
 
         {/* Stats */}
-        {stats && (
+        {showStats && serverStatus.stats && (
           <div className="mb-6 grid grid-cols-3 gap-4">
             <div className="bg-green-950/30 border border-green-800 p-4">
               <div className="text-green-600 text-sm">BEFORE</div>
-              <div className="text-2xl text-green-300">{stats.before}</div>
+              <div className="text-2xl text-green-300">{serverStatus.stats.before}</div>
             </div>
             <div className="bg-green-950/30 border border-green-800 p-4">
               <div className="text-green-600 text-sm">AFTER</div>
-              <div className="text-2xl text-green-300">{stats.after}</div>
+              <div className="text-2xl text-green-300">{serverStatus.stats.after}</div>
             </div>
             <div className="bg-green-950/30 border border-green-800 p-4">
               <div className="text-green-600 text-sm">NEW</div>
-              <div className="text-2xl text-green-300">+{stats.new}</div>
+              <div className="text-2xl text-green-300">+{serverStatus.stats.new}</div>
             </div>
           </div>
         )}
@@ -237,16 +234,16 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
         <div className="mb-6 flex gap-4 items-center">
           <button
             onClick={startScan}
-            disabled={isScanning}
+            disabled={serverStatus.isScanning || serverStatus.isStopping}
             className={`px-6 py-3 border ${
-              isScanning
+              serverStatus.isScanning || serverStatus.isStopping
                 ? 'bg-gray-900 border-gray-700 text-gray-600 cursor-not-allowed'
                 : 'bg-green-950/30 border-green-700 hover:bg-green-900/50 text-green-300'
             } transition-colors`}
           >
-            {isScanning ? '> SCANNING...' : '> START SCAN'}
+            {serverStatus.isStopping ? '> STOPPING...' : serverStatus.isScanning ? '> SCANNING...' : '> START SCAN'}
           </button>
-          {isScanning && (
+          {serverStatus.isScanning && !serverStatus.isStopping && (
             <button
               onClick={stopScan}
               className="px-6 py-3 bg-red-950/30 border border-red-700 hover:bg-red-900/50 text-red-300 transition-colors"
@@ -254,7 +251,12 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
               ■ STOP
             </button>
           )}
-          {isAdmin && !isScanning && (
+          {serverStatus.isStopping && (
+            <div className="px-6 py-3 text-yellow-500 text-sm">
+              ⏳ Graceful shutdown in progress...
+            </div>
+          )}
+          {isAdmin && !serverStatus.isScanning && (
             <label className="flex items-center gap-2 text-green-400 cursor-pointer">
               <input
                 type="checkbox"
@@ -265,7 +267,7 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
               <span className="text-sm">Debug Mode (Admin)</span>
             </label>
           )}
-          {!isScanning && (
+          {!serverStatus.isScanning && !serverStatus.isStopping && (
             <div className="ml-auto text-green-700 text-sm">
               ℹ️ You can only run 1 scan at a time
             </div>
@@ -277,7 +279,7 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
           <div className="mb-2 text-green-600">
             === SYSTEM LOG ===
           </div>
-          {logs.length === 0 && !isScanning && (
+          {logs.length === 0 && !serverStatus.isScanning && (
             <div className="text-green-700 animate-pulse">
               {'>'} Awaiting instructions...
             </div>
@@ -287,7 +289,7 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
               <span className="text-green-600">{'>'}</span> {log}
             </div>
           ))}
-          {isScanning && (
+          {serverStatus.isScanning && (
             <div className="text-green-500 animate-pulse">
               <span className="text-green-600">{'>'}</span> Processing...
             </div>

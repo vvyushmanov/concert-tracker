@@ -22,12 +22,14 @@ export async function POST(request: Request) {
     
     const { scannerState } = await import('../../state');
     
-    // Check if user already has a scan running
+    // Check if user already has a scan running or stopping
     const userState = scannerState.get(userId);
-    if (userState?.isScanning) {
+    if (userState?.isScanning || userState?.isStopping) {
       return NextResponse.json({
         success: false,
-        error: 'You already have a scan in progress',
+        error: userState?.isStopping 
+          ? 'Previous scan is stopping. Please wait for it to complete.'
+          : 'You already have a scan in progress',
       }, { status: 409 });
     }
     

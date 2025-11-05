@@ -5,10 +5,11 @@ type LogListener = (message: string, type: 'log' | 'complete' | 'error', stats?:
 // Scanner state - per user
 export const scannerState = new Map<number, {
   isScanning: boolean;
+  isStopping: boolean; // Track graceful shutdown period
   process: ChildProcess | null;
-  listeners: LogListener[];
+  listeners: Array<(message: string, type: 'log' | 'complete' | 'error', stats?: any) => void>;
   startTime: number;
-  lastStats?: { before: number; after: number; new: number };
+  lastStats: { before: number; after: number; new: number } | null;
 }>();
 
 export function addLogListener(userId: number, listener: LogListener) {
@@ -44,12 +45,12 @@ export function broadcastLog(userId: number, message: string, type: 'log' | 'com
 export function stopScan(userId: number) {
   const state = scannerState.get(userId);
   if (state && state.process) {
-    state.process.kill('SIGTERM');
-    state.process = null;
-  }
-  if (state) {
-    state.isScanning = false;
-    broadcastLog(userId, 'Scan stopped by user', 'error');
+    console.log(`🛑 Stopping scan for user ${userId} (graceful shutdown)...`);
+    state.process.kill('SIGTERM'); // Send graceful shutdown signal
+    state.isStopping = true; // Mark as stopping (prevents new scans)
+    // Note: isScanning stays true until process actually exits
+    // This prevents race condition where new scan starts during shutdown
+    broadcastLog(userId, 'Stopping scan (graceful shutdown)...', 'log');
   }
 }
 

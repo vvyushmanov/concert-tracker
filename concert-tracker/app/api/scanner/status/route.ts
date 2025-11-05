@@ -15,6 +15,7 @@ export async function GET() {
     
     return NextResponse.json({
       isScanning: userState?.isScanning ?? false,
+      isStopping: userState?.isStopping ?? false,
       stats: userState?.lastStats ?? null,
     });
   } catch (error) {
