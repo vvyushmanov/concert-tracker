@@ -790,9 +790,35 @@ def upsert_user_artist_metrics(session, user_id, artist_id, playcount, playcount
 - User configures Last.fm credentials and settings in Settings page
 - User activates countries in Countries tab
 
-## Phase 6 – Scanner Enhancements
+## Phase 6 – Scanner Enhancements ✅ COMPLETED
 
-### Backend Updates
+**Status:** All features implemented and tested. Scanner is fully user-aware with admin debug mode.
+
+### Implementation Summary
+
+**What Was Built:**
+1. **User-Aware Scanner** - Per-user state, settings, and stats
+2. **Admin Debug Mode** - `--debug` flag for verbose logging (admin-only)
+3. **Enhanced Scanner UI** - Shows user settings, active countries, configuration warnings
+4. **User-Specific Stats** - Counts from `UserConcert` table (accurate per-user counts)
+5. **Navigation Bug Fix** - Polling + functional setState for proper state updates
+6. **Metadata Refresh** - User-aware with concurrent support
+
+**Files Modified:**
+- `/app/api/scanner/start/route.ts` - Auth, debug mode support
+- `/app/api/scanner/stop/route.ts` - Auth, user-specific stop
+- `/app/api/scanner/status/route.ts` - Returns user stats
+- `/app/api/scanner/logs/route.ts` - User-specific log streaming
+- `/app/api/scanner.ts` - Debug flag, user stats, state persistence
+- `/app/api/state.ts` - Per-user Maps, lastStats field
+- `/app/scanner/page.tsx` - Server component with auth
+- `/app/scanner/ScannerClient.tsx` - Debug checkbox, polling, settings display
+- `/app/api/metadata/refresh/route.ts` - User-aware refresh
+- `/app/api/metadata/status/route.ts` - User-specific status
+- `scripts/country_concert_parser.py` - Already had `--debug` support
+- `scripts/fetch_artist_metadata.py` - User filtering, timezone-aware datetime
+
+### Backend Updates (IMPLEMENTED)
 
 **Refactor `app/api/scanner/start/route.ts`:**
 
@@ -1042,9 +1068,19 @@ export const metadataRefreshState = new Map<number, {
 - Button behavior remains the same
 - Multi-user support is transparent to UI
 
-## Phase 6.5 – UI Feature Restoration (User-Specific Data Integration)
+## Phase 6.5 – UI Feature Restoration (User-Specific Data Integration) ✅ COMPLETED
+
+**Status:** All UI pages have been updated with user-specific data. All features restored.
 
 **Purpose:** Restore all features that were temporarily disabled during Phase 1-2 migration. Now that all backend infrastructure is in place (auth, settings, scanner), we can integrate user-specific data into the UI.
+
+**What Was Restored:**
+- ✅ Home Page - Interested/notes, interested-first sorting
+- ✅ Concert Detail API - User-specific GET/PATCH operations
+- ✅ Artists Page - User playcount data, metadata refresh
+- ✅ Artist Detail - User-specific concerts and stats
+- ✅ Calendar View - User-specific data with filters
+- ✅ Country Detail - User-specific data (completed earlier)
 
 ### What Was Disabled
 
