@@ -68,7 +68,6 @@ COPY --chown=nextjs:nodejs concert_utils.py ./scripts/
 COPY --chown=nextjs:nodejs db_models.py ./scripts/
 COPY --chown=nextjs:nodejs db_writer.py ./scripts/
 COPY --chown=nextjs:nodejs proxy_manager.py ./scripts/
-COPY --chown=nextjs:nodejs requirements.txt ./scripts/
 
 # Install Python dependencies
 RUN pip3 install --no-cache-dir -r ./scripts/requirements.txt --break-system-packages
