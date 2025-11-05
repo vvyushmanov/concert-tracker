@@ -86,6 +86,7 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
           case 'artist':
             return a.artist.name.localeCompare(b.artist.name);
           case 'playcount':
+            // Sort by playcount (which is actually playcount12month from server)
             return b.artist.playcount - a.artist.playcount;
           case 'recent':
             return b.id - a.id;

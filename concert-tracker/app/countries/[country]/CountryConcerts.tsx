@@ -97,7 +97,7 @@ export default function CountryConcerts({ concerts }: CountryConcertsProps) {
           case 'artist':
             return a.artist.name.localeCompare(b.artist.name);
           case 'playcount':
-            return b.artist.playcount - a.artist.playcount;
+            return b.artist.playcount12month - a.artist.playcount12month;
           case 'recent':
             return b.id - a.id;
           default:

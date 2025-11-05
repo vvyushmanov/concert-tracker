@@ -44,6 +44,7 @@ class CountryConcertParser:
     DELAY_RANDOMNESS = 0.5  # Add random variation (±50%)
     COUNTRY_DELAY_MULTIPLIER = 3  # Longer delay between countries
     PAGES_PER_SAVE = 5  # Save progress every N pages in auto mode
+    MAX_PAGE_BOUND = 100  # Maximum expected pages per country (for binary search)
     
     # User agents for rotation (appear more human-like)
     USER_AGENTS = [
@@ -388,13 +389,88 @@ class CountryConcertParser:
         next_link = pagination.find('a', string=str(next_page))
         return next_link is not None
     
-    def parse_all_pages(self, on_page_complete=None):
+    def page_exists(self, page_num: int) -> bool:
+        """Check if a specific page exists (has concerts)
+        
+        Args:
+            page_num: Page number to check
+            
+        Returns:
+            True if page exists and has concerts, False otherwise
+        """
+        url = self.get_page_url(page_num)
+        soup = self.fetch_page(url)
+        
+        if not soup:
+            return False
+        
+        # Check if page has any concerts
+        event_divs = soup.find_all('div', itemtype='https://schema.org/MusicEvent')
+        return len(event_divs) > 0
+    
+    def find_total_pages(self) -> int:
+        """Find total number of pages using Binary Search
+        
+        Uses pure binary search with a known upper bound (MAX_PAGE_BOUND)
+        for optimal efficiency when the maximum page count is predictable.
+        
+        Returns:
+            Total number of pages, or 0 if no pages exist
+        """
+        self._log(f"🔍 Determining total page count (binary search 1-{self.MAX_PAGE_BOUND})...")
+        start_time = time.time()
+        
+        left = 1
+        right = self.MAX_PAGE_BOUND
+        last_valid = 0
+        requests_made = 0
+        
+        while left <= right:
+            # Check for interruption
+            if self.shutdown_flag and self.shutdown_flag.interrupted:
+                self._log("  ⚠️  Interrupted during page count detection")
+                return last_valid if last_valid > 0 else 1
+            
+            mid = (left + right + 1) // 2
+            self._log(f"  Checking page {mid}...")
+            requests_made += 1
+            
+            if self.page_exists(mid):
+                last_valid = mid
+                left = mid + 1
+                self._log(f"    ✓ Page {mid} exists")
+            else:
+                right = mid - 1
+                self._log(f"    ✗ Page {mid} doesn't exist")
+            
+            # Add small delay between checks
+            time.sleep(self._random_delay(self.delay * 0.5))
+        
+        elapsed = time.time() - start_time
+        if last_valid > 0:
+            self._log(f"  ✅ Total pages: {last_valid} (found in {elapsed:.2f}s, {requests_made} requests)")
+        else:
+            self._log(f"  ⚠️  No pages found (checked in {elapsed:.2f}s)")
+        
+        return last_valid
+    
+    def parse_all_pages(self, on_page_complete=None, detect_total_pages=True):
         """Parse all pages starting from page 1
         
         Args:
             on_page_complete: Optional callback function called after each page is parsed
                              with signature: on_page_complete(all_concerts, filtered_concerts)
+            detect_total_pages: If True, detect total page count before parsing (default: True)
         """
+        # Detect total pages first if requested
+        total_pages = None
+        if detect_total_pages:
+            total_pages = self.find_total_pages()
+            if total_pages == 0:
+                print("No pages found for this country")
+                return self.concerts
+            print(f"\n📊 Total pages to process: {total_pages}\n")
+        
         page_num = 1
         
         while True:
@@ -408,8 +484,14 @@ class CountryConcertParser:
                 print(f"Reached maximum page limit ({self.max_pages})")
                 break
             
+            # Check if we've reached detected total pages
+            if total_pages and page_num > total_pages:
+                print(f"Reached end of pages ({total_pages})")
+                break
+            
             url = self.get_page_url(page_num)
-            self._log(f"Fetching page {page_num}: {url}")
+            progress_str = f" [{page_num}/{total_pages}]" if total_pages else ""
+            self._log(f"Fetching page {page_num}{progress_str}: {url}")
             
             page_start = time.time()
             soup = self.fetch_page(url)
@@ -721,6 +803,11 @@ def main():
         help='User ID for per-user data (creates UserArtist and UserConcert links)',
         default=None
     )
+    parser.add_argument(
+        '--no-page-detection',
+        action='store_true',
+        help='Disable automatic page count detection (use sequential fetching instead)'
+    )
     
     args = parser.parse_args()
     
@@ -958,7 +1045,8 @@ def main():
                 # Parse all pages for this country
                 # Use callback for 'page' and 'auto' modes
                 callback = save_callback if args.save_frequency in ['page', 'auto'] else None
-                concert_parser.parse_all_pages(on_page_complete=callback)
+                detect_pages = not args.no_page_detection
+                concert_parser.parse_all_pages(on_page_complete=callback, detect_total_pages=detect_pages)
                 
                 # Collect final results from this country
                 all_concerts.extend(concert_parser.concerts)

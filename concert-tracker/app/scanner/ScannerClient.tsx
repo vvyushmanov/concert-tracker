@@ -71,7 +71,14 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
     checkStatus();
     
     // Poll status every 2 seconds to detect completion
-    const interval = setInterval(checkStatus, 2000);
+    // Only poll if we don't have an active SSE connection
+    const interval = setInterval(() => {
+      // Skip polling if we have an active SSE connection
+      // SSE is the source of truth for scan completion
+      if (!eventSourceRef.current) {
+        checkStatus();
+      }
+    }, 2000);
     
     return () => clearInterval(interval);
   }, []);
@@ -102,8 +109,10 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
     };
 
     eventSource.onerror = () => {
+      console.error('SSE connection error - will rely on polling to detect scan status');
       eventSource.close();
       eventSourceRef.current = null;
+      // Don't set isScanning = false here - let polling detect the actual state
     };
   };
 

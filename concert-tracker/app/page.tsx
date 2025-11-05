@@ -43,11 +43,29 @@ export default async function Home() {
     }
   });
 
-  // Extract concerts with user data
+  // Get user-specific artist stats for all artists in these concerts
+  const artistIds = Array.from(new Set(userConcerts.map(uc => uc.concert.artistId)));
+  const userArtistStats = await prisma.userArtist.findMany({
+    where: {
+      userId,
+      artistId: { in: artistIds }
+    }
+  });
+
+  // Create a map for quick lookup
+  const artistStatsMap = new Map(
+    userArtistStats.map(ua => [ua.artistId, ua])
+  );
+
+  // Extract concerts with user data and artist playcount
   const concertsWithUserData = userConcerts.map(uc => ({
     ...uc.concert,
     interested: uc.interested,
     notes: uc.notes,
+    artist: {
+      ...uc.concert.artist,
+      playcount: artistStatsMap.get(uc.concert.artistId)?.playcount12month || 0,
+    }
   }));
 
   // Count unique artists from user's concerts
