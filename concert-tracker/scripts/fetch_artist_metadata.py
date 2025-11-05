@@ -27,14 +27,11 @@ from db_config import get_engine
 from concert_utils import fetch_all_user_artists, lookup_artist_playcounts
 from config_manager import ConfigManager
 from user_config import load_user_config
+from services.fanart_service import FanartService
+from utils.logging import log
 
 # Load environment variables
 load_dotenv()
-
-def log(message: str):
-    """Log message with timestamp"""
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    print(f"[{timestamp}] {message}")
 
 
 def update_user_artist_stats(session, user_id: int, artist: Artist, playcount: int, playcount12month: int):
@@ -72,61 +69,17 @@ def update_user_artist_stats(session, user_id: int, artist: Artist, playcount: i
 def fetch_fanart_image(mbid: str, api_key: str) -> tuple:
     """Fetch artist image from fanart.tv with fallback options
     
+    DEPRECATED: Use FanartService.fetch_artist_image() instead
+    
     Args:
         mbid: MusicBrainz ID
         api_key: fanart.tv API key
         
     Returns:
         Tuple of (image_url, image_type) or (None, None) if not found
-        Priority: artistthumb > artistbackground > hdmusiclogo
     """
-    url = f"https://webservice.fanart.tv/v3/music/{mbid}"
-    params = {'api_key': api_key}
-    
-    try:
-        response = requests.get(url, params=params, timeout=10)
-        
-        if response.status_code == 404:
-            return None, None  # Artist not found in fanart.tv
-        
-        response.raise_for_status()
-        data = response.json()
-        
-        # Priority 1: artistthumb (best for artist cards)
-        artist_thumbs = data.get('artistthumb', [])
-        if artist_thumbs:
-            sorted_thumbs = sorted(artist_thumbs, key=lambda x: int(x.get('likes', 0)), reverse=True)
-            return sorted_thumbs[0].get('url'), 'artistthumb'
-        
-        # Priority 2: artistbackground (fallback)
-        artist_backgrounds = data.get('artistbackground', [])
-        if artist_backgrounds:
-            sorted_backgrounds = sorted(artist_backgrounds, key=lambda x: int(x.get('likes', 0)), reverse=True)
-            return sorted_backgrounds[0].get('url'), 'artistbackground'
-        
-        # Priority 3: hdmusiclogo
-        hd_logos = data.get('hdmusiclogo', [])
-        if hd_logos:
-            sorted_logos = sorted(hd_logos, key=lambda x: int(x.get('likes', 0)), reverse=True)
-            return sorted_logos[0].get('url'), 'hdmusiclogo'
-        
-        # Priority 4: albumcover (last resort - use newest album with highest ID)
-        albums = data.get('albums', {})
-        all_album_covers = []
-        for album_id, album_data in albums.items():
-            album_covers = album_data.get('albumcover', [])
-            all_album_covers.extend(album_covers)
-        
-        if all_album_covers:
-            # Sort by ID (descending) to get the newest/highest ID
-            sorted_covers = sorted(all_album_covers, key=lambda x: int(x.get('id', 0)), reverse=True)
-            return sorted_covers[0].get('url'), 'albumcover'
-        
-        return None, None
-        
-    except requests.RequestException as e:
-        log(f"  Error fetching fanart for {mbid}: {e}")
-        return None, None
+    service = FanartService(api_key)
+    return service.fetch_artist_image(mbid)
 
 def fetch_metadata_for_new_artists(db_path: str = None, silent: bool = False, user_id: int = None) -> int:
     """Fetch metadata (MBID + images) for artists without complete metadata
