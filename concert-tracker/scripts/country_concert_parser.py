@@ -23,6 +23,9 @@ import sys
 from concert_utils import restructure_concerts_by_country_and_band, fetch_lastfm_artists
 from proxy_manager import ProxyManager
 from config_manager import ConfigManager
+from parsers import ConcertParser
+from services.http_client import HTTPClient
+from utils.rate_limiter import RateLimiter
 
 # Import database writer if needed (lazy import to avoid dependency issues)
 try:
@@ -46,15 +49,6 @@ class CountryConcertParser:
     PAGES_PER_SAVE = 5  # Save progress every N pages in auto mode
     MAX_PAGE_BOUND = 100  # Maximum expected pages per country (for binary search)
     
-    # User agents for rotation (appear more human-like)
-    USER_AGENTS = [
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15',
-        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    ]
-    
     def __init__(self, country_code: str, max_pages: Optional[int] = None, delay: float = 1.0, 
                  lastfm_artists: Optional[Set[str]] = None, proxy_manager: Optional[ProxyManager] = None,
                  debug: bool = False, shutdown_flag: Optional['GracefulShutdown'] = None):
@@ -68,44 +62,30 @@ class CountryConcertParser:
         self.filtered_concerts = []  # Concerts matching Last.fm artists
         self.pages_processed = 0
         self.lastfm_artists = lastfm_artists or set()
-        # Create normalized lookup dict for O(1) artist matching
-        self.lastfm_artists_normalized = {
-            artist.lower().strip(): artist 
-            for artist in (lastfm_artists or set())
-        }
         self.total_concerts_found = 0
         self.matched_concerts = 0
         self.proxy_manager = proxy_manager
         self.proxy_failures = 0
         self.proxy_successes = 0
         
-        # Configure session with SSL handling and connection pooling
-        self.session = requests.Session()
+        # Create concert parser for filtering
+        self.concert_parser = ConcertParser(self.lastfm_artists, self.BASE_URL)
         
-        # Disable SSL warnings but use custom SSL context
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        # Create HTTP client for requests
+        self.http_client = HTTPClient(
+            timeout=self.REQUEST_TIMEOUT,
+            verify_ssl=False,  # This specific site has cert issues
+            proxy_manager=proxy_manager,
+            pool_connections=1,
+            pool_maxsize=1
+        )
         
-        # Configure connection pooling (keep it simple to avoid issues)
-        from requests.adapters import HTTPAdapter
-        adapter = HTTPAdapter(pool_connections=1, pool_maxsize=1)
-        self.session.mount("http://", adapter)
-        self.session.mount("https://", adapter)
-        
-        self._warm_up_session()  # Pre-warm session to avoid slow first request
+        # Create rate limiter
+        self.rate_limiter = RateLimiter(
+            base_delay=self.delay,
+            randomness=self.DELAY_RANDOMNESS
+        )
     
-    def _warm_up_session(self):
-        """Pre-warm the session with a dummy request to avoid slow first request"""
-        try:
-            # Make a quick HEAD request to establish connection
-            # Use verify=False for this specific domain due to cert issues
-            self.session.head(self.base_url, verify=False, timeout=10)
-        except:
-            pass  # Ignore errors, this is just to warm up the connection
-    
-    def _random_delay(self, base_delay: float) -> float:
-        """Add random variation to delay to appear more human-like"""
-        variation = base_delay * self.DELAY_RANDOMNESS
-        return base_delay + random.uniform(-variation, variation)
         
     def get_page_url(self, page_num: int) -> str:
         """Generate URL for a specific page number"""
@@ -122,260 +102,48 @@ class CountryConcertParser:
     def fetch_page(self, url: str, max_retries: int = 3) -> Optional[BeautifulSoup]:
         """Fetch a single page and return BeautifulSoup object
         
+        Uses HTTPClient service for requests with automatic retries and proxy rotation.
+        
         Args:
             url: URL to fetch
-            max_retries: Maximum number of retries with different proxies
+            max_retries: Maximum number of retries
         """
+        start_time = time.time()
         
-        for attempt in range(max_retries):
-            try:
-                start_time = time.time()
-                
-                # Get proxy if proxy manager is available
-                proxy = None
-                if self.proxy_manager:
-                    proxy = self.proxy_manager.get_next_proxy()
-                    if proxy:
-                        proxy_url = proxy.get('http', 'direct')
-                        self._log(f"  Using proxy: {proxy_url} (attempt {attempt + 1}/{max_retries})")
-                
-                headers = {
-                    'User-Agent': random.choice(self.USER_AGENTS),
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                    'Accept-Language': 'en-US,en;q=0.9,en-GB;q=0.8',
-                    'Connection': 'keep-alive',
-                    'Upgrade-Insecure-Requests': '1',
-                    'Cache-Control': 'max-age=0',
-                    'Referer': self.base_url if hasattr(self, '_last_url') else None
-                }
-                
-                # Remove None values
-                headers = {k: v for k, v in headers.items() if v is not None}
-                
-                # Use verify=False only for this specific domain due to certificate issues
-                # In production, you should fix the certificate or use certifi
-                response = self.session.get(
-                    url, 
-                    timeout=self.REQUEST_TIMEOUT, 
-                    verify=False,  # Only because this specific site has cert issues
-                    headers=headers, 
-                    proxies=proxy,  # Use proxy if available
-                    allow_redirects=True
-                )
-                response.raise_for_status()
-                
-                fetch_time = time.time() - start_time
-                self._last_url = url  # Store for next request's Referer
-                
-                # Check for rate limiting
-                if 'limit.html' in response.url or len(response.text) < self.RATE_LIMIT_MIN_RESPONSE_SIZE:
-                    print(f"  [ERROR] ⚠️  RATE LIMITED! The website is blocking requests.")
-                    if self.proxy_manager and proxy:
-                        self.proxy_manager.mark_proxy_failed(proxy)
-                        self.proxy_failures += 1
-                        print(f"  [INFO] Trying next proxy...")
-                        continue  # Try next proxy
-                    else:
-                        print(f"  [ERROR] Please wait 10-15 minutes before trying again.")
-                        print(f"  [ERROR] Consider using --use-proxies webshare or --use-proxies custom")
-                        return None
-                
-                # Success! Mark proxy as working
-                if self.proxy_manager and proxy:
-                    self.proxy_manager.mark_proxy_success(proxy)
-                    self.proxy_successes += 1
-                
-                # Parse HTML
-                parse_start = time.time()
-                soup = BeautifulSoup(response.text, 'html.parser')
-                parse_time = time.time() - parse_start
-                
-                total_time = time.time() - start_time
-                if self.debug:
-                    self._log(f"  Timing: fetch={fetch_time:.2f}s, parse={parse_time:.2f}s, total={total_time:.2f}s")
-                
-                return soup
-                
-            except requests.RequestException as e:
-                if self.proxy_manager and proxy:
-                    self.proxy_manager.mark_proxy_failed(proxy)
-                    self.proxy_failures += 1
-                    if attempt < max_retries - 1:
-                        print(f"  [WARN] Request failed with proxy: {e}")
-                        print(f"  [INFO] Trying next proxy...")
-                        time.sleep(1)  # Brief delay before retry
-                        continue
-                
-                print(f"Error fetching {url}: {e}")
-                return None
+        # Use HTTPClient to fetch the page
+        response = self.http_client.get(url, max_retries=max_retries)
         
-        print(f"  [ERROR] Failed after {max_retries} attempts")
-        return None
-    
-    def extract_venue_info(self, event_div) -> Dict[str, str]:
-        """Extract venue information from event div"""
-        venue_info = {
-            'venue': None,
-            'city': None,
-            'country': None,
-            'postal_code': None
-        }
+        if response is None:
+            return None
         
-        location = event_div.find('div', itemprop='location')
-        if location:
-            venue_meta = location.find('meta', itemprop='name')
-            if venue_meta:
-                venue_info['venue'] = venue_meta.get('content')
-            
-            address = location.find('div', itemprop='address')
-            if address:
-                city_meta = address.find('meta', itemprop='addressLocality')
-                country_meta = address.find('meta', itemprop='addressCountry')
-                postal_meta = address.find('meta', itemprop='postalCode')
-                
-                if city_meta:
-                    venue_info['city'] = city_meta.get('content')
-                if country_meta:
-                    venue_info['country'] = country_meta.get('content')
-                if postal_meta:
-                    venue_info['postal_code'] = postal_meta.get('content')
+        # Check for rate limiting
+        if 'limit.html' in response.url or len(response.text) < self.RATE_LIMIT_MIN_RESPONSE_SIZE:
+            print(f"  [ERROR] ⚠️  RATE LIMITED! The website is blocking requests.")
+            print(f"  [ERROR] Please wait 10-15 minutes before trying again.")
+            print(f"  [ERROR] Consider using --use-proxies webshare or --use-proxies custom")
+            return None
         
-        return venue_info
-    
-    def extract_performers(self, event_div) -> List[str]:
-        """Extract all performers from event"""
-        performers = []
-        performer_divs = event_div.find_all('div', itemprop='performer')
-        for performer in performer_divs:
-            name_meta = performer.find('meta', itemprop='name')
-            if name_meta:
-                performers.append(name_meta.get('content'))
-        return performers
-    
-    def matches_lastfm_artists(self, performers: List[str]) -> List[str]:
-        """Check if any performer matches Last.fm artists list
+        # Parse HTML
+        parse_start = time.time()
+        soup = BeautifulSoup(response.text, 'html.parser')
+        parse_time = time.time() - parse_start
         
-        Returns:
-            List of matched Last.fm artist names (using Last.fm capitalization)
-        """
-        if not self.lastfm_artists_normalized:
-            return []  # If no filter, return empty list
+        total_time = time.time() - start_time
+        if self.debug:
+            fetch_time = total_time - parse_time
+            self._log(f"  Timing: fetch={fetch_time:.2f}s, parse={parse_time:.2f}s, total={total_time:.2f}s")
         
-        matched = []
-        # O(1) lookup using normalized dictionary
-        for performer in performers:
-            normalized = performer.lower().strip()
-            if normalized in self.lastfm_artists_normalized:
-                original = self.lastfm_artists_normalized[normalized]
-                if original not in matched:
-                    matched.append(original)
-        return matched
-    
-    def extract_event_details(self, event_div) -> Dict:
-        """Extract all details from a single event div"""
-        event = {
-            'event_name': None,
-            'event_url': None,
-            'date_start': None,
-            'date_end': None,
-            'venue': None,
-            'city': None,
-            'country': None,
-            'postal_code': None,
-            'performers': [],
-            'image_url': None,
-            'organizer': None,
-            'organizer_url': None,
-            'ticket_links': [],
-            'matched_artists': []  # Artists that matched from Last.fm
-        }
-        
-        # Event name - find the meta tag that's NOT inside the location div
-        all_name_metas = event_div.find_all('meta', itemprop='name')
-        for name_meta in all_name_metas:
-            parent_location = name_meta.find_parent('div', itemprop='location')
-            if not parent_location:
-                event['event_name'] = name_meta.get('content')
-                break
-        
-        # Event URL
-        url_link = event_div.find('a', itemprop='url')
-        if url_link:
-            event['event_url'] = url_link.get('href')
-            if event['event_url'] and not event['event_url'].startswith('http'):
-                event['event_url'] = urljoin(self.base_url, event['event_url'])
-        
-        # Dates
-        start_date = event_div.find('meta', itemprop='startDate')
-        end_date = event_div.find('meta', itemprop='endDate')
-        if start_date:
-            event['date_start'] = start_date.get('content')
-        if end_date:
-            event['date_end'] = end_date.get('content')
-        
-        # Venue info
-        venue_info = self.extract_venue_info(event_div)
-        event.update(venue_info)
-        
-        # Performers
-        event['performers'] = self.extract_performers(event_div)
-        
-        # Image
-        image_meta = event_div.find('meta', itemprop='image')
-        if image_meta:
-            event['image_url'] = image_meta.get('content')
-        
-        # Organizer
-        organizer_div = event_div.find('div', itemprop='organizer')
-        if organizer_div:
-            org_name = organizer_div.find('meta', itemprop='name')
-            org_url = organizer_div.find('meta', itemprop='url')
-            if org_name:
-                event['organizer'] = org_name.get('content')
-            if org_url:
-                event['organizer_url'] = org_url.get('content')
-        
-        # Ticket links
-        ticket_offers = event_div.find_all('span', itemprop='offers')
-        for offer in ticket_offers:
-            link = offer.find('a', itemprop='url')
-            if link:
-                ticket_info = {
-                    'vendor': link.get_text(strip=True),
-                    'url': link.get('href')
-                }
-                price_meta = offer.find('meta', itemprop='price')
-                currency_meta = offer.find('meta', itemprop='priceCurrency')
-                if price_meta and currency_meta:
-                    ticket_info['price'] = f"{price_meta.get('content')} {currency_meta.get('content')}"
-                
-                event['ticket_links'].append(ticket_info)
-        
-        # Find matched artists from Last.fm (using Last.fm capitalization)
-        event['matched_artists'] = self.matches_lastfm_artists(event['performers'])
-        
-        return event
+        return soup
     
     def parse_page(self, soup: BeautifulSoup) -> Tuple[List[Dict], List[Dict]]:
         """Parse a single page and return all concerts and filtered concerts
         
+        DEPRECATED: Uses new ConcertParser internally
+        
         Returns:
             Tuple of (all_concerts, filtered_concerts)
         """
-        concerts = []
-        filtered_concerts = []
-        event_divs = soup.find_all('div', itemtype='https://schema.org/MusicEvent')
-        
-        for event_div in event_divs:
-            event_details = self.extract_event_details(event_div)
-            if event_details['event_name']:
-                concerts.append(event_details)
-                
-                # Check if matches Last.fm artists
-                if event_details['matched_artists']:  # Non-empty list means match
-                    filtered_concerts.append(event_details)
-        
-        return concerts, filtered_concerts
+        return self.concert_parser.parse_and_filter_page(soup)
     
     def has_next_page(self, soup: BeautifulSoup, current_page: int) -> bool:
         """Check if there's a next page"""
@@ -444,7 +212,7 @@ class CountryConcertParser:
                 self._log(f"    ✗ Page {mid} doesn't exist")
             
             # Add small delay between checks
-            time.sleep(self._random_delay(self.delay * 0.5))
+            self.rate_limiter.wait(multiplier=0.5)
         
         elapsed = time.time() - start_time
         if last_valid > 0:
@@ -528,8 +296,7 @@ class CountryConcertParser:
             
             # Be polite - add random delay between requests to appear human-like
             if page_num > 1:
-                delay = self._random_delay(self.delay)
-                time.sleep(delay)
+                self.rate_limiter.wait()
         
         return self.concerts
     
