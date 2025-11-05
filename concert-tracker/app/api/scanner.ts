@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { scannerState, broadcastLog } from './state';
+import { scannerState, broadcastLog, broadcastState } from './state';
 
 export async function startScan(userId: number, debug: boolean = false) {
   // Check if user already has a scan running or stopping
@@ -28,6 +28,9 @@ export async function startScan(userId: number, debug: boolean = false) {
       lastStats: null
     });
   }
+  
+  // Broadcast initial state to connected clients
+  broadcastState(userId);
   
   try {
     const { prisma } = await import('@/lib/prisma');
@@ -114,6 +117,9 @@ export async function startScan(userId: number, debug: boolean = false) {
       } else {
         broadcastLog(userId, `Scan failed with exit code ${code}`, 'error', stats);
       }
+      
+      // Broadcast final state to connected clients
+      broadcastState(userId);
     });
     
     process.on('error', (error) => {
@@ -125,6 +131,7 @@ export async function startScan(userId: number, debug: boolean = false) {
         state.process = null;
       }
       broadcastLog(userId, `Failed to start scan: ${error.message}`, 'error');
+      broadcastState(userId); // Broadcast error state
     });
     
   } catch (error) {
@@ -137,5 +144,6 @@ export async function startScan(userId: number, debug: boolean = false) {
     }
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     broadcastLog(userId, `Scan error: ${errorMessage}`, 'error');
+    broadcastState(userId); // Broadcast error state
   }
 }

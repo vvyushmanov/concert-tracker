@@ -1,13 +1,13 @@
 import { ChildProcess } from 'child_process';
 
-type LogListener = (message: string, type: 'log' | 'complete' | 'error', stats?: any) => void;
+type LogListener = (message: string, type: 'log' | 'complete' | 'error' | 'state', stats?: any) => void;
 
 // Scanner state - per user
 export const scannerState = new Map<number, {
   isScanning: boolean;
   isStopping: boolean; // Track graceful shutdown period
   process: ChildProcess | null;
-  listeners: Array<(message: string, type: 'log' | 'complete' | 'error', stats?: any) => void>;
+  listeners: Array<LogListener>;
   startTime: number;
   lastStats: { before: number; after: number; new: number } | null;
 }>();
@@ -42,6 +42,27 @@ export function broadcastLog(userId: number, message: string, type: 'log' | 'com
   }
 }
 
+// Broadcast state changes to all connected clients for a user
+export function broadcastState(userId: number) {
+  const state = scannerState.get(userId);
+  if (state) {
+    const stateData = {
+      isScanning: state.isScanning,
+      isStopping: state.isStopping,
+      stats: state.lastStats
+    };
+    
+    state.listeners.forEach(listener => {
+      try {
+        // Pass empty string as message, state data in stats parameter
+        listener('', 'state', stateData);
+      } catch (error) {
+        console.error('Error broadcasting state:', error);
+      }
+    });
+  }
+}
+
 export function stopScan(userId: number) {
   const state = scannerState.get(userId);
   if (state && state.process) {
@@ -51,6 +72,7 @@ export function stopScan(userId: number) {
     // Note: isScanning stays true until process actually exits
     // This prevents race condition where new scan starts during shutdown
     broadcastLog(userId, 'Stopping scan (graceful shutdown)...', 'log');
+    broadcastState(userId); // Broadcast state change to clients
   }
 }
 

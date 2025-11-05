@@ -19,7 +19,7 @@ interface ScannerStatus {
 }
 
 export default function ScannerClient({ isAdmin, userSettings, activeCountries }: ScannerClientProps) {
-  // Server state is the single source of truth
+  // Server state received via SSE
   const [serverStatus, setServerStatus] = useState<ScannerStatus>({ isScanning: false, isStopping: false, stats: null });
   const [debugMode, setDebugMode] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
@@ -27,7 +27,7 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
   const [showStats, setShowStats] = useState(false); // Only show stats after scan completes in current session
   const logsEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
-  const statusIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const router = useRouter();
 
   const scrollToBottom = () => {
@@ -40,61 +40,23 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
     }
   }, [logs]);
 
-  // Poll server status every 500ms - server is single source of truth
+  // Connect to SSE on mount for real-time state and log updates
   useEffect(() => {
-    const checkStatus = async () => {
-      try {
-        const res = await fetch('/api/scanner/status');
-        const data = await res.json();
-        
-        setServerStatus((prevStatus) => {
-          const wasScanning = prevStatus.isScanning;
-          const nowScanning = data.isScanning;
-          
-          // Handle state transitions
-          if (nowScanning && !wasScanning) {
-            // Scan just started - connect to logs
-            if (!eventSourceRef.current) {
-              connectToLogs();
-            }
-          } else if (!nowScanning && wasScanning) {
-            // Scan just finished - close SSE and show completion
-            if (eventSourceRef.current) {
-              eventSourceRef.current.close();
-              eventSourceRef.current = null;
-            }
-            if (data.stats) {
-              setShowStats(true); // Enable stats display for this session
-              showToast(`Scan complete! Found ${data.stats.new} new concerts.`, 'success');
-            }
-          }
-          
-          return {
-            isScanning: nowScanning,
-            isStopping: data.isStopping || false,
-            stats: data.stats || prevStatus.stats
-          };
-        });
-      } catch (error) {
-        console.error('Failed to check scan status:', error);
-      }
-    };
-    
-    checkStatus(); // Initial check
-    statusIntervalRef.current = setInterval(checkStatus, 500);
+    connectToSSE();
     
     return () => {
-      if (statusIntervalRef.current) {
-        clearInterval(statusIntervalRef.current);
-      }
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
         eventSourceRef.current = null;
       }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
     };
   }, []);
 
-  const connectToLogs = () => {
+  const connectToSSE = () => {
     if (eventSourceRef.current) return;
 
     const eventSource = new EventSource('/api/scanner/logs');
@@ -105,16 +67,49 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
       
       if (data.type === 'log') {
         setLogs((prev) => [...prev, data.message]);
+      } else if (data.type === 'state') {
+        // Real-time state update from server
+        setServerStatus((prevStatus) => {
+          const wasScanning = prevStatus.isScanning;
+          const nowScanning = data.isScanning;
+          
+          // Handle state transitions
+          if (!nowScanning && wasScanning && data.stats) {
+            setShowStats(true); // Show stats when scan completes
+            showToast(`Scan complete! Found ${data.stats.new} new concerts.`, 'success');
+          }
+          
+          return {
+            isScanning: data.isScanning,
+            isStopping: data.isStopping,
+            stats: data.stats
+          };
+        });
+      } else if (data.type === 'complete') {
+        // Scan completed successfully
+        if (data.stats) {
+          setShowStats(true);
+          showToast(`Scan complete! Found ${data.stats.new} new concerts.`, 'success');
+        }
+      } else if (data.type === 'error') {
+        // Scan failed
+        showToast(`Scan failed: ${data.message}`, 'error');
       }
-      // Note: Don't handle 'complete' or 'error' here
-      // Status polling will detect completion and handle it
     };
 
     eventSource.onerror = () => {
-      console.log('SSE connection lost - status polling will handle state');
+      console.log('SSE connection lost - attempting reconnect...');
       eventSource.close();
       eventSourceRef.current = null;
-      // Status polling continues and will reconnect SSE if scan still running
+      
+      // Attempt to reconnect after 2 seconds
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      reconnectTimeoutRef.current = setTimeout(() => {
+        console.log('Reconnecting to SSE...');
+        connectToSSE();
+      }, 2000);
     };
   };
 

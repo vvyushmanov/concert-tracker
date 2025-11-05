@@ -16,9 +16,11 @@ export async function GET(request: NextRequest) {
   if (!scannerState.has(userId)) {
     scannerState.set(userId, {
       isScanning: false,
+      isStopping: false,
       process: null,
       listeners: [],
-      startTime: 0
+      startTime: 0,
+      lastStats: null
     });
   }
   
@@ -28,18 +30,37 @@ export async function GET(request: NextRequest) {
     start(controller) {
       let isClosed = false;
       
-      // Send initial connection message
-      const data = `data: ${JSON.stringify({ type: 'connected' })}\n\n`;
-      controller.enqueue(encoder.encode(data));
+      // Send initial state to newly connected client
+      const userState = scannerState.get(userId);
+      if (userState) {
+        const initialState = {
+          type: 'state',
+          isScanning: userState.isScanning,
+          isStopping: userState.isStopping,
+          stats: userState.lastStats
+        };
+        const data = `data: ${JSON.stringify(initialState)}\n\n`;
+        controller.enqueue(encoder.encode(data));
+      }
       
-      // Create listener for log updates
-      const listener = (message: string, type: 'log' | 'complete' | 'error', stats?: any) => {
+      // Create listener for log and state updates
+      const listener = (message: string, type: 'log' | 'complete' | 'error' | 'state', stats?: any) => {
         if (isClosed) return; // Don't try to send if already closed
         
         try {
-          const payload = stats 
-            ? { type, message, stats }
-            : { type, message };
+          let payload;
+          
+          if (type === 'state') {
+            // State messages: spread the state data directly into payload
+            payload = { type: 'state', ...stats };
+          } else if (stats) {
+            // Log/complete/error messages with stats
+            payload = { type, message, stats };
+          } else {
+            // Simple log messages
+            payload = { type, message };
+          }
+          
           const data = `data: ${JSON.stringify(payload)}\n\n`;
           controller.enqueue(encoder.encode(data));
           
