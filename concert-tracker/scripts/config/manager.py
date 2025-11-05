@@ -24,8 +24,8 @@ from dotenv import load_dotenv
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
 
-from db_config import get_engine
-from db_models import Setting, Base, Country
+from database.config import get_engine
+from database.models import Setting, Base, Country
 
 # Load environment variables
 load_dotenv()

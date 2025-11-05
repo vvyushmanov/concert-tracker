@@ -4,7 +4,7 @@ Handles upserts and data conversion from parser format to database format
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Set
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -107,7 +107,7 @@ class ConcertDatabaseWriter:
             # Update mbid if provided and changed
             if mbid and artist.mbid != mbid:
                 artist.mbid = mbid
-                artist.updatedAt = int(datetime.utcnow().timestamp())
+                artist.updatedAt = int(datetime.now(timezone.utc).timestamp())
                 self.stats['artists_updated'] += 1
         else:
             # Create new artist (shared data only)
@@ -150,7 +150,7 @@ class ConcertDatabaseWriter:
                 user_artist.recent = recent
                 updated = True
             if updated:
-                user_artist.updatedAt = int(datetime.utcnow().timestamp())
+                user_artist.updatedAt = int(datetime.now(timezone.utc).timestamp())
                 self.stats['user_artists_updated'] += 1
         else:
             # Create new UserArtist
@@ -207,7 +207,7 @@ class ConcertDatabaseWriter:
             return int(dt.timestamp())
         except (ValueError, TypeError):
             # Fallback to current date if parsing fails
-            return int(datetime.utcnow().timestamp())
+            return int(datetime.now(timezone.utc).timestamp())
     
     def upsert_concert(
         self,
@@ -280,7 +280,7 @@ class ConcertDatabaseWriter:
             
             # Only update timestamp and increment counter if there were actual changes
             if has_changes:
-                concert.updatedAt = int(datetime.utcnow().timestamp())
+                concert.updatedAt = int(datetime.now(timezone.utc).timestamp())
                 self.stats['concerts_updated'] += 1
                 if self.debug:
                     print(f"[DB] Updated concert: {concert_data.get('event_name', 'Unknown')}")

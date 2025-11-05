@@ -19,7 +19,7 @@ export async function POST() {
   }
 
   try {
-    const pythonScript = '/app/scripts/fetch_artist_metadata.py';
+    const pythonScript = '/app/scripts/fetch_metadata.py';
     
     // Execute with user ID and refresh-playcounts flag
     const process = spawn('python3', [

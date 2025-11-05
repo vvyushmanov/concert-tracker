@@ -9,7 +9,7 @@ Usage:
 """
 
 import sys
-from config_manager import ConfigManager
+from config import ConfigManager
 
 if __name__ == '__main__':
     config = ConfigManager()

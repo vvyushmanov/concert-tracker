@@ -9,7 +9,7 @@ export async function POST() {
     const beforeCount = await prisma.concert.count();
     
     // Path to Python script (inside Docker container)
-    const pythonScript = '/app/scripts/country_concert_parser.py';
+    const pythonScript = '/app/scripts/parse_concerts.py';
     
     console.log('🔍 Starting concert scan...');
     console.log(`📊 Current concert count: ${beforeCount}`);

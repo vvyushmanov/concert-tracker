@@ -6,7 +6,7 @@ Matches Prisma schema for Next.js web app
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Text, UniqueConstraint, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
-from datetime import datetime
+from datetime import datetime, timezone
 
 from database.config import get_engine
 
@@ -21,8 +21,8 @@ class Artist(Base):
     name = Column(String, unique=True, nullable=False, index=True)
     mbid = Column(String, nullable=True)  # MusicBrainz ID
     imageUrl = Column(String, nullable=True)  # Artist image from fanart.tv or Last.fm
-    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()))
-    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()), onupdate=lambda: int(datetime.utcnow().timestamp()))
+    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
+    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
     
     # Relationship
     concerts = relationship('Concert', back_populates='artist', cascade='all, delete-orphan')
@@ -39,8 +39,8 @@ class Country(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String, unique=True, nullable=False, index=True)  # Full name: "Turkey", "France"
     code = Column(String, unique=True, nullable=False, index=True)  # ISO code: "tr", "fr"
-    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()))
-    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()), onupdate=lambda: int(datetime.utcnow().timestamp()))
+    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
+    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
     user_active_countries = relationship('UserActiveCountry', back_populates='country', cascade='all, delete-orphan')
 
     def __repr__(self):
@@ -58,8 +58,8 @@ class CityMapping(Base):
     latitude = Column(String, nullable=True)  # Store as string for precision
     longitude = Column(String, nullable=True)  # Store as string for precision
     source = Column(String, nullable=False)  # 'manual', 'geocoded', 'text_normalized'
-    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()))
-    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()), onupdate=lambda: int(datetime.utcnow().timestamp()))
+    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
+    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
     
     def __repr__(self):
         return f"<CityMapping('{self.originalCity}' -> '{self.normalizedCity}', countryId={self.countryId})>"
@@ -89,8 +89,8 @@ class Concert(Base):
     artistId = Column(Integer, ForeignKey('Artist.id'), nullable=False, index=True)
     
     # Timestamps (Unix timestamps)
-    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()))
-    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()), onupdate=lambda: int(datetime.utcnow().timestamp()))
+    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
+    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
     
     # Relationship
     artist = relationship('Artist', back_populates='concerts')
@@ -109,8 +109,8 @@ class Setting(Base):
     value = Column(Text, nullable=False)
     valueType = Column(String(20), nullable=False)  # 'string', 'int', 'bool', 'json'
     description = Column(Text, nullable=True)
-    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()))
-    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()), onupdate=lambda: int(datetime.utcnow().timestamp()))
+    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
+    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
     
     def __repr__(self):
         return f"<Setting(key='{self.key}', value='{self.value}', type='{self.valueType}')>"
@@ -124,8 +124,8 @@ class User(Base):
     username = Column(String(100), unique=True, nullable=False, index=True)
     hashedPassword = Column(String(255), nullable=False)
     role = Column(String(10), nullable=False, default='USER', index=True)
-    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()))
-    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()), onupdate=lambda: int(datetime.utcnow().timestamp()))
+    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
+    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
 
     settings = relationship('UserSetting', back_populates='user', cascade='all, delete-orphan')
     concerts = relationship('UserConcert', back_populates='user', cascade='all, delete-orphan')
@@ -143,8 +143,8 @@ class UserSetting(Base):
     key = Column(String(100), nullable=False)
     value = Column(Text, nullable=False)
     valueType = Column(String(20), nullable=False)
-    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()))
-    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()), onupdate=lambda: int(datetime.utcnow().timestamp()))
+    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
+    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
 
     user = relationship('User', back_populates='settings')
 
@@ -162,8 +162,8 @@ class UserConcert(Base):
     concertId = Column(Integer, ForeignKey('Concert.id'), nullable=False)
     interested = Column(Boolean, nullable=False, default=False)
     notes = Column(Text, nullable=True)
-    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()))
-    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()), onupdate=lambda: int(datetime.utcnow().timestamp()))
+    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
+    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
 
     user = relationship('User', back_populates='concerts')
     concert = relationship('Concert', back_populates='user_interactions')
@@ -185,8 +185,8 @@ class UserArtist(Base):
     playcount = Column(Integer, nullable=False, default=0)
     playcount12month = Column(Integer, nullable=False, default=0)
     recent = Column(Boolean, nullable=False, default=False)
-    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()))
-    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()), onupdate=lambda: int(datetime.utcnow().timestamp()))
+    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
+    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
 
     user = relationship('User', back_populates='artists')
     artist = relationship('Artist', back_populates='user_stats')
@@ -205,7 +205,7 @@ class UserActiveCountry(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     userId = Column(Integer, ForeignKey('User.id'), nullable=False)
     countryId = Column(Integer, ForeignKey('Country.id'), nullable=False)
-    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()))
+    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
 
     user = relationship('User', back_populates='activeCountries')
     country = relationship('Country', back_populates='user_active_countries')
@@ -226,7 +226,7 @@ class SettingAuditLog(Base):
     key = Column(String(100), nullable=False, index=True)
     oldValue = Column(Text, nullable=True)
     newValue = Column(Text, nullable=False)
-    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.utcnow().timestamp()))
+    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
 
     user = relationship('User', back_populates='auditLogs')
 

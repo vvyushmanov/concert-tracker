@@ -35,7 +35,7 @@ export async function startScan(userId: number, debug: boolean = false) {
     broadcastLog(userId, `Starting scan${debug ? ' (DEBUG MODE)' : ''}... Current concerts: ${beforeCount}`, 'log');
     
     // Path to Python script (inside Docker container)
-    const pythonScript = '/app/scripts/country_concert_parser.py';
+    const pythonScript = '/app/scripts/parse_concerts.py';
     
     // Build arguments array
     const args = [

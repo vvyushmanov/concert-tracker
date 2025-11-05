@@ -4,7 +4,7 @@ User configuration helper for loading per-user settings and active countries
 
 from typing import Dict, List, Optional
 from sqlalchemy.orm import Session
-from db_models import User, UserSetting, UserActiveCountry, Country, get_session
+from database.models import User, UserSetting, UserActiveCountry, Country, get_session
 
 
 class UserConfig:

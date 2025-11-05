@@ -6,7 +6,7 @@ Includes REST Countries API fallback for automatic country code resolution
 """
 
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Tuple
 from database.models import Country
 
@@ -183,7 +183,7 @@ def get_or_create_country(session, country_name: str, verbose: bool = False) -> 
         else:
             print(f"[Country] Unknown country '{country_name}', using code 'xx'")
     
-    now = int(datetime.utcnow().timestamp())
+    now = int(datetime.now(timezone.utc).timestamp())
     
     # Check if code already exists (handle duplicates)
     existing_code = session.query(Country).filter_by(code=country_code).first()

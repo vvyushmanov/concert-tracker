@@ -6,11 +6,11 @@ Used by /api/settings/countries endpoint
 
 import sys
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.orm import sessionmaker
-from db_config import get_engine
-from db_models import Country
-from country_helper import get_or_create_country, lookup_country_by_code
+from database.config import get_engine
+from database.models import Country
+from database.normalizers.country import get_or_create_country, lookup_country_by_code
 
 def add_or_update_country(input_value: str) -> dict:
     """
@@ -39,7 +39,7 @@ def add_or_update_country(input_value: str) -> dict:
             
             if existing_country:
                 # Country already exists
-                existing_country.updatedAt = int(datetime.utcnow().timestamp())
+                existing_country.updatedAt = int(datetime.now(timezone.utc).timestamp())
                 session.commit()
                 
                 return {
@@ -58,7 +58,7 @@ def add_or_update_country(input_value: str) -> dict:
                     country_name, resolved_code = api_result
                     # Create new country
                     country = get_or_create_country(session, country_name, verbose=False)
-                    country.updatedAt = int(datetime.utcnow().timestamp())
+                    country.updatedAt = int(datetime.now(timezone.utc).timestamp())
                     session.commit()
                     
                     return {
@@ -84,7 +84,7 @@ def add_or_update_country(input_value: str) -> dict:
             
             if existing_country:
                 # Country already exists
-                existing_country.updatedAt = int(datetime.utcnow().timestamp())
+                existing_country.updatedAt = int(datetime.now(timezone.utc).timestamp())
                 session.commit()
                 
                 return {
@@ -99,7 +99,7 @@ def add_or_update_country(input_value: str) -> dict:
             else:
                 # Create new country using country_helper
                 country = get_or_create_country(session, country_name, verbose=False)
-                country.updatedAt = int(datetime.utcnow().timestamp())
+                country.updatedAt = int(datetime.now(timezone.utc).timestamp())
                 session.commit()
                 
                 return {

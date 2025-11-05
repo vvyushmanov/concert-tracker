@@ -6,7 +6,7 @@ Handles text normalization, manual mappings, and geocoding
 import re
 import time
 from typing import Optional, Tuple, Dict
-from datetime import datetime
+from datetime import datetime, timezone
 from unidecode import unidecode
 import requests
 from sqlalchemy.orm import Session
@@ -589,7 +589,7 @@ class CityNormalizer:
         country_id = country_obj.id if country_obj else None
         
         # Create new mapping
-        now = int(datetime.utcnow().timestamp())
+        now = int(datetime.now(timezone.utc).timestamp())
         mapping = CityMapping(
             originalCity=original_city,
             countryId=country_id,
