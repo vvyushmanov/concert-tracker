@@ -162,6 +162,7 @@ class UserConcert(Base):
     concertId = Column(Integer, ForeignKey('Concert.id'), nullable=False)
     interested = Column(Boolean, nullable=False, default=False)
     notes = Column(Text, nullable=True)
+    isPrivate = Column(Boolean, nullable=False, default=False)
     createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
     updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
 
@@ -172,6 +173,7 @@ class UserConcert(Base):
         UniqueConstraint('userId', 'concertId', name='uq_userconcert_user_concert'),
         Index('ix_userconcert_userId', 'userId'),
         Index('ix_userconcert_concertId', 'concertId'),
+        Index('ix_userconcert_isPrivate', 'isPrivate'),
     )
 
 

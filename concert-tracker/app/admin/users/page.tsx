@@ -14,7 +14,7 @@ export default async function AdminUsersPage() {
   }
 
   return (
-    <div className="min-h-screen p-8 bg-gray-50 dark:bg-gray-900">
+    <div className="p-8 bg-gray-50 dark:bg-gray-900" style={{ minHeight: 'calc(100vh - 3rem)' }}>
       <main className="max-w-7xl mx-auto">
         <div className="mb-8">
           <h1 className="text-3xl font-bold mb-2">User Management</h1>

@@ -166,7 +166,7 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
   };
 
   return (
-    <div className="min-h-screen bg-black text-green-400 font-mono p-8">
+    <div className="bg-black text-green-400 font-mono p-8" style={{ minHeight: 'calc(100vh - 3rem)' }}>
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-6 flex items-center justify-between">

@@ -70,6 +70,7 @@ export default function Sidebar({ isMobileMenuOpen = false, onClose, onExpandedC
     { href: '/artists', label: 'Artists', icon: '🎤' },
     { href: '/countries', label: 'Countries', icon: '🌍' },
     { href: '/calendar', label: 'Calendar', icon: '📅' },
+    { href: '/map', label: 'Map', icon: '🗺️' },
     { href: '/friends', label: 'Friends', icon: '👥' },
     { href: '/scanner', label: 'Scanner', icon: '🔍' },
     { href: '/settings', label: 'Settings', icon: '⚙️' },

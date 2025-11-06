@@ -10,8 +10,8 @@ export default async function CalendarPage() {
   // Require authentication
   if (!session) {
     return (
-      <div className="min-h-screen p-8 bg-gray-50 dark:bg-gray-900">
-        <main className="max-w-7xl mx-auto">
+      <div className="bg-gray-50 dark:bg-gray-900 p-8 h-full" style={{ height: 'calc(100vh - 3rem)' }}>
+        <main className="h-full">
           <div className="text-center py-16">
             <h1 className="text-3xl font-bold mb-4">Please Log In</h1>
             <p className="text-gray-600 dark:text-gray-400">
@@ -73,11 +73,11 @@ export default async function CalendarPage() {
   ) as { city: string; country: string }[];
 
   return (
-    <div className="min-h-screen p-8 bg-gray-50 dark:bg-gray-900">
-      <main className="max-w-7xl mx-auto">
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold mb-2">Concert Calendar</h1>
-          <p className="text-gray-600 dark:text-gray-400">
+    <div className="bg-gray-50 dark:bg-gray-900 p-6 h-full" style={{ height: 'calc(100vh - 3rem)' }}>
+      <div className="h-full flex flex-col max-w-[1800px] mx-auto">
+        <div className="mb-4 flex-shrink-0">
+          <h1 className="text-2xl font-bold mb-1">Concert Calendar</h1>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
             View concerts by date with filters
           </p>
         </div>
@@ -103,7 +103,7 @@ export default async function CalendarPage() {
             cities={cities}
           />
         )}
-      </main>
+      </div>
     </div>
   );
 }

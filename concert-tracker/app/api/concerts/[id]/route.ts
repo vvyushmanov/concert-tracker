@@ -24,7 +24,7 @@ export async function GET(
         artist: true,
         userInteractions: session ? {
           where: { userId: parseInt(session.user.id) },
-          select: { interested: true, notes: true }
+          select: { interested: true, notes: true, isPrivate: true }
         } : false,
       },
     });
@@ -46,6 +46,7 @@ export async function GET(
       ticketLinks: JSON.parse(concert.ticketLinks),
       interested: userInteraction?.interested || false,
       notes: userInteraction?.notes || '',
+      isPrivate: userInteraction?.isPrivate || false,
       userInteractions: undefined, // Remove from response
     };
 
@@ -84,7 +85,7 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { interested, notes } = body;
+    const { interested, notes, isPrivate } = body;
 
     // Validate input
     if (interested !== undefined && typeof interested !== 'boolean') {
@@ -101,6 +102,13 @@ export async function PATCH(
       );
     }
 
+    if (isPrivate !== undefined && typeof isPrivate !== 'boolean') {
+      return NextResponse.json(
+        { error: 'isPrivate must be a boolean' },
+        { status: 400 }
+      );
+    }
+
     const now = Math.floor(Date.now() / 1000);
 
     // Upsert into UserConcert table
@@ -111,6 +119,7 @@ export async function PATCH(
       update: {
         ...(interested !== undefined && { interested }),
         ...(notes !== undefined && { notes }),
+        ...(isPrivate !== undefined && { isPrivate }),
         updatedAt: now,
       },
       create: {
@@ -118,6 +127,7 @@ export async function PATCH(
         concertId,
         interested: interested ?? false,
         notes: notes ?? '',
+        isPrivate: isPrivate ?? false,
         createdAt: now,
         updatedAt: now,
       },
@@ -130,7 +140,7 @@ export async function PATCH(
         artist: true,
         userInteractions: {
           where: { userId },
-          select: { interested: true, notes: true }
+          select: { interested: true, notes: true, isPrivate: true }
         },
       },
     });
@@ -151,6 +161,7 @@ export async function PATCH(
       ticketLinks: JSON.parse(concert.ticketLinks),
       interested: userInteraction?.interested || false,
       notes: userInteraction?.notes || '',
+      isPrivate: userInteraction?.isPrivate || false,
       userInteractions: undefined,
     };
 

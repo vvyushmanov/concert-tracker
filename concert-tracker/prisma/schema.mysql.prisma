@@ -143,6 +143,7 @@ model UserConcert {
   concertId  Int
   interested Boolean @default(false)
   notes      String? @db.Text
+  isPrivate  Boolean @default(false)
   createdAt  Int
   updatedAt  Int
 
@@ -152,6 +153,7 @@ model UserConcert {
   @@unique([userId, concertId])
   @@index([userId])
   @@index([concertId])
+  @@index([isPrivate])
 }
 
 model UserArtist {

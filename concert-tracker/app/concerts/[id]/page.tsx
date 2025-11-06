@@ -27,6 +27,7 @@ interface Concert {
   ticketLinks: string[];
   interested: boolean;
   notes: string | null;
+  isPrivate: boolean;
   artist: {
     id: number;
     name: string;
@@ -81,6 +82,28 @@ export default function ConcertDetailPage() {
       }
     } catch (err) {
       console.error('Failed to update interested status:', err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const togglePrivacy = async () => {
+    if (!concert) return;
+    
+    setIsSaving(true);
+    try {
+      const response = await fetch(`/api/concerts/${concert.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isPrivate: !concert.isPrivate }),
+      });
+      
+      if (response.ok) {
+        const updated = await response.json();
+        setConcert(updated);
+      }
+    } catch (err) {
+      console.error('Failed to update privacy status:', err);
     } finally {
       setIsSaving(false);
     }
@@ -175,18 +198,41 @@ export default function ConcertDetailPage() {
             {/* Event Title */}
             <h1 className="text-4xl font-bold mb-6">{concert.eventName}</h1>
 
-            {/* Pin Button */}
-            <button
-              onClick={toggleInterested}
-              disabled={isSaving}
-              className={`mb-6 px-6 py-3 rounded-lg font-medium transition-colors ${
-                concert.interested
-                  ? 'bg-yellow-400 dark:bg-yellow-600 text-yellow-900 dark:text-yellow-100 hover:bg-yellow-500 dark:hover:bg-yellow-700'
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-              } disabled:opacity-50`}
-            >
-              {concert.interested ? '⭐ Pinned' : '☆ Pin Concert'}
-            </button>
+            {/* Action Buttons */}
+            <div className="mb-6 flex flex-wrap gap-3">
+              <button
+                onClick={toggleInterested}
+                disabled={isSaving}
+                className={`px-6 py-3 rounded-lg font-medium transition-colors ${
+                  concert.interested
+                    ? 'bg-yellow-400 dark:bg-yellow-600 text-yellow-900 dark:text-yellow-100 hover:bg-yellow-500 dark:hover:bg-yellow-700'
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                } disabled:opacity-50`}
+              >
+                {concert.interested ? '⭐ Pinned' : '☆ Pin Concert'}
+              </button>
+
+              <button
+                onClick={togglePrivacy}
+                disabled={isSaving}
+                className={`px-6 py-3 rounded-lg font-medium transition-colors ${
+                  concert.isPrivate
+                    ? 'bg-purple-500 dark:bg-purple-600 text-white hover:bg-purple-600 dark:hover:bg-purple-700'
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                } disabled:opacity-50`}
+                title={concert.isPrivate ? 'Hidden from friends on map' : 'Visible to friends on map'}
+              >
+                {concert.isPrivate ? '🔒 Private' : '🌐 Public'}
+              </button>
+            </div>
+
+            {concert.isPrivate && (
+              <div className="mb-6 p-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
+                <p className="text-sm text-purple-900 dark:text-purple-100">
+                  🔒 This concert is hidden from your friends on the concert map.
+                </p>
+              </div>
+            )}
 
             {/* Event Details */}
             <div className="space-y-4 mb-8">

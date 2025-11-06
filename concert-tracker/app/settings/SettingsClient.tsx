@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import CountriesTab from './CountriesTab';
 import AuditLogTab from './AuditLogTab';
+import PrivacyTab from './PrivacyTab';
 
 interface Setting {
   key: string;
@@ -19,15 +20,15 @@ export default function SettingsClient({ isAdmin, userId }: { isAdmin: boolean; 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<StatusMessage>(null);
-  const [activeTab, setActiveTab] = useState<'user' | 'global' | 'countries' | 'audit'>('user');
+  const [activeTab, setActiveTab] = useState<'user' | 'global' | 'countries' | 'privacy' | 'audit'>('user');
 
   useEffect(() => {
     fetchSettings();
   }, [activeTab]);
 
   const fetchSettings = async () => {
-    // Skip fetching for countries and audit tabs (they have their own data fetching)
-    if (activeTab === 'countries' || activeTab === 'audit') {
+    // Skip fetching for countries, privacy, and audit tabs (they have their own data fetching)
+    if (activeTab === 'countries' || activeTab === 'privacy' || activeTab === 'audit') {
       setLoading(false);
       return;
     }
@@ -146,6 +147,8 @@ export default function SettingsClient({ isAdmin, userId }: { isAdmin: boolean; 
             ? 'Configure system-wide settings (admin only)' 
             : activeTab === 'countries'
             ? 'Manage countries for your concert scanner'
+            : activeTab === 'privacy'
+            ? 'Control who can see your concerts on the map'
             : activeTab === 'audit'
             ? 'View all changes to global settings'
             : 'Configure your personal settings'}
@@ -174,6 +177,16 @@ export default function SettingsClient({ isAdmin, userId }: { isAdmin: boolean; 
             }`}
           >
             Countries
+          </button>
+          <button
+            onClick={() => setActiveTab('privacy')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'privacy'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Privacy
           </button>
           {isAdmin && (
             <>
@@ -223,6 +236,8 @@ export default function SettingsClient({ isAdmin, userId }: { isAdmin: boolean; 
       {/* Render Tab Content */}
       {activeTab === 'countries' ? (
         <CountriesTab isAdmin={isAdmin} />
+      ) : activeTab === 'privacy' ? (
+        <PrivacyTab />
       ) : activeTab === 'audit' ? (
         <AuditLogTab />
       ) : (
