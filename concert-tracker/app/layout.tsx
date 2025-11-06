@@ -15,10 +15,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="antialiased">
+      <body className="antialiased" id="app-body">
         <SessionProvider>
           <Navigation />
-          {children}
+          <main id="main-content" className="lg:ml-16 pt-12 transition-all duration-300">
+            {children}
+          </main>
         </SessionProvider>
       </body>
     </html>

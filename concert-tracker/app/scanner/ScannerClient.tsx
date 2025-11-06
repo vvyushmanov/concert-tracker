@@ -26,12 +26,15 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [showStats, setShowStats] = useState(false); // Only show stats after scan completes in current session
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const logsContainerRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const router = useRouter();
 
   const scrollToBottom = () => {
-    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (logsContainerRef.current) {
+      logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
+    }
   };
 
   useEffect(() => {
@@ -270,7 +273,7 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
         </div>
 
         {/* Terminal/Logs */}
-        <div className="bg-black border-2 border-green-700 p-4 h-[400px] overflow-y-auto shadow-[0_0_20px_rgba(34,197,94,0.3)]">
+        <div ref={logsContainerRef} className="bg-black border-2 border-green-700 p-4 h-[400px] overflow-y-auto shadow-[0_0_20px_rgba(34,197,94,0.3)]">
           <div className="mb-2 text-green-600">
             === SYSTEM LOG ===
           </div>
@@ -290,13 +293,6 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
             </div>
           )}
           <div ref={logsEndRef} />
-        </div>
-
-        {/* Info */}
-        <div className="mt-4 text-green-700 text-sm">
-          <p>• You can navigate away from this page - the scan will continue in the background</p>
-          <p>• Return to this page to see progress and stop the scan if needed</p>
-          <p>• Scanner uses your personal Last.fm credentials and active countries</p>
         </div>
       </div>
 
