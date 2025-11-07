@@ -98,7 +98,12 @@ export async function GET(request: Request) {
           select: {
             userId: true,
             interested: true,
-            isPrivate: true
+            isPrivate: true,
+            user: {
+              select: {
+                username: true
+              }
+            }
           }
         }
       }
@@ -187,6 +192,7 @@ export async function GET(request: Request) {
           } : null,
           userInteractions: visibleInteractions.map(ui => ({
             userId: ui.userId,
+            username: ui.user.username,
             interested: ui.interested
           }))
         };

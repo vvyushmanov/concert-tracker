@@ -31,7 +31,8 @@ export function getUserColor(
   // Find the friend's index in the selected list
   const friendIndex = selectedFriendIds.indexOf(userId);
   if (friendIndex === -1) {
-    return FRIEND_COLORS[0]; // Fallback to blue
+    // Friend not selected - return white/light gray
+    return '#E5E7EB'; // gray-200
   }
 
   // Assign color based on position (offset by 1 since index 0 is for current user)

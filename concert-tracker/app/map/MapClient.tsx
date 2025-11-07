@@ -1,21 +1,15 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import dynamic from 'next/dynamic';
 import { MapFilters, MapConcert, MapFriend, TIMELINE_PRESETS } from '@/app/types/map';
+import { getUserColor } from '@/app/lib/mapColors';
+import TimelineSlider from './TimelineSlider';
 
-// Dynamically import the map component (client-side only)
+// Dynamically import the map component (client-side only) - OUTSIDE the component
 const ConcertMap = dynamic(() => import('./ConcertMap'), {
   ssr: false,
-  loading: () => (
-    <div className="absolute inset-0 flex items-center justify-center bg-gray-100 dark:bg-gray-800">
-      <div className="text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-        <p className="text-gray-600 dark:text-gray-400">Loading map...</p>
-      </div>
-    </div>
-  ),
 });
 
 export default function MapClient() {
@@ -229,13 +223,31 @@ export default function MapClient() {
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
                 Friends ({filters.friendIds.length}/5)
               </h3>
-              {friends.length === 0 ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  No friends yet. Add friends to see their concerts!
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {friends.map((friend) => (
+              <div className="space-y-2">
+                {/* Current User Legend */}
+                <div className="flex items-center gap-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-700/50">
+                  <div 
+                    className="w-4 h-4 rounded-full border-2 border-white shadow-sm"
+                    style={{ 
+                      backgroundColor: getUserColor(
+                        session ? parseInt(session.user.id) : 0, 
+                        session ? parseInt(session.user.id) : 0, 
+                        filters.friendIds
+                      )
+                    }}
+                  />
+                  <span className="text-sm font-medium text-gray-900 dark:text-white">
+                    You
+                  </span>
+                </div>
+
+                {/* Friends List */}
+                {friends.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 pt-2">
+                    No friends yet. Add friends to see their concerts!
+                  </p>
+                ) : (
+                  friends.map((friend) => (
                     <label
                       key={friend.id}
                       className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
@@ -261,13 +273,23 @@ export default function MapClient() {
                         disabled={!filters.friendIds.includes(friend.id) && filters.friendIds.length >= 5}
                         className="rounded border-gray-300 dark:border-gray-600"
                       />
+                      <div 
+                        className="w-4 h-4 rounded-full border-2 border-white shadow-sm"
+                        style={{ 
+                          backgroundColor: getUserColor(
+                            friend.id, 
+                            session ? parseInt(session.user.id) : 0, 
+                            filters.friendIds
+                          )
+                        }}
+                      />
                       <span className="text-sm text-gray-900 dark:text-white">
                         {friend.username}
                       </span>
                     </label>
-                  ))}
-                </div>
-              )}
+                  ))
+                )}
+              </div>
             </div>
 
             {/* Filters */}
@@ -326,31 +348,47 @@ export default function MapClient() {
                 </button>
               </div>
             </div>
-          ) : loading ? (
-            <div className="absolute inset-0 flex items-center justify-center z-10">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                <p className="text-gray-600 dark:text-gray-400">Loading concerts...</p>
-              </div>
-            </div>
-          ) : concerts.length === 0 ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-100 dark:bg-gray-800 z-10">
-              <div className="text-center">
-                <div className="text-6xl mb-4">🎸</div>
-                <p className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                  No concerts found
-                </p>
-                <p className="text-gray-600 dark:text-gray-400">
-                  Try adjusting your filters or date range
-                </p>
-              </div>
-            </div>
           ) : (
-            <ConcertMap
-              concerts={concerts}
-              currentUserId={session ? parseInt(session.user.id) : 0}
-              selectedFriendIds={filters.friendIds}
-            />
+            <>
+              {loading && (
+                <div className="absolute inset-0 flex items-center justify-center z-10 bg-white/80 dark:bg-gray-900/80">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                    <p className="text-gray-600 dark:text-gray-400">Loading concerts...</p>
+                  </div>
+                </div>
+              )}
+              {!loading && concerts.length === 0 && (
+                <div className="absolute inset-0 flex items-center justify-center z-10 bg-gray-100 dark:bg-gray-800">
+                  <div className="text-center">
+                    <div className="text-6xl mb-4">🎸</div>
+                    <p className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                      No concerts found
+                    </p>
+                    <p className="text-gray-600 dark:text-gray-400">
+                      Try adjusting your filters or date range
+                    </p>
+                  </div>
+                </div>
+              )}
+              <ConcertMap
+                key="concert-map-singleton"
+                concerts={concerts}
+                currentUserId={session ? parseInt(session.user.id) : 0}
+                selectedFriendIds={filters.friendIds}
+              />
+              <TimelineSlider
+                startDate={filters.startDate}
+                endDate={filters.endDate}
+                minDate={Math.floor(Date.now() / 1000)}
+                maxDate={Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60)} // 1 year
+                onChange={(start, end) => {
+                  setFilters({ ...filters, startDate: start, endDate: end });
+                  setSelectedPreset('Custom');
+                  setShowCustomDateRange(false);
+                }}
+              />
+            </>
           )}
         </div>
       </div>

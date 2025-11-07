@@ -24,6 +24,7 @@ export interface MapConcert {
   } | null;
   userInteractions: {
     userId: number;
+    username: string;
     interested: boolean;
   }[];
 }
