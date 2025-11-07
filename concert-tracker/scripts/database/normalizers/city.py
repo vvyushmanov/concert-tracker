@@ -183,10 +183,24 @@ class CityNormalizer:
             if current_population > 0:
                 print(f"[CLUSTER] City population: {current_population:,}")
         
-        # Check if this is a major city (should not be clustered)
+        # Check if this is a major city (should not be clustered to distant cities)
         if current_population >= self.MIN_MAJOR_CITY_POPULATION:
             if self.verbose:
-                print(f"[CLUSTER] City is major (pop >= {self.MIN_MAJOR_CITY_POPULATION:,}), will not cluster")
+                print(f"[CLUSTER] City is major (pop >= {self.MIN_MAJOR_CITY_POPULATION:,}), checking for exact match in DB")
+            
+            # For major cities, still check if there's an existing city at the SAME location
+            # This handles alternative names (e.g., "Athina" vs "Athens")
+            exact_match = self._find_exact_location_match(lat, lon, country)
+            if exact_match:
+                if self.verbose:
+                    print(f"[CLUSTER] Found existing city at same location: '{exact_match}'")
+                self._store_mapping(original_city, country, exact_match, lat, lon, 'geocoded')
+                self._geocode_cache[cache_key] = {'normalized': exact_match, 'lat': lat, 'lon': lon}
+                return exact_match
+            
+            # No exact match, use normalized text
+            if self.verbose:
+                print(f"[CLUSTER] No existing city at this location, using: '{normalized_text}'")
             self._store_mapping(original_city, country, normalized_text, lat, lon, 'geocoded')
             self._geocode_cache[cache_key] = {'normalized': normalized_text, 'lat': lat, 'lon': lon}
             return normalized_text
@@ -335,6 +349,52 @@ class CityNormalizer:
         except Exception as e:
             print(f"Geocoding error for {city}, {country}: {e}")
             return None
+    
+    def _find_exact_location_match(self, lat: float, lon: float, country: str, threshold_km: float = 1.0) -> Optional[str]:
+        """Find if there's an existing city at the exact same location (within threshold)
+        
+        This handles alternative names for the same city (e.g., "Athina" vs "Athens")
+        
+        Args:
+            lat: Latitude
+            lon: Longitude
+            country: Country name
+            threshold_km: Maximum distance in km to consider "same location" (default 1 km)
+            
+        Returns:
+            Name of existing city if found, None otherwise
+        """
+        # Get country object first
+        country_obj = get_or_create_country(self.db, country, verbose=False)
+        if not country_obj:
+            return None
+        
+        # Find all cities in the same country that have coordinates
+        existing_cities = self.db.query(CityMapping).filter(
+            CityMapping.countryId == country_obj.id,
+            CityMapping.latitude.isnot(None),
+            CityMapping.longitude.isnot(None)
+        ).all()
+        
+        if self.verbose:
+            print(f"[EXACT_MATCH] Checking {len(existing_cities)} existing cities in {country}")
+        
+        # Find cities at the same location (within threshold)
+        for existing in existing_cities:
+            existing_coords = (float(existing.latitude), float(existing.longitude))
+            distance = self._haversine_distance(
+                lat, lon,
+                existing_coords[0], existing_coords[1]
+            )
+            
+            if distance <= threshold_km:
+                if self.verbose:
+                    print(f"[EXACT_MATCH] Found existing city at same location: '{existing.normalizedCity}' ({distance:.3f} km away)")
+                return existing.normalizedCity
+        
+        if self.verbose:
+            print(f"[EXACT_MATCH] No existing city found within {threshold_km} km")
+        return None
     
     def _find_cluster_center(self, lat: float, lon: float, country: str, current_metadata: Dict) -> Optional[str]:
         """Find if there's a larger/more important city nearby that should be the cluster center
