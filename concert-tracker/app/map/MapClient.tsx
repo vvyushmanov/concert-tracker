@@ -5,12 +5,73 @@ import { useSession } from 'next-auth/react';
 import dynamic from 'next/dynamic';
 import { MapFilters, MapConcert, MapFriend, TIMELINE_PRESETS } from '@/app/types/map';
 import { getUserColor } from '@/app/lib/mapColors';
-import TimelineSlider from './TimelineSlider';
 
-// Dynamically import the map component (client-side only) - OUTSIDE the component
+// Dynamically import client-only components (no SSR)
 const ConcertMap = dynamic(() => import('./ConcertMap'), {
   ssr: false,
 });
+
+const TimelineSlider = dynamic(() => import('./TimelineSlider'), {
+  ssr: false,
+});
+
+/**
+ * Helper functions for date conversion
+ * HTML5 date inputs require YYYY-MM-DD format and work with local dates (not UTC)
+ */
+
+// Convert Unix timestamp to YYYY-MM-DD string for date input
+const unixToDateString = (unixTimestamp: number): string => {
+  try {
+    const date = new Date(unixTimestamp * 1000);
+    if (isNaN(date.getTime())) return '';
+    
+    // Use local date components to avoid timezone issues
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    
+    return `${year}-${month}-${day}`;
+  } catch {
+    return '';
+  }
+};
+
+// Convert YYYY-MM-DD string to Unix timestamp
+const dateStringToUnix = (dateString: string, endOfDay: boolean = false): number | null => {
+  // Empty string is valid for date inputs - means no value selected
+  if (!dateString || dateString.trim() === '') return null;
+  
+  try {
+    // Parse the date string as local date (YYYY-MM-DD)
+    const [year, month, day] = dateString.split('-').map(Number);
+    
+    // Validate parsed values
+    if (!year || !month || !day) return null;
+    if (year < 1900 || year > 2100) return null; // Reasonable year range
+    if (month < 1 || month > 12) return null;
+    if (day < 1 || day > 31) return null;
+    
+    // Create date in local timezone
+    const date = new Date(year, month - 1, day);
+    
+    // Verify the date is valid (handles invalid dates like Feb 30)
+    if (isNaN(date.getTime())) return null;
+    if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+      return null;
+    }
+    
+    if (endOfDay) {
+      date.setHours(23, 59, 59, 999);
+    } else {
+      date.setHours(0, 0, 0, 0);
+    }
+    
+    return Math.floor(date.getTime() / 1000);
+  } catch {
+    return null;
+  }
+};
 
 export default function MapClient() {
   const { data: session } = useSession();
@@ -18,17 +79,18 @@ export default function MapClient() {
   const [friends, setFriends] = useState<MapFriend[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedPreset, setSelectedPreset] = useState<string>('Next 3 Months');
+  const [selectedPreset, setSelectedPreset] = useState<string>('Next Year');
   const [showCustomDateRange, setShowCustomDateRange] = useState(false);
 
   // Filter state
   const [filters, setFilters] = useState<MapFilters>({
     startDate: Math.floor(Date.now() / 1000),
-    endDate: Math.floor(Date.now() / 1000) + (90 * 24 * 60 * 60), // 90 days
+    endDate: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60), // 1 year (matches timeline max)
     friendIds: [],
     artistIds: [],
     countryIds: [],
     interestedOnly: false,
+    sharedOnly: false,
   });
 
   // Fetch friends list on mount
@@ -86,6 +148,15 @@ export default function MapClient() {
     }
   };
 
+  // Filter concerts client-side for sharedOnly
+  const filteredConcerts = useMemo(() => {
+    if (!filters.sharedOnly) {
+      return concerts;
+    }
+    // Only show concerts with more than 1 user interaction (shared)
+    return concerts.filter(concert => concert.userInteractions.length > 1);
+  }, [concerts, filters.sharedOnly]);
+
   return (
     <div className="flex flex-col bg-gray-50 dark:bg-gray-900" style={{ height: 'calc(100vh - 3rem)' }}>
       {/* Header */}
@@ -96,8 +167,9 @@ export default function MapClient() {
               Concert Map
             </h1>
             <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-              {loading ? 'Loading...' : `${concerts.length} concerts found`}
+              {loading ? 'Loading...' : `${filteredConcerts.length} concerts found`}
               {filters.interestedOnly && ' • Pinned only'}
+              {filters.sharedOnly && ' • Shared only'}
               {filters.friendIds.length > 0 && ` • ${filters.friendIds.length} friend${filters.friendIds.length > 1 ? 's' : ''}`}
             </p>
           </div>
@@ -106,7 +178,7 @@ export default function MapClient() {
           <div className="flex gap-4 text-sm">
             <div className="text-center">
               <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                {concerts.length}
+                {filteredConcerts.length}
               </div>
               <div className="text-gray-600 dark:text-gray-400">Concerts</div>
             </div>
@@ -182,15 +254,23 @@ export default function MapClient() {
                     </label>
                     <input
                       type="date"
-                      value={new Date(filters.startDate * 1000).toISOString().split('T')[0]}
+                      value={unixToDateString(filters.startDate)}
                       onChange={(e) => {
-                        const date = new Date(e.target.value);
-                        setFilters({
-                          ...filters,
-                          startDate: Math.floor(date.getTime() / 1000),
-                        });
+                        const value = e.target.value;
+                        // HTML5 date input provides empty string when cleared
+                        if (value === '') return;
+                        
+                        const unixTimestamp = dateStringToUnix(value);
+                        if (unixTimestamp !== null) {
+                          setFilters((prev) => ({
+                            ...prev,
+                            startDate: unixTimestamp,
+                          }));
+                        }
                       }}
-                      className="w-full px-2 py-1 text-sm rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800"
+                      min={unixToDateString(Math.floor(Date.now() / 1000))}
+                      max={unixToDateString(filters.endDate)}
+                      className="w-full px-2 py-1 text-sm rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                     />
                   </div>
                   <div>
@@ -199,16 +279,23 @@ export default function MapClient() {
                     </label>
                     <input
                       type="date"
-                      value={new Date(filters.endDate * 1000).toISOString().split('T')[0]}
+                      value={unixToDateString(filters.endDate)}
                       onChange={(e) => {
-                        const date = new Date(e.target.value);
-                        date.setHours(23, 59, 59); // End of day
-                        setFilters({
-                          ...filters,
-                          endDate: Math.floor(date.getTime() / 1000),
-                        });
+                        const value = e.target.value;
+                        // HTML5 date input provides empty string when cleared
+                        if (value === '') return;
+                        
+                        const unixTimestamp = dateStringToUnix(value, true);
+                        if (unixTimestamp !== null) {
+                          setFilters((prev) => ({
+                            ...prev,
+                            endDate: unixTimestamp,
+                          }));
+                        }
                       }}
-                      className="w-full px-2 py-1 text-sm rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800"
+                      min={unixToDateString(filters.startDate)}
+                      max={unixToDateString(Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60))} // 1 year from now
+                      className="w-full px-2 py-1 text-sm rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                     />
                   </div>
                   <div className="text-xs text-gray-600 dark:text-gray-400 pt-1">
@@ -297,21 +384,45 @@ export default function MapClient() {
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
                 Filters
               </h3>
-              <label className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={filters.interestedOnly}
-                  onChange={(e) => setFilters({ ...filters, interestedOnly: e.target.checked })}
-                  className="rounded border-gray-300 dark:border-gray-600"
-                />
-                <span className="text-sm text-gray-900 dark:text-white">
-                  ⭐ Pinned concerts only
-                </span>
-              </label>
+              <div className="space-y-1">
+                <label className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={filters.interestedOnly}
+                    onChange={(e) => setFilters({ ...filters, interestedOnly: e.target.checked })}
+                    className="rounded border-gray-300 dark:border-gray-600"
+                  />
+                  <span className="text-sm text-gray-900 dark:text-white">
+                    ⭐ Pinned concerts only
+                  </span>
+                </label>
+                <label 
+                  className={`flex items-center gap-2 p-2 rounded-lg ${
+                    filters.friendIds.length > 0 
+                      ? 'hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer' 
+                      : 'opacity-50 cursor-not-allowed'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={filters.sharedOnly}
+                    onChange={(e) => {
+                      if (filters.friendIds.length > 0) {
+                        setFilters({ ...filters, sharedOnly: e.target.checked });
+                      }
+                    }}
+                    disabled={filters.friendIds.length === 0}
+                    className="rounded border-gray-300 dark:border-gray-600 disabled:opacity-50"
+                  />
+                  <span className="text-sm text-gray-900 dark:text-white">
+                    🔥 Shared concerts only
+                  </span>
+                </label>
+              </div>
             </div>
 
             {/* Clear Filters Button */}
-            {(filters.friendIds.length > 0 || filters.interestedOnly) && (
+            {(filters.friendIds.length > 0 || filters.interestedOnly || filters.sharedOnly) && (
               <button
                 onClick={() => {
                   const now = Math.floor(Date.now() / 1000);
@@ -322,6 +433,7 @@ export default function MapClient() {
                     artistIds: [],
                     countryIds: [],
                     interestedOnly: false,
+                    sharedOnly: false,
                   });
                   setSelectedPreset('Next 3 Months');
                   setShowCustomDateRange(false);
@@ -358,7 +470,7 @@ export default function MapClient() {
                   </div>
                 </div>
               )}
-              {!loading && concerts.length === 0 && (
+              {!loading && filteredConcerts.length === 0 && (
                 <div className="absolute inset-0 flex items-center justify-center z-10 bg-gray-100 dark:bg-gray-800">
                   <div className="text-center">
                     <div className="text-6xl mb-4">🎸</div>
@@ -373,7 +485,7 @@ export default function MapClient() {
               )}
               <ConcertMap
                 key="concert-map-singleton"
-                concerts={concerts}
+                concerts={filteredConcerts}
                 currentUserId={session ? parseInt(session.user.id) : 0}
                 selectedFriendIds={filters.friendIds}
               />

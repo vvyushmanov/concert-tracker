@@ -57,6 +57,7 @@ export interface MapFilters {
   artistIds: number[];
   countryIds: number[];
   interestedOnly: boolean;
+  sharedOnly: boolean;
 }
 
 export interface TimelinePreset {
@@ -69,8 +70,9 @@ export const TIMELINE_PRESETS: TimelinePreset[] = [
   { label: 'Next 2 Weeks', days: 14 },
   { label: 'Next Month', days: 30 },
   { label: 'Next 2 Months', days: 60 },
-  { label: 'Next 3 Months', days: 90 }
+  { label: 'Next 3 Months', days: 90 },
+  { label: 'Next Year', days: 365 }
 ];
 
 export const MAX_SELECTED_FRIENDS = 5;
-export const MAX_TIMEFRAME_DAYS = 90;
+export const MAX_TIMEFRAME_DAYS = 365;

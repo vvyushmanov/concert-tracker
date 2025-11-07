@@ -16,6 +16,9 @@ Interactive map showing upcoming concerts with friend integration, timeline cont
 - ✅ **Phase 4**: Map Page Structure - COMPLETE
 - ✅ **Phase 5**: Map Controls & Timeline - COMPLETE
 - ✅ **Phase 6**: Leaflet Map Integration - COMPLETE
+- ✅ **Bug Fixes & Enhancements**: COMPLETE
+  - Fixed shared concert icon/tooltip update bug
+  - Added "Shared concerts only" filter
 - ⏳ **Phase 7-12**: Pending
 
 ---
@@ -561,6 +564,64 @@ console.timeEnd('markerRender');
 - ✅ Custom markers with colors
 - ✅ Popup component with interactions
 - ✅ All Phase 6 tests passing
+
+---
+
+## Bug Fixes & Enhancements ✅ COMPLETE
+
+### Fix: Shared Concert Icon/Tooltip Update Bug
+**Issue:** When toggling a friend in the map view, shared concerts didn't update their icon (🔥) or tooltip until the timeline was moved.
+
+**Root Cause:** The marker update logic was skipping existing markers without checking if the concert data had changed. When a friend was toggled, the `userInteractions` array changed, but the marker wasn't recreated.
+
+**Solution:**
+- Added **data hash tracking** (`concertDataHashRef`) to detect changes in `userInteractions` and `selectedFriendIds`
+- Hash comparison logic: Creates JSON hash of concert's user interaction data
+- If data changed: removes and recreates the marker
+- If unchanged: skips marker recreation (performance optimization)
+- Updated useEffect dependency array to include `currentUserId` and `selectedFriendIds`
+
+**Files Modified:**
+- `app/map/ConcertMap.tsx` - Added hash tracking and comparison logic
+
+**Result:**
+- ✅ Shared concerts immediately update to show 🔥 icon when friend toggled
+- ✅ Tooltips immediately show list of interested users
+- ✅ Friend badge dots appear on markers
+- ✅ No need to move timeline to trigger update
+- ✅ Maintains smooth transition animations
+- ✅ Only recreates markers when data actually changes
+
+### Enhancement: "Shared Concerts Only" Filter
+**Feature:** New filter to show only concerts that are shared between the current user and selected friends.
+
+**Implementation:**
+- Added `sharedOnly: boolean` to `MapFilters` interface
+- Client-side filtering with `useMemo` for performance
+- Filter logic: `concert.userInteractions.length > 1` (shared concerts)
+- UI: Checkbox with 🔥 emoji in Filters section
+- Disabled when no friends selected (grayed out with visual feedback)
+- Enabled when at least one friend is selected
+
+**Files Modified:**
+- `app/types/map.ts` - Added `sharedOnly` to `MapFilters` interface
+- `app/map/MapClient.tsx` - Added filter state, UI, and filtering logic
+
+**Features:**
+- ✅ Filter appears with 🔥 emoji next to "Shared concerts only"
+- ✅ Grayed out and disabled when `friendIds.length === 0`
+- ✅ Enabled when at least one friend selected
+- ✅ Shows only concerts with fire icon (shared concerts)
+- ✅ Header shows "• Shared only" indicator when active
+- ✅ Concert count updates dynamically
+- ✅ Included in "Clear All Filters" button
+- ✅ Client-side filtering for instant response
+
+**User Experience:**
+1. Select at least one friend → filter becomes enabled
+2. Check "🔥 Shared concerts only" → map shows only shared concerts
+3. Concert count and header update to reflect filtered results
+4. Uncheck or deselect all friends → filter becomes disabled again
 
 ---
 

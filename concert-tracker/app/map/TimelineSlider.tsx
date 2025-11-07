@@ -31,9 +31,11 @@ export default function TimelineSlider({
 
   // Viewport: shows a wider range than the selection (like a film strip)
   // The viewport is 20x the selection size, centered on the selection
-  const selectionSize = displayEndDate - displayStartDate;
+  // IMPORTANT: Calculate viewport based on COMMITTED values (startDate/endDate), not temp drag values
+  // This prevents the viewport from recalculating while dragging
+  const selectionSize = endDate - startDate;
   const viewportSize = selectionSize * 20; // Show 20x the selection (wider viewport = narrower visual selection)
-  const selectionCenter = displayStartDate + selectionSize / 2;
+  const selectionCenter = startDate + selectionSize / 2;
   
   // Calculate viewport bounds (with limits)
   const viewportStart = Math.max(minDate, selectionCenter - viewportSize / 2);
@@ -41,6 +43,7 @@ export default function TimelineSlider({
   const viewportRange = viewportEnd - viewportStart;
   
   // Calculate percentages relative to viewport (not absolute min/max)
+  // Use displayStartDate/displayEndDate for handle positions (shows temp values while dragging)
   const startPercent = ((displayStartDate - viewportStart) / viewportRange) * 100;
   const endPercent = ((displayEndDate - viewportStart) / viewportRange) * 100;
 

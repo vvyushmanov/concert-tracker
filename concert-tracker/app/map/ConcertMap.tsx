@@ -2,9 +2,6 @@
 
 import { useEffect, useRef } from 'react';
 import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
-import 'leaflet.markercluster/dist/MarkerCluster.css';
-import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 import 'leaflet.markercluster';
 import { MapConcert } from '@/app/types/map';
 import { getUserColor } from '@/app/lib/mapColors';
@@ -160,6 +157,9 @@ export default function ConcertMap({ concerts, currentUserId, selectedFriendIds,
 
   // Track markers by concert ID for diffing
   const markerMapRef = useRef<Map<number, L.Marker>>(new Map());
+  
+  // Track concert data hash to detect changes in userInteractions
+  const concertDataHashRef = useRef<Map<number, string>>(new Map());
 
   // Update markers when concerts change (with diffing for smooth transitions)
   useEffect(() => {
@@ -176,6 +176,7 @@ export default function ConcertMap({ concerts, currentUserId, selectedFriendIds,
 
     const markers = markersLayerRef.current;
     const markerMap = markerMapRef.current;
+    const dataHashMap = concertDataHashRef.current;
     
     // Create a set of current concert IDs
     const currentConcertIds = new Set(concerts.map(c => c.id));
@@ -186,6 +187,7 @@ export default function ConcertMap({ concerts, currentUserId, selectedFriendIds,
       if (!currentConcertIds.has(concertId)) {
         markers.removeLayer(marker);
         markersToRemove.push(concertId);
+        dataHashMap.delete(concertId);
       }
     });
     markersToRemove.forEach(id => markerMap.delete(id));
@@ -204,8 +206,28 @@ export default function ConcertMap({ concerts, currentUserId, selectedFriendIds,
       const { lat, lng } = concert.coordinates;
       bounds.push([lat, lng]);
 
-      // Skip if marker already exists for this concert
-      if (markerMap.has(concert.id)) return;
+      // Create a hash of the concert data to detect changes
+      const dataHash = JSON.stringify({
+        userInteractions: concert.userInteractions.map(ui => ({ userId: ui.userId, interested: ui.interested })),
+        selectedFriendIds: selectedFriendIds.sort()
+      });
+      
+      const existingHash = dataHashMap.get(concert.id);
+      
+      // Skip if marker exists AND data hasn't changed
+      if (markerMap.has(concert.id) && existingHash === dataHash) {
+        return;
+      }
+      
+      // Remove old marker if it exists (data changed)
+      if (markerMap.has(concert.id)) {
+        console.log('🔄 Updating marker for concert:', concert.id, concert.eventName);
+        markers.removeLayer(markerMap.get(concert.id)!);
+        markerMap.delete(concert.id);
+      }
+      
+      // Store the new hash
+      dataHashMap.set(concert.id, dataHash);
 
       // Check if current user has this concert
       const hasCurrentUser = concert.userInteractions.some(ui => ui.userId === currentUserId);
@@ -373,7 +395,7 @@ export default function ConcertMap({ concerts, currentUserId, selectedFriendIds,
         mapRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 12 });
       }
     }
-  }, [concerts]);
+  }, [concerts, currentUserId, selectedFriendIds]);
 
   return (
     <>
