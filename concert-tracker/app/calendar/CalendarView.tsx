@@ -61,7 +61,8 @@ export default function CalendarView({ initialConcerts, artists, countries, citi
 
   // Filter concerts
   const filteredConcerts = initialConcerts.filter(concert => {
-    if (selectedArtist && concert.artistId !== selectedArtist) return false;
+    // Artist filter - check if artist performs at this concert (any role)
+    if (selectedArtist && concert.artists && !concert.artists.some((ac: any) => ac.artistId === selectedArtist)) return false;
     // Country filter
     if (selectedCountry && concert.countryObj?.name !== selectedCountry) return false;
     if (selectedCity && concert.normalizedCity !== selectedCity) return false;

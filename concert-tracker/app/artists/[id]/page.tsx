@@ -42,18 +42,17 @@ export default async function ArtistDetailPage({ params }: { params: Promise<{ i
     notFound();
   }
 
-  // Get only user's concerts for this artist
-  const userConcerts = await prisma.userConcert.findMany({
-    where: { 
-      userId,
-      concert: {
-        artistId
-      }
-    },
+  // Get user's concerts where this artist performs (via ArtistConcert junction)
+  const artistConcerts = await prisma.artistConcert.findMany({
+    where: { artistId },
     include: {
       concert: {
         include: {
           countryObj: true,
+          userInteractions: {
+            where: { userId },
+            select: { interested: true, notes: true }
+          }
         }
       }
     },
@@ -64,10 +63,22 @@ export default async function ArtistDetailPage({ params }: { params: Promise<{ i
     }
   });
 
-  const concerts = userConcerts.map(uc => ({
-    ...uc.concert,
-    interested: uc.interested,
-    notes: uc.notes,
+  // Filter to only concerts the user has (via UserConcert)
+  const userConcertIds = new Set(
+    (await prisma.userConcert.findMany({
+      where: { userId },
+      select: { concertId: true }
+    })).map(uc => uc.concertId)
+  );
+
+  const userConcerts = artistConcerts.filter(ac => 
+    userConcertIds.has(ac.concertId)
+  );
+
+  const concerts = userConcerts.map((ac: any) => ({
+    ...ac.concert,
+    interested: ac.concert.userInteractions[0]?.interested || false,
+    notes: ac.concert.userInteractions[0]?.notes || '',
   }));
 
   // Get user-specific artist stats

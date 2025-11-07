@@ -67,7 +67,11 @@ export async function GET(request: Request) {
           countryId: { in: activeCountryIds }
         }),
         ...(artistIds.length > 0 && {
-          artistId: { in: artistIds }
+          artists: {
+            some: {
+              artistId: { in: artistIds }
+            }
+          }
         }),
         userInteractions: {
           some: {
@@ -77,11 +81,18 @@ export async function GET(request: Request) {
         }
       },
       include: {
-        artist: {
-          select: {
-            id: true,
-            name: true,
-            imageUrl: true
+        artists: {
+          include: {
+            artist: {
+              select: {
+                id: true,
+                name: true,
+                imageUrl: true
+              }
+            }
+          },
+          orderBy: {
+            isPrimary: 'desc'
           }
         },
         countryObj: {
@@ -184,7 +195,12 @@ export async function GET(request: Request) {
           city: concert.city,
           normalizedCity: concert.normalizedCity,
           country: concert.countryObj,
-          artist: concert.artist,
+          artists: concert.artists.map((ac: any) => ({
+            id: ac.id,
+            artistId: ac.artistId,
+            isPrimary: ac.isPrimary,
+            artist: ac.artist
+          })),
           imageUrl: concert.imageUrl,
           coordinates: coords ? {
             lat: parseFloat(coords.lat || '0'),

@@ -35,9 +35,18 @@ export default async function CountriesPage() {
           city: true,
           normalizedCity: true,
           id: true,
-          artist: {
+          artists: {
             select: {
-              name: true,
+              artistId: true,
+              isPrimary: true,
+              artist: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+            orderBy: {
+              isPrimary: 'desc',
             },
           },
         }
@@ -45,10 +54,16 @@ export default async function CountriesPage() {
     }
   });
 
-  const concerts = userConcerts.map(uc => uc.concert);
+  const concerts = userConcerts.map((uc: any) => {
+    const primaryArtist = uc.concert.artists.find((a: any) => a.isPrimary) || uc.concert.artists[0];
+    return {
+      ...uc.concert,
+      artist: primaryArtist?.artist,
+    };
+  });
 
   // Group concerts by country
-  const concertsByCountry = concerts.reduce((acc, concert) => {
+  const concertsByCountry = concerts.reduce((acc: any, concert: any) => {
     const countryName = concert.countryObj?.name;
     if (!acc[countryName]) {
       acc[countryName] = {
@@ -59,7 +74,9 @@ export default async function CountriesPage() {
     }
     acc[countryName].count++;
     acc[countryName].cities.add(concert.normalizedCity);
-    acc[countryName].artists.add(concert.artist.name);
+    if (concert.artist?.name) {
+      acc[countryName].artists.add(concert.artist.name);
+    }
     return acc;
   }, {} as Record<string, { count: number; cities: Set<string>; artists: Set<string> }>);
 

@@ -35,7 +35,7 @@ export default function CountryConcerts({ concerts }: CountryConcertsProps) {
   const [selectedArtist, setSelectedArtist] = useState<number | null>(null);
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [showInterestedOnly, setShowInterestedOnly] = useState(false);
-  const [sortBy, setSortBy] = useState<'date' | 'artist' | 'playcount' | 'recent'>('date');
+  const [sortBy, setSortBy] = useState<'date' | 'artist' | 'playcount' | 'recent' | 'multiartist'>('date');
   
   const now = Math.floor(Date.now() / 1000);
   
@@ -68,8 +68,8 @@ export default function CountryConcerts({ concerts }: CountryConcertsProps) {
         if (!matchesSearch) return false;
       }
 
-      // Artist filter
-      if (selectedArtist && concert.artist.id !== selectedArtist) return false;
+      // Artist filter - check if artist performs at this concert (any role)
+      if (selectedArtist && concert.artists && !concert.artists.some((ac: any) => ac.artistId === selectedArtist)) return false;
 
       // City filter
       if (selectedCity && concert.normalizedCity !== selectedCity) return false;
@@ -97,9 +97,16 @@ export default function CountryConcerts({ concerts }: CountryConcertsProps) {
           case 'artist':
             return a.artist.name.localeCompare(b.artist.name);
           case 'playcount':
-            return b.artist.playcount12month - a.artist.playcount12month;
+            return b.artist.playcount - a.artist.playcount;
           case 'recent':
             return b.id - a.id;
+          case 'multiartist':
+            // Sort by number of artists (more artists = higher)
+            const aCount = a.artists?.length || 0;
+            const bCount = b.artists?.length || 0;
+            if (bCount !== aCount) return bCount - aCount;
+            // If same count, sort by date
+            return a.dateStart - b.dateStart;
           default:
             return 0;
         }
@@ -149,10 +156,7 @@ export default function CountryConcerts({ concerts }: CountryConcertsProps) {
           />
         )}
         <div className="p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">
-              {concert.artist.name}
-            </span>
+          <div className="mb-2 flex items-center justify-end">
             {concert.interested && (
               <span className="text-yellow-500 text-xl" title="Interested">⭐</span>
             )}
@@ -172,6 +176,28 @@ export default function CountryConcerts({ concerts }: CountryConcertsProps) {
               <span>📍</span>
               <span>{concert.venue}</span>
             </p>
+            {concert.artists && concert.artists.length > 0 && (
+              <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+                <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">🎸 Your Artists:</p>
+                <div className="flex flex-wrap gap-1">
+                  {concert.artists
+                    .filter((ac: any) => ac.artist.playcount > 0)
+                    .map((ac: any) => (
+                      <span
+                        key={ac.id}
+                        className={`text-xs px-2 py-0.5 rounded-full ${
+                          ac.isPrimary
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
+                        }`}
+                      >
+                        {ac.artist.name}
+                      </span>
+                    ))
+                  }
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </Link>
@@ -234,6 +260,7 @@ export default function CountryConcerts({ concerts }: CountryConcertsProps) {
               <option value="artist">Artist Name</option>
               <option value="playcount">Artist Popularity</option>
               <option value="recent">Recently Added</option>
+              <option value="multiartist">Multi-artist First</option>
             </select>
           </div>
 

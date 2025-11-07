@@ -333,13 +333,16 @@ export default function ConcertMap({ concerts, currentUserId, selectedFriendIds,
       }
 
       // Create popup content
+      const primaryArtist = concert.artists.find(a => a.isPrimary) || concert.artists[0];
+      const artistNames = concert.artists.map(a => a.artist.name).join(', ');
+      
       const popupContent = `
         <div style="min-width: 200px;">
           <h3 style="font-weight: bold; margin-bottom: 8px; font-size: 14px;">
             ${concert.eventName}
           </h3>
           <div style="font-size: 12px; color: #666; margin-bottom: 4px;">
-            <strong>${concert.artist.name}</strong>
+            <strong>${artistNames}</strong>
           </div>
           <div style="font-size: 12px; color: #666; margin-bottom: 4px;">
             📍 ${concert.city}, ${concert.country.name}

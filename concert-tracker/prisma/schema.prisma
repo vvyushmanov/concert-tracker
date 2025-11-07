@@ -23,7 +23,7 @@ model Artist {
   createdAt Int       @default(0)
   updatedAt Int       @default(0)
   
-  concerts  Concert[]
+  concerts  ArtistConcert[]  // Many-to-many through junction
   userStats UserArtist[]
 }
 
@@ -76,14 +76,12 @@ model Concert {
   organizer    String? @db.VarChar(255)
   organizerUrl String? @db.VarChar(500)
   ticketLinks  String  @db.Text // JSON array stored as text
-  artistId     Int
-  artist       Artist  @relation(fields: [artistId], references: [id])
   createdAt    Int     // Unix timestamp
   updatedAt    Int     // Unix timestamp
 
+  artists          ArtistConcert[]  // Many-to-many through junction
   userInteractions UserConcert[]
 
-  @@index([artistId])
   @@index([city])
   @@index([normalizedCity])
   @@index([countryId])
@@ -233,4 +231,20 @@ model Notification {
 
   @@index([userId, read])
   @@index([createdAt])
+}
+
+model ArtistConcert {
+  id        Int     @id @default(autoincrement())
+  artistId  Int
+  concertId Int
+  isPrimary Boolean @default(false)  // True for the headliner/main artist
+  createdAt Int
+
+  artist  Artist  @relation(fields: [artistId], references: [id], onDelete: Cascade)
+  concert Concert @relation(fields: [concertId], references: [id], onDelete: Cascade)
+
+  @@unique([artistId, concertId])
+  @@index([artistId])
+  @@index([concertId])
+  @@index([isPrimary])
 }

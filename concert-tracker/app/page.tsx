@@ -31,7 +31,14 @@ export default async function Home() {
     include: {
       concert: {
         include: {
-          artist: true,
+          artists: {
+            include: {
+              artist: true,
+            },
+            orderBy: {
+              isPrimary: 'desc', // Primary artist first
+            },
+          },
           countryObj: true,
         }
       }
@@ -43,8 +50,11 @@ export default async function Home() {
     }
   });
 
-  // Get user-specific artist stats for all artists in these concerts
-  const artistIds = Array.from(new Set(userConcerts.map(uc => uc.concert.artistId)));
+  // Get all artist IDs from the concerts' artists arrays
+  const artistIds = Array.from(new Set(
+    userConcerts.flatMap((uc: any) => uc.concert.artists.map((ac: any) => ac.artistId))
+  ));
+  
   const userArtistStats = await prisma.userArtist.findMany({
     where: {
       userId,
@@ -54,19 +64,43 @@ export default async function Home() {
 
   // Create a map for quick lookup
   const artistStatsMap = new Map(
-    userArtistStats.map(ua => [ua.artistId, ua])
+    userArtistStats.map((ua: any) => [ua.artistId, ua])
   );
 
   // Extract concerts with user data and artist playcount
-  const concertsWithUserData = userConcerts.map(uc => ({
-    ...uc.concert,
-    interested: uc.interested,
-    notes: uc.notes,
-    artist: {
-      ...uc.concert.artist,
-      playcount: artistStatsMap.get(uc.concert.artistId)?.playcount12month || 0,
-    }
-  }));
+  const concertsWithUserData = userConcerts
+    .map((uc: any) => {
+      // Get primary artist for backward compatibility
+      const primaryArtistLink = uc.concert.artists.find((ac: any) => ac.isPrimary) || uc.concert.artists[0];
+      const primaryArtist = primaryArtistLink?.artist;
+      
+      return {
+        ...uc.concert,
+        interested: uc.interested,
+        notes: uc.notes,
+        // Add primary artist for backward compatibility
+        artistId: primaryArtistLink?.artistId || uc.concert.artistId,
+        artist: primaryArtist ? {
+          ...primaryArtist,
+          playcount: artistStatsMap.get(primaryArtistLink.artistId)?.playcount || 0,
+        } : null,
+        // Transform artists array
+        artists: uc.concert.artists.map((ac: any) => ({
+          id: ac.id,
+          artistId: ac.artistId,
+          concertId: ac.concertId,
+          isPrimary: ac.isPrimary,
+          artist: {
+            ...ac.artist,
+            playcount: artistStatsMap.get(ac.artistId)?.playcount || 0,
+          },
+        })),
+      };
+    })
+    // Filter out concerts where user doesn't track any artists (all playcounts are 0)
+    .filter((concert: any) => 
+      concert.artists.some((ac: any) => ac.artist.playcount > 0)
+    );
 
   // Count unique artists from user's concerts
   const uniqueArtistIds = new Set(concertsWithUserData.map(c => c.artistId));

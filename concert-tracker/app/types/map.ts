@@ -12,11 +12,16 @@ export interface MapConcert {
     name: string;
     code: string;
   };
-  artist: {
+  artists: {
     id: number;
-    name: string;
-    imageUrl: string | null;
-  };
+    artistId: number;
+    isPrimary: boolean;
+    artist: {
+      id: number;
+      name: string;
+      imageUrl: string | null;
+    };
+  }[];
   imageUrl: string | null;
   coordinates: {
     lat: number;

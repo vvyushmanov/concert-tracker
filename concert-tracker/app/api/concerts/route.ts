@@ -18,11 +18,18 @@ export async function GET(request: Request) {
     }
     if (city) where.city = city;
 
-    // Fetch concerts with artist data
+    // Fetch concerts with artists via junction table
     const concerts = await prisma.concert.findMany({
       where,
       include: {
-        artist: true,
+        artists: {
+          include: {
+            artist: true,
+          },
+          orderBy: {
+            isPrimary: 'desc', // Primary artist first
+          },
+        },
       },
       orderBy: {
         dateStart: 'asc',
@@ -34,11 +41,19 @@ export async function GET(request: Request) {
     // Get total count
     const total = await prisma.concert.count({ where });
 
-    // Parse JSON fields
-    const concertsWithParsedData = concerts.map(concert => ({
+    // Parse JSON fields and transform artists array
+    const concertsWithParsedData = concerts.map((concert: any) => ({
       ...concert,
       performers: JSON.parse(concert.performers),
       ticketLinks: JSON.parse(concert.ticketLinks),
+      // Transform artists array to include artist data
+      artists: concert.artists.map((ac: any) => ({
+        id: ac.id,
+        artistId: ac.artistId,
+        concertId: ac.concertId,
+        isPrimary: ac.isPrimary,
+        artist: ac.artist,
+      })),
     }));
 
     return NextResponse.json({

@@ -25,7 +25,7 @@ class Artist(Base):
     updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
     
     # Relationship
-    concerts = relationship('Concert', back_populates='artist', cascade='all, delete-orphan')
+    concerts = relationship('ArtistConcert', back_populates='artist', cascade='all, delete-orphan')
     user_stats = relationship('UserArtist', back_populates='artist', cascade='all, delete-orphan')
     
     def __repr__(self):
@@ -85,15 +85,15 @@ class Concert(Base):
     organizerUrl = Column(String, nullable=True)
     ticketLinks = Column(Text, nullable=False, default='[]')  # JSON array stored as text
     
-    # Foreign key
-    artistId = Column(Integer, ForeignKey('Artist.id'), nullable=False, index=True)
+    # Foreign key (DEPRECATED - will be removed after migration)
+    artistId = Column(Integer, nullable=False, index=True)
     
     # Timestamps (Unix timestamps)
     createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
     updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
     
     # Relationship
-    artist = relationship('Artist', back_populates='concerts')
+    artists = relationship('ArtistConcert', back_populates='concert', cascade='all, delete-orphan')
     user_interactions = relationship('UserConcert', back_populates='concert', cascade='all, delete-orphan')
     
     def __repr__(self):
@@ -231,6 +231,30 @@ class SettingAuditLog(Base):
     createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
 
     user = relationship('User', back_populates='auditLogs')
+
+
+class ArtistConcert(Base):
+    """Junction table for many-to-many Artist-Concert relationship"""
+    __tablename__ = 'ArtistConcert'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    artistId = Column(Integer, ForeignKey('Artist.id'), nullable=False)
+    concertId = Column(Integer, ForeignKey('Concert.id'), nullable=False)
+    isPrimary = Column(Boolean, nullable=False, default=False)  # True for headliner/main artist
+    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
+
+    artist = relationship('Artist', back_populates='concerts')
+    concert = relationship('Concert', back_populates='artists')
+
+    __table_args__ = (
+        UniqueConstraint('artistId', 'concertId', name='uq_artistconcert_artist_concert'),
+        Index('ix_ArtistConcert_artistId', 'artistId'),
+        Index('ix_ArtistConcert_concertId', 'concertId'),
+        Index('ix_ArtistConcert_isPrimary', 'isPrimary'),
+    )
+
+    def __repr__(self):
+        return f"<ArtistConcert(artistId={self.artistId}, concertId={self.concertId}, isPrimary={self.isPrimary})>"
 
 
 

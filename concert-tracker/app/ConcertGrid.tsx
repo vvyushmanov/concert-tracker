@@ -25,6 +25,16 @@ type Concert = {
     name: string;
     playcount: number;
   };
+  artists?: {
+    id: number;
+    artistId: number;
+    isPrimary: boolean;
+    artist: {
+      id: number;
+      name: string;
+      playcount: number;
+    };
+  }[];
 };
 
 type ConcertGridProps = {
@@ -39,7 +49,7 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
   const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
   const [showInterestedOnly, setShowInterestedOnly] = useState(false);
   const [showPastEvents, setShowPastEvents] = useState(false);
-  const [sortBy, setSortBy] = useState<'date' | 'artist' | 'playcount' | 'recent'>('date');
+  const [sortBy, setSortBy] = useState<'date' | 'artist' | 'playcount' | 'recent' | 'multiartist'>('date');
 
   const now = Math.floor(Date.now() / 1000); // Current time in Unix timestamp
 
@@ -57,8 +67,8 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
         if (!matchesSearch) return false;
       }
 
-      // Artist filter
-      if (selectedArtist && concert.artistId !== selectedArtist) return false;
+      // Artist filter - check if artist performs at this concert (any role)
+      if (selectedArtist && concert.artists && !concert.artists.some((ac: any) => ac.artistId === selectedArtist)) return false;
 
       // Country filter
       if (selectedCountry && concert.countryObj?.name !== selectedCountry) return false;
@@ -90,6 +100,13 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
             return b.artist.playcount - a.artist.playcount;
           case 'recent':
             return b.id - a.id;
+          case 'multiartist':
+            // Sort by number of artists (more artists = higher)
+            const aCount = a.artists?.length || 0;
+            const bCount = b.artists?.length || 0;
+            if (bCount !== aCount) return bCount - aCount;
+            // If same count, sort by date
+            return a.dateStart - b.dateStart;
           default:
             return 0;
         }
@@ -158,6 +175,7 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
               <option value="artist">Artist Name</option>
               <option value="playcount">Artist Popularity</option>
               <option value="recent">Recently Added</option>
+              <option value="multiartist">Multi-artist First</option>
             </select>
           </div>
 
@@ -244,11 +262,6 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
                   </div>
                 )}
                 <div className="p-6">
-                  <div className="mb-2">
-                    <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">
-                      {concert.artist.name}
-                    </span>
-                  </div>
                   <h2 className="text-lg font-bold mb-3 line-clamp-2">
                     {concert.eventName}
                   </h2>
@@ -264,6 +277,28 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
                       <span className="text-base">📍</span>
                       <span>{concert.venue}, {concert.city}, {concert.countryObj?.name}</span>
                     </p>
+                    {concert.artists && concert.artists.length > 0 && (
+                      <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+                        <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">🎸 Your Artists:</p>
+                        <div className="flex flex-wrap gap-1">
+                          {concert.artists
+                            .filter(ac => ac.artist.playcount > 0)
+                            .map(ac => (
+                              <span
+                                key={ac.id}
+                                className={`text-xs px-2 py-0.5 rounded-full ${
+                                  ac.isPrimary
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
+                                }`}
+                              >
+                                {ac.artist.name}
+                              </span>
+                            ))
+                          }
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </Link>
@@ -306,11 +341,6 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
                     </div>
                   )}
                   <div className="p-6">
-                    <div className="mb-2">
-                      <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">
-                        {concert.artist.name}
-                      </span>
-                    </div>
                     <h2 className="text-lg font-bold mb-3 line-clamp-2">
                       {concert.eventName}
                     </h2>
@@ -326,6 +356,28 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
                         <span className="text-base">📍</span>
                         <span>{concert.venue}, {concert.city}, {concert.countryObj?.name}</span>
                       </p>
+                      {concert.artists && concert.artists.length > 0 && (
+                        <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+                          <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">🎸 Your Artists:</p>
+                          <div className="flex flex-wrap gap-1">
+                            {concert.artists
+                              .filter(ac => ac.artist.playcount > 0)
+                              .map(ac => (
+                                <span
+                                  key={ac.id}
+                                  className={`text-xs px-2 py-0.5 rounded-full ${
+                                    ac.isPrimary
+                                      ? 'bg-blue-600 text-white'
+                                      : 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
+                                  }`}
+                                >
+                                  {ac.artist.name}
+                                </span>
+                              ))
+                            }
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </Link>

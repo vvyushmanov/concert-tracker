@@ -31,7 +31,14 @@ export default async function CalendarPage() {
     include: {
       concert: {
         include: {
-          artist: true,
+          artists: {
+            include: {
+              artist: true,
+            },
+            orderBy: {
+              isPrimary: 'desc',
+            },
+          },
           countryObj: true,
         }
       }
@@ -43,17 +50,22 @@ export default async function CalendarPage() {
     }
   });
 
-  // Extract concerts with user data
-  const concertsWithUserData = userConcerts.map(uc => ({
-    ...uc.concert,
-    interested: uc.interested,
-    notes: uc.notes,
-  }));
+  // Extract concerts with user data and derive primary artist
+  const concertsWithUserData = userConcerts.map((uc: any) => {
+    const primaryArtistLink = uc.concert.artists.find((ac: any) => ac.isPrimary) || uc.concert.artists[0];
+    return {
+      ...uc.concert,
+      interested: uc.interested,
+      notes: uc.notes,
+      artistId: primaryArtistLink?.artistId,
+      artist: primaryArtistLink?.artist,
+    };
+  });
 
   // Get unique artists from user's concerts
-  const uniqueArtistIds = new Set(concertsWithUserData.map(c => c.artistId));
+  const uniqueArtistIds = new Set(concertsWithUserData.map((c: any) => c.artistId).filter(Boolean));
   const uniqueArtists = Array.from(uniqueArtistIds).map(id => {
-    const concert = concertsWithUserData.find(c => c.artistId === id);
+    const concert = concertsWithUserData.find((c: any) => c.artistId === id);
     return concert?.artist;
   }).filter(Boolean);
 

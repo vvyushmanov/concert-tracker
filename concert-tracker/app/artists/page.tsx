@@ -26,32 +26,39 @@ export default async function ArtistsPage() {
   const userId = parseInt(session.user.id);
   const now = Math.floor(Date.now() / 1000);
 
-  // Get only concerts linked to this user via UserConcert
-  const userConcerts = await prisma.userConcert.findMany({
-    where: { userId },
+  // Get user's concerts
+  const userConcertIds = new Set(
+    (await prisma.userConcert.findMany({
+      where: { userId },
+      select: { concertId: true }
+    })).map(uc => uc.concertId)
+  );
+
+  // Get all artist-concert links for user's concerts
+  const artistConcerts = await prisma.artistConcert.findMany({
+    where: {
+      concertId: { in: Array.from(userConcertIds) }
+    },
     include: {
+      artist: true,
       concert: {
         include: {
-          artist: true,
           countryObj: true,
         }
       }
     }
   });
 
-  // Extract concerts with artist data
-  const concerts = userConcerts.map(uc => uc.concert);
-
-  // Group concerts by artist
+  // Group concerts by artist (now includes all performances, not just primary)
   const artistMap = new Map();
-  concerts.forEach(concert => {
-    if (!artistMap.has(concert.artistId)) {
-      artistMap.set(concert.artistId, {
-        artist: concert.artist,
+  artistConcerts.forEach((ac: any) => {
+    if (!artistMap.has(ac.artistId)) {
+      artistMap.set(ac.artistId, {
+        artist: ac.artist,
         concerts: []
       });
     }
-    artistMap.get(concert.artistId).concerts.push(concert);
+    artistMap.get(ac.artistId).concerts.push(ac.concert);
   });
 
   // Get user-specific artist stats from UserArtist table

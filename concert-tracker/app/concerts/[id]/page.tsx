@@ -28,11 +28,17 @@ interface Concert {
   interested: boolean;
   notes: string | null;
   isPrivate: boolean;
-  artist: {
+  artists: {
     id: number;
-    name: string;
-    imageUrl: string | null;
-  };
+    artistId: number;
+    isPrimary: boolean;
+    artist: {
+      id: number;
+      name: string;
+      imageUrl: string | null;
+      playcount?: number;
+    };
+  }[];
 }
 
 export default function ConcertDetailPage() {
@@ -187,14 +193,6 @@ export default function ConcertDetailPage() {
           )}
 
           <div className="p-8">
-            {/* Artist Badge */}
-            <Link
-              href={`/artists/${concert.artist.id}`}
-              className="inline-block mb-4 text-sm font-semibold text-blue-600 dark:text-blue-400 hover:underline"
-            >
-              {concert.artist.name}
-            </Link>
-
             {/* Event Title */}
             <h1 className="text-4xl font-bold mb-6">{concert.eventName}</h1>
 
@@ -236,6 +234,34 @@ export default function ConcertDetailPage() {
 
             {/* Event Details */}
             <div className="space-y-4 mb-8">
+              {/* Your Artists */}
+              {concert.artists && concert.artists.length > 0 && (
+                <div className="flex items-start gap-3">
+                  <span className="text-2xl">🎸</span>
+                  <div className="flex-1">
+                    <div className="font-semibold mb-2">Your Artists</div>
+                    <div className="flex flex-wrap gap-2">
+                      {concert.artists
+                        .filter(ac => ac.artist.playcount && ac.artist.playcount > 0)
+                        .map(ac => (
+                          <Link
+                            key={ac.id}
+                            href={`/artists/${ac.artistId}`}
+                            className={`inline-block px-3 py-1 rounded-full text-sm font-semibold transition-colors ${
+                              ac.isPrimary
+                                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                : 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800'
+                            }`}
+                          >
+                            {ac.artist.name}
+                          </Link>
+                        ))
+                      }
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-start gap-3">
                 <span className="text-2xl">📅</span>
                 <div>

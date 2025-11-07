@@ -9,7 +9,7 @@ from typing import List, Dict, Set
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from database.models import Artist, Concert, UserArtist, UserConcert, get_session
+from database.models import Artist, Concert, ArtistConcert, UserArtist, UserConcert, get_session
 from database.normalizers.city import CityNormalizer
 from database.normalizers.country import get_or_create_country
 
@@ -44,6 +44,8 @@ class ConcertDatabaseWriter:
             'user_artists_created': 0,
             'user_artists_updated': 0,
             'user_concerts_created': 0,
+            'artist_concert_links_created': 0,
+            'artist_concert_links_skipped': 0,
             'cities_normalized': 0,
             'errors': 0
         }
@@ -193,6 +195,113 @@ class ConcertDatabaseWriter:
             if self.debug:
                 print(f"[DB] Created UserConcert link for concert ID {concert.id}")
     
+    def link_artists_to_concert(
+        self, 
+        concert: Concert, 
+        matched_artists: List[str], 
+        artist_mbids: Dict[str, str] = None,
+        artist_playcounts: Dict[str, int] = None,
+        artist_playcounts_12month: Dict[str, int] = None,
+        recent_artists: Set[str] = None
+    ):
+        """Create ArtistConcert links for all matched artists
+        
+        Creates Artist records if they don't exist (for additional artists beyond primary).
+        Also creates/updates UserArtist records for all matched artists.
+        Only creates ONE primary artist link per concert (first scan wins).
+        
+        Args:
+            concert: Concert object to link artists to
+            matched_artists: List of artist names that matched Last.fm artists
+            artist_mbids: Optional dict of artist MusicBrainz IDs
+            artist_playcounts: Optional dict of artist overall playcounts
+            artist_playcounts_12month: Optional dict of artist 12-month playcounts
+            recent_artists: Optional set of recent artists
+        """
+        if not matched_artists:
+            return
+        
+        artist_mbids = artist_mbids or {}
+        artist_playcounts = artist_playcounts or {}
+        artist_playcounts_12month = artist_playcounts_12month or {}
+        recent_artists = recent_artists or set()
+        
+        if self.debug:
+            print(f"     Creating ArtistConcert links for {len(matched_artists)} matched artist(s)...")
+        
+        # Check if a primary artist already exists for this concert
+        existing_primary = self.session.query(ArtistConcert).filter_by(
+            concertId=concert.id,
+            isPrimary=True
+        ).first()
+        
+        if self.debug and existing_primary:
+            primary_artist = self.session.query(Artist).filter_by(id=existing_primary.artistId).first()
+            print(f"     ℹ️  Concert already has primary artist: {primary_artist.name if primary_artist else 'Unknown'}")
+        
+        for idx, artist_name in enumerate(matched_artists):
+            # Determine if this should be primary
+            # Only mark as primary if: it's first in list AND no primary exists yet
+            is_primary = (idx == 0) and (existing_primary is None)
+            
+            if self.debug:
+                if idx == 0 and existing_primary:
+                    role = "ADDITIONAL (would be primary, but one exists)"
+                elif is_primary:
+                    role = "PRIMARY"
+                else:
+                    role = "ADDITIONAL"
+                print(f"       [{idx+1}/{len(matched_artists)}] {role}: {artist_name}")
+            
+            # Get or create artist (will create if doesn't exist)
+            mbid = artist_mbids.get(artist_name)
+            artist = self.get_or_create_artist(name=artist_name, mbid=mbid)
+            
+            if self.debug:
+                print(f"           Artist ID: {artist.id} (MBID: {mbid or 'none'})")
+            
+            # Create/update UserArtist with user-specific stats for ALL matched artists
+            if self.user_id:
+                playcount = artist_playcounts.get(artist_name, 0)
+                playcount12month = artist_playcounts_12month.get(artist_name, 0)
+                is_recent = artist_name in recent_artists
+                
+                self.get_or_create_user_artist(
+                    artist=artist,
+                    playcount=playcount,
+                    playcount12month=playcount12month,
+                    recent=is_recent
+                )
+                
+                if self.debug:
+                    print(f"           UserArtist: playcount={playcount}, 12mo={playcount12month}, recent={is_recent}")
+            
+            # Check if link already exists
+            existing_link = self.session.query(ArtistConcert).filter_by(
+                artistId=artist.id,
+                concertId=concert.id
+            ).first()
+            
+            if existing_link:
+                self.stats['artist_concert_links_skipped'] += 1
+                if self.debug:
+                    existing_primary_str = "PRIMARY" if existing_link.isPrimary else "ADDITIONAL"
+                    print(f"           ⚠️  Link already exists (was {existing_primary_str})")
+                continue
+            
+            # Create new link
+            artist_concert = ArtistConcert(
+                artistId=artist.id,
+                concertId=concert.id,
+                isPrimary=is_primary,
+                createdAt=int(datetime.now(timezone.utc).timestamp())
+            )
+            self.session.add(artist_concert)
+            self.stats['artist_concert_links_created'] += 1
+            
+            if self.debug:
+                print(f"           ✅ Created link (isPrimary={is_primary})")
+    
     def parse_date(self, date_str: str) -> int:
         """Parse date string to Unix timestamp
         
@@ -267,7 +376,8 @@ class ConcertDatabaseWriter:
                 'organizer': concert_data.get('organizer'),
                 'organizerUrl': concert_data.get('organizer_url'),
                 'ticketLinks': ticket_links_json,
-                'artistId': artist.id
+                # NOTE: Do NOT update artistId for existing concerts
+                # The primary artist is determined by the first scan and stored in ArtistConcert.isPrimary
             }
             
             # Check each field for changes
@@ -346,8 +456,16 @@ class ConcertDatabaseWriter:
                 # Get matched artists (primary artist for this concert)
                 matched_artists = concert_data.get('matched_artists', [])
                 
+                if self.debug:
+                    all_performers = concert_data.get('performers', [])
+                    print(f"\n[DB] Processing concert: {concert_data.get('event_name', 'Unknown')}")
+                    print(f"     All performers: {', '.join(all_performers)}")
+                    print(f"     Matched artists: {', '.join(matched_artists) if matched_artists else 'NONE'}")
+                
                 if not matched_artists:
                     # Skip concerts without matched artists
+                    if self.debug:
+                        print(f"     ⚠️  SKIPPED: No matched artists")
                     continue
                 
                 # Use first matched artist as primary
@@ -357,24 +475,15 @@ class ConcertDatabaseWriter:
                 is_recent = primary_artist_name in recent_artists
                 mbid = artist_mbids.get(primary_artist_name)
                 
+                if self.debug:
+                    print(f"     Primary artist: {primary_artist_name} (playcount: {playcount}, 12mo: {playcount12month})")
+                
                 # Get or create artist (global Artist table - shared data only)
+                # Note: UserArtist creation is now handled in link_artists_to_concert()
                 artist = self.get_or_create_artist(
                     name=primary_artist_name,
                     mbid=mbid
                 )
-                
-                # Create/update UserArtist with user-specific stats
-                if self.user_id:
-                    self.get_or_create_user_artist(
-                        artist=artist,
-                        playcount=playcount,
-                        playcount12month=playcount12month,
-                        recent=is_recent
-                    )
-                else:
-                    # Legacy mode: warn that user_id should be provided
-                    if self.debug:
-                        print(f"[DB] WARNING: Running without --user-id. User-specific stats will not be saved.")
                 
                 # Upsert concert and get normalized city
                 normalized_city = self.upsert_concert(
@@ -384,12 +493,24 @@ class ConcertDatabaseWriter:
                     recent_artists
                 )
                 
-                # If user_id is set, create UserConcert link
-                if self.user_id:
-                    # Need to get the concert object after upsert
-                    event_url = concert_data.get('event_url')
-                    concert = self.session.query(Concert).filter_by(eventUrl=event_url).first()
-                    if concert:
+                # Get the concert object after upsert for additional operations
+                event_url = concert_data.get('event_url')
+                concert = self.session.query(Concert).filter_by(eventUrl=event_url).first()
+                
+                if concert:
+                    # Create ArtistConcert links for all matched artists
+                    # Also creates/updates UserArtist records for all matched artists
+                    self.link_artists_to_concert(
+                        concert, 
+                        matched_artists, 
+                        artist_mbids,
+                        artist_playcounts,
+                        artist_playcounts_12month,
+                        recent_artists
+                    )
+                    
+                    # If user_id is set, create UserConcert link
+                    if self.user_id:
                         self.create_user_concert_link(concert)
                 
                 # Store normalized city back in concert_data for display purposes
@@ -418,6 +539,8 @@ class ConcertDatabaseWriter:
         print(f"Artists updated: {self.stats['artists_updated']}")
         print(f"Concerts created: {self.stats['concerts_created']}")
         print(f"Concerts updated: {self.stats['concerts_updated']}")
+        print(f"Artist-Concert links created: {self.stats['artist_concert_links_created']}")
+        print(f"Artist-Concert links skipped: {self.stats['artist_concert_links_skipped']}")
         if self.user_id:
             print(f"User-Artist links created: {self.stats['user_artists_created']}")
             print(f"User-Artist links updated: {self.stats['user_artists_updated']}")

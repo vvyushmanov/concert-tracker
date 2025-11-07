@@ -21,7 +21,14 @@ export async function GET(
     const concert = await prisma.concert.findUnique({
       where: { id: concertId },
       include: {
-        artist: true,
+        artists: {
+          include: {
+            artist: true,
+          },
+          orderBy: {
+            isPrimary: 'desc', // Primary artist first
+          },
+        },
         userInteractions: session ? {
           where: { userId: parseInt(session.user.id) },
           select: { interested: true, notes: true, isPrivate: true }
@@ -36,10 +43,28 @@ export async function GET(
       );
     }
 
+    // Get user's artist stats if logged in
+    let artistStatsMap = new Map();
+    if (session) {
+      const userId = parseInt(session.user.id);
+      const artistIds = concert.artists.map((ac: any) => ac.artistId);
+      
+      const userArtistStats = await prisma.userArtist.findMany({
+        where: {
+          userId,
+          artistId: { in: artistIds }
+        }
+      });
+      
+      artistStatsMap = new Map(
+        userArtistStats.map((ua: any) => [ua.artistId, ua])
+      );
+    }
+
     // Merge user-specific data
     const userInteraction = concert.userInteractions?.[0];
     
-    // Parse JSON fields
+    // Parse JSON fields and transform artists array
     const concertWithParsedData = {
       ...concert,
       performers: JSON.parse(concert.performers),
@@ -48,6 +73,17 @@ export async function GET(
       notes: userInteraction?.notes || '',
       isPrivate: userInteraction?.isPrivate || false,
       userInteractions: undefined, // Remove from response
+      // Transform artists array with user stats
+      artists: concert.artists.map((ac: any) => ({
+        id: ac.id,
+        artistId: ac.artistId,
+        concertId: ac.concertId,
+        isPrimary: ac.isPrimary,
+        artist: {
+          ...ac.artist,
+          playcount: artistStatsMap.get(ac.artistId)?.playcount || 0,
+        },
+      })),
     };
 
     return NextResponse.json(concertWithParsedData);
@@ -137,7 +173,14 @@ export async function PATCH(
     const concert = await prisma.concert.findUnique({
       where: { id: concertId },
       include: {
-        artist: true,
+        artists: {
+          include: {
+            artist: true,
+          },
+          orderBy: {
+            isPrimary: 'desc', // Primary artist first
+          },
+        },
         userInteractions: {
           where: { userId },
           select: { interested: true, notes: true, isPrivate: true }
@@ -154,7 +197,7 @@ export async function PATCH(
 
     const userInteraction = concert.userInteractions[0];
 
-    // Parse JSON fields
+    // Parse JSON fields and transform artists array
     const concertWithParsedData = {
       ...concert,
       performers: JSON.parse(concert.performers),
@@ -163,6 +206,14 @@ export async function PATCH(
       notes: userInteraction?.notes || '',
       isPrivate: userInteraction?.isPrivate || false,
       userInteractions: undefined,
+      // Transform artists array
+      artists: concert.artists.map((ac: any) => ({
+        id: ac.id,
+        artistId: ac.artistId,
+        concertId: ac.concertId,
+        isPrimary: ac.isPrimary,
+        artist: ac.artist,
+      })),
     };
 
     return NextResponse.json(concertWithParsedData);

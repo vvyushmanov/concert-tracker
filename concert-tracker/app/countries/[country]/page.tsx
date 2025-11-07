@@ -20,20 +20,27 @@ export default async function CountryDetailPage({ params }: { params: Promise<{ 
       }
     },
     include: {
-      artist: {
-        select: {
-          id: true,
-          name: true,
-          userStats: userId ? {
-            where: {
-              userId: userId
-            },
+      artists: {
+        include: {
+          artist: {
             select: {
-              playcount: true,
-              playcount12month: true,
-              recent: true,
-            }
-          } : false,
+              id: true,
+              name: true,
+              userStats: userId ? {
+                where: {
+                  userId: userId
+                },
+                select: {
+                  playcount: true,
+                  playcount12month: true,
+                  recent: true,
+                }
+              } : false,
+            },
+          },
+        },
+        orderBy: {
+          isPrimary: 'desc',
         },
       },
       userInteractions: userId ? {
@@ -55,19 +62,41 @@ export default async function CountryDetailPage({ params }: { params: Promise<{ 
     notFound();
   }
 
-  // Transform data to flatten user-specific fields
-  const transformedConcerts = concerts.map(concert => ({
-    ...concert,
-    artist: {
-      id: concert.artist.id,
-      name: concert.artist.name,
-      playcount: concert.artist.userStats?.[0]?.playcount || 0,
-      playcount12month: concert.artist.userStats?.[0]?.playcount12month || 0,
-      recent: concert.artist.userStats?.[0]?.recent || false,
-    },
-    interested: concert.userInteractions?.[0]?.interested || false,
-    notes: concert.userInteractions?.[0]?.notes || null,
-  }));
+  // Transform data to flatten user-specific fields and derive primary artist
+  const transformedConcerts = concerts
+    .map((concert: any) => {
+      const primaryArtistLink = concert.artists.find((ac: any) => ac.isPrimary) || concert.artists[0];
+      const primaryArtist = primaryArtistLink?.artist;
+      
+      return {
+        ...concert,
+        artistId: primaryArtistLink?.artistId,
+        artist: primaryArtist ? {
+          id: primaryArtist.id,
+          name: primaryArtist.name,
+          playcount: primaryArtist.userStats?.[0]?.playcount || 0,
+          playcount12month: primaryArtist.userStats?.[0]?.playcount12month || 0,
+          recent: primaryArtist.userStats?.[0]?.recent || false,
+        } : null,
+        // Transform artists array with user stats
+        artists: concert.artists.map((ac: any) => ({
+          id: ac.id,
+          artistId: ac.artistId,
+          concertId: ac.concertId,
+          isPrimary: ac.isPrimary,
+          artist: {
+            ...ac.artist,
+            playcount: ac.artist.userStats?.[0]?.playcount || 0,
+          },
+        })),
+        interested: concert.userInteractions?.[0]?.interested || false,
+        notes: concert.userInteractions?.[0]?.notes || null,
+      };
+    })
+    // Filter out concerts where user doesn't track any artists (all playcounts are 0)
+    .filter((concert: any) => 
+      concert.artists.some((ac: any) => ac.artist.playcount > 0)
+    );
 
   // Get unique normalized cities and artists
   const cities = [...new Set(transformedConcerts.map(c => c.normalizedCity))];
