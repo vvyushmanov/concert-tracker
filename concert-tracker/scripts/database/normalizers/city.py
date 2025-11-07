@@ -56,7 +56,7 @@ class CityNormalizer:
         """Normalize a city name using hybrid approach
         
         Args:
-            city: Original city name
+            city: Original city name (with diacritics, as-is from source)
             country: Country name
             
         Returns:
@@ -68,7 +68,7 @@ class CityNormalizer:
         if self.verbose:
             print(f"\n[NORMALIZE] Starting normalization for: '{city}', {country}")
         
-        # Step 1: Check if we already have ANY mapping for this exact city (manual or geocoded)
+        # Step 1: Check if we already have a mapping for this EXACT original city (preserving diacritics)
         existing_mapping = self._check_manual_mapping(city, country)
         if existing_mapping:
             if self.verbose:
@@ -76,14 +76,14 @@ class CityNormalizer:
             return existing_mapping.normalizedCity
         
         if self.verbose:
-            print(f"[NORMALIZE] No existing mapping found")
+            print(f"[NORMALIZE] No existing mapping found for original city")
         
-        # Step 2: Apply text normalization (cleanup before geocoding)
+        # Step 2: Apply text normalization (for API requests and normalizedCity field)
         normalized = self._normalize_text(city)
         if self.verbose:
             print(f"[NORMALIZE] Text normalized: '{city}' -> '{normalized}'")
         
-        # Step 3: Try geocoding and clustering (always, to check for metro clustering)
+        # Step 3: Try geocoding and clustering
         if self.verbose:
             print(f"[NORMALIZE] Attempting geocoding and clustering...")
         geocoded_result = self._geocode_and_cluster(city, country, normalized)
@@ -152,19 +152,19 @@ class CityNormalizer:
         """Geocode city and check for nearby cities to cluster
         
         Args:
-            original_city: Original city name
+            original_city: Original city name (with diacritics preserved)
             country: Country name
-            normalized_text: Text-normalized city name
+            normalized_text: Text-normalized city name (for API requests)
             
         Returns:
             Clustered city name if found, None otherwise
         """
-        # Check in-memory cache first
-        cache_key = f"{normalized_text}|{country}"
+        # Check in-memory cache first using ORIGINAL city name to preserve diacritics
+        # This ensures "Düsseldorf" and "Dusseldorf" are treated as different cache entries
+        cache_key = f"{original_city}|{country}"
         if cache_key in self._geocode_cache:
             cached = self._geocode_cache[cache_key]
-            self._store_mapping(original_city, country, cached['normalized'], 
-                              cached['lat'], cached['lon'], 'geocoded')
+            # Mapping already stored when cache was created, just return result
             return cached['normalized']
         
         # Get coordinates and metadata for the city

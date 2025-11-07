@@ -415,8 +415,7 @@ class ConcertDatabaseWriter:
                 imageUrl=concert_data.get('image_url'),
                 organizer=concert_data.get('organizer'),
                 organizerUrl=concert_data.get('organizer_url'),
-                ticketLinks=ticket_links_json,
-                artistId=artist.id
+                ticketLinks=ticket_links_json
             )
             self.session.add(concert)
             self.stats['concerts_created'] += 1

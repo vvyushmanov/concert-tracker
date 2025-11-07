@@ -48,10 +48,16 @@ class Country(Base):
 
 
 class CityMapping(Base):
-    """City mapping model for normalization"""
+    """City mapping model for normalization
+    
+    Note: In MySQL, originalCity uses utf8mb4_bin collation (binary/accent-sensitive)
+    to preserve diacritics. This ensures "Düsseldorf" and "Dusseldorf" are treated
+    as distinct cities. See migration: prisma/migrations/fix_citymapping_collation.sql
+    """
     __tablename__ = 'CityMapping'
     
     id = Column(Integer, primary_key=True, autoincrement=True)
+    # Binary collation in MySQL to preserve diacritics (Düsseldorf ≠ Dusseldorf)
     originalCity = Column(String, nullable=False)
     countryId = Column(Integer, ForeignKey('Country.id'), nullable=False, index=True)  # Now required
     normalizedCity = Column(String, nullable=False, index=True)
@@ -84,9 +90,6 @@ class Concert(Base):
     organizer = Column(String, nullable=True)
     organizerUrl = Column(String, nullable=True)
     ticketLinks = Column(Text, nullable=False, default='[]')  # JSON array stored as text
-    
-    # Foreign key (DEPRECATED - will be removed after migration)
-    artistId = Column(Integer, nullable=False, index=True)
     
     # Timestamps (Unix timestamps)
     createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))

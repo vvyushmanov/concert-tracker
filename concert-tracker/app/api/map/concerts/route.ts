@@ -120,14 +120,27 @@ export async function GET(request: Request) {
       }
     });
 
-    // Get city coordinates
+    // Get city coordinates by matching Concert.city to CityMapping.originalCity
+    // Also fetch by normalizedCity as fallback for old records
+    const uniqueCities = [...new Set(concerts.map((c: any) => c.city))];
+    const uniqueNormalizedCities = [...new Set(concerts.map((c: any) => c.normalizedCity))];
+    const uniqueCountryIds = [...new Set(concerts.map((c: any) => c.countryId))];
+    
     const cityMappings = await prisma.cityMapping.findMany({
       where: {
-        normalizedCity: {
-          in: [...new Set(concerts.map(c => c.normalizedCity))]
-        }
+        OR: [
+          {
+            originalCity: { in: uniqueCities },
+            countryId: { in: uniqueCountryIds }
+          },
+          {
+            originalCity: { in: uniqueNormalizedCities },
+            countryId: { in: uniqueCountryIds }
+          }
+        ]
       },
       select: {
+        originalCity: true,
         normalizedCity: true,
         latitude: true,
         longitude: true,
@@ -135,13 +148,23 @@ export async function GET(request: Request) {
       }
     });
 
-    // Create a map for quick coordinate lookup
-    const coordMap = new Map(
-      cityMappings.map(cm => [
-        `${cm.normalizedCity}_${cm.countryId}`,
-        { lat: cm.latitude, lng: cm.longitude }
-      ])
-    );
+    // Create coordinate lookup map
+    // Priority: exact match on originalCity, then fallback to normalizedCity match
+    const coordMap = new Map<string, { lat: string; lng: string }>();
+    
+    // First pass: store all mappings by originalCity
+    cityMappings.forEach((cm: { originalCity: string; normalizedCity: string; latitude: string | null; longitude: string | null; countryId: number }) => {
+      const key = `${cm.originalCity}_${cm.countryId}`;
+      coordMap.set(key, { lat: cm.latitude || '0', lng: cm.longitude || '0' });
+    });
+    
+    // Second pass: add fallback entries for normalizedCity (only if not already present)
+    cityMappings.forEach((cm: { originalCity: string; normalizedCity: string; latitude: string | null; longitude: string | null; countryId: number }) => {
+      const normalizedKey = `${cm.normalizedCity}_${cm.countryId}`;
+      if (!coordMap.has(normalizedKey)) {
+        coordMap.set(normalizedKey, { lat: cm.latitude || '0', lng: cm.longitude || '0' });
+      }
+    });
 
     // Get friend privacy settings
     const friendPrivacySettings = await prisma.userSetting.findMany({
@@ -157,7 +180,11 @@ export async function GET(request: Request) {
     // Process concerts and apply privacy filtering
     const processedConcerts = concerts
       .map(concert => {
-        const coords = coordMap.get(`${concert.normalizedCity}_${concert.countryId}`);
+        // Try to get coordinates: first by original city, then by normalized city as fallback
+        let coords = coordMap.get(`${concert.city}_${concert.countryId}`);
+        if (!coords) {
+          coords = coordMap.get(`${concert.normalizedCity}_${concert.countryId}`);
+        }
         
         // Filter user interactions based on privacy
         const visibleInteractions = concert.userInteractions.filter(interaction => {

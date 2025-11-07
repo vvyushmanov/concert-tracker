@@ -52,27 +52,34 @@ else
     echo "✓ SQLite detected - no connection wait needed"
 fi
 
-# 5. Apply database schema
+# 5. Apply database migrations
 echo ""
-echo "Step 5: Setting up database schema..."
+echo "Step 5: Applying database migrations..."
 
-# Check if database tables already exist
-echo "Checking if database schema exists..."
+# Check if _prisma_migrations table exists (indicates migrations are being used)
+echo "Checking migration status..."
 if npx prisma db execute --stdin <<EOF 2>/dev/null
-SELECT 1 FROM Artist LIMIT 1;
+SELECT 1 FROM _prisma_migrations LIMIT 1;
 EOF
 then
-    echo "✓ Database schema already exists, skipping schema setup"
-    echo "  (If you need to update schema, run: npx prisma db push)"
-else
-    echo "Database schema not found, creating initial schema..."
-    # Use db push without --accept-data-loss for safety
-    # This will fail if there's a destructive change, which is what we want
-    if npx prisma db push --skip-generate 2>/dev/null; then
-        echo "✓ Database schema created successfully"
+    echo "✓ Migration system detected, applying pending migrations..."
+    # Apply all pending migrations (includes collation fix)
+    if npx prisma migrate deploy; then
+        echo "✓ All migrations applied successfully"
     else
-        echo "⚠️  Schema push failed. You may need to run migrations manually."
+        echo "⚠️  Migration failed. Check logs above."
+        exit 1
+    fi
+else
+    echo "Migration history not found. This appears to be a fresh database."
+    echo "Applying all migrations from scratch..."
+    # For fresh database, migrate deploy will apply all migrations
+    if npx prisma migrate deploy; then
+        echo "✓ Database initialized with all migrations"
+    else
+        echo "⚠️  Migration failed. You may need to initialize manually."
         echo "  Try: npx prisma migrate dev"
+        exit 1
     fi
 fi
 
