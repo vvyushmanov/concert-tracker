@@ -30,7 +30,7 @@ services:
       # Mount source code for hot reload (includes scripts directory)
       - ./concert-tracker:/app
       # Mount node_modules as named volume for performance
-      - concert-tracker-node-modules:/app/node_modules
+      - concert-tracker-node-modules:/app/node_modules:delegated
       # Mount shared database directory (for backups/exports)
       - ./data:/app/data
       # Mount .env for configuration
@@ -49,9 +49,8 @@ services:
       - LASTFM_USER=${LASTFM_USER}
       - FANART_API_KEY=${FANART_API_KEY}
       - WATCHPACK_POLLING=true
-      - PRISMA_QUERY_ENGINE_LIBRARY=/app/node_modules/.prisma/client/libquery_engine-linux-musl-openssl-3.0.x.so.node
-      - PRISMA_QUERY_ENGINE_BINARY=/app/node_modules/.prisma/client/query-engine-linux-musl-openssl-3.0.x
     command: sh scripts/startup.sh
+    user: "1000:1000"
     stdin_open: true
     tty: true
     depends_on:

@@ -8,8 +8,8 @@ WORKDIR /app
 RUN apk add --no-cache git python3 py3-pip openssl \
     gcc musl-dev python3-dev mariadb-dev
 
-# Create scripts directory
-RUN mkdir -p /app/scripts
+# Create scripts directory and set ownership (use existing node user)
+RUN mkdir -p /app/scripts && chown -R node:node /app
 
 COPY scripts/requirements.txt /app/scripts/requirements.txt
 
