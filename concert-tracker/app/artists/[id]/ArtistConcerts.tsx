@@ -12,7 +12,20 @@ type Concert = {
   dateStart: number;
   dateEnd: number;
   venue: string;
-  city: string;
+  cityMapping: {
+    id: number;
+    originalCity: string;
+    latitude: string | null;
+    longitude: string | null;
+    cityNormalized: {
+      normalizedCity: string;
+      country: {
+        id: number;
+        name: string;
+        code: string;
+      };
+    };
+  };
   countryObj?: {
     id: number;
     name: string;
@@ -88,7 +101,7 @@ export default function ArtistConcerts({ concerts }: ArtistConcertsProps) {
             </p>
             <p className="flex items-start gap-2">
               <span>📍</span>
-              <span>{concert.venue}, {concert.city}</span>
+              <span>{concert.venue}, {concert.cityMapping?.originalCity || 'Unknown'}</span>
             </p>
           </div>
         </div>

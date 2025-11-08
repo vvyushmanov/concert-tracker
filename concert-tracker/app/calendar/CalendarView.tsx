@@ -11,8 +11,20 @@ type Concert = {
   dateStart: number;
   dateEnd: number;
   venue: string;
-  city: string;
-  normalizedCity: string;
+  cityMapping: {
+    id: number;
+    originalCity: string;
+    latitude: string | null;
+    longitude: string | null;
+    cityNormalized: {
+      normalizedCity: string;
+      country: {
+        id: number;
+        name: string;
+        code: string;
+      };
+    };
+  };
   countryObj?: {
     id: number;
     name: string;
@@ -65,7 +77,7 @@ export default function CalendarView({ initialConcerts, artists, countries, citi
     if (selectedArtist && concert.artists && !concert.artists.some((ac: any) => ac.artistId === selectedArtist)) return false;
     // Country filter
     if (selectedCountry && concert.countryObj?.name !== selectedCountry) return false;
-    if (selectedCity && concert.normalizedCity !== selectedCity) return false;
+    if (selectedCity && concert.cityMapping.cityNormalized.normalizedCity !== selectedCity) return false;
     if (showInterestedOnly && !concert.interested) return false;
     return true;
   });
@@ -289,7 +301,7 @@ export default function CalendarView({ initialConcerts, artists, countries, citi
                         </div>
                         <h4 className="font-bold mb-1">{concert.eventName}</h4>
                         <p className="text-sm text-gray-600 dark:text-gray-400">
-                          📍 {concert.venue}, {concert.city}, {concert.countryObj?.name}
+                          📍 {concert.venue}, {concert.cityMapping.originalCity}, {concert.countryObj?.name}
                         </p>
                       </Link>
                       <a
@@ -348,7 +360,7 @@ export default function CalendarView({ initialConcerts, artists, countries, citi
                           </div>
                           <h4 className="font-bold">{concert.eventName}</h4>
                           <p className="text-sm text-gray-600 dark:text-gray-400">
-                            📍 {concert.venue}, {concert.city}, {concert.countryObj?.name}
+                            📍 {concert.venue}, {concert.cityMapping.originalCity}, {concert.countryObj?.name}
                           </p>
                         </Link>
                         
@@ -397,7 +409,7 @@ export default function CalendarView({ initialConcerts, artists, countries, citi
                             </div>
                             <h4 className="font-bold">{concert.eventName}</h4>
                             <p className="text-sm text-gray-600 dark:text-gray-400">
-                              📍 {concert.venue}, {concert.city}, {concert.countryObj?.name}
+                              📍 {concert.venue}, {concert.cityMapping.originalCity}, {concert.countryObj?.name}
                             </p>
                           </Link>
                           

@@ -34,59 +34,76 @@ model Country {
   createdAt Int
   updatedAt Int
 
-  concerts     Concert[]
-  cityMappings CityMapping[]
+  concerts         Concert[]
+  cityMappings     CityMapping[]
+  normalizedCities CityNormalized[]
   userActiveCountries UserActiveCountry[]
 
   @@index([code])
   @@index([name])
 }
 
-model CityMapping {
+model CityNormalized {
   id             Int      @id @default(autoincrement())
-  originalCity   String   @db.VarChar(255)
-  countryId      Int      // Foreign key (now required)
-  countryObj     Country  @relation(fields: [countryId], references: [id])
   normalizedCity String   @db.VarChar(255)
-  latitude       String?  @db.VarChar(50)
-  longitude      String?  @db.VarChar(50)
-  source         String   @db.VarChar(50) // 'manual' | 'geocoded' | 'text_normalized'
+  countryId      Int
+  country        Country  @relation(fields: [countryId], references: [id])
   createdAt      Int
   updatedAt      Int
 
-  @@unique([originalCity, countryId])
-  @@index([normalizedCity, countryId])
+  cityMappings   CityMapping[]
+
+  @@unique([normalizedCity, countryId])
   @@index([countryId])
 }
 
+model CityMapping {
+  id               Int              @id @default(autoincrement())
+  originalCity     String           @db.VarChar(255)
+  countryId        Int              // Foreign key (now required)
+  countryObj       Country          @relation(fields: [countryId], references: [id])
+  cityNormalizedId Int              // FK to CityNormalized
+  cityNormalized   CityNormalized   @relation(fields: [cityNormalizedId], references: [id])
+  latitude         String?          @db.VarChar(50)
+  longitude        String?          @db.VarChar(50)
+  source           String           @db.VarChar(50) // 'manual' | 'geocoded' | 'text_normalized'
+  createdAt        Int
+  updatedAt        Int
+
+  concerts         Concert[]
+
+  @@unique([originalCity, countryId])
+  @@index([countryId])
+  @@index([cityNormalizedId])
+}
+
 model Concert {
-  id             Int     @id @default(autoincrement())
-  eventName      String  @db.VarChar(500)
-  eventUrl       String  @unique @db.VarChar(500)
-  dateStart      Int     // Unix timestamp (seconds since epoch)
-  dateEnd        Int     // Unix timestamp (seconds since epoch)
-  venue          String  @db.VarChar(500)
-  city           String   @db.VarChar(255) // Original city name
-  normalizedCity String   @db.VarChar(255) // Normalized city name for grouping
-  countryId      Int      // Foreign key (now required)
-  countryObj     Country  @relation(fields: [countryId], references: [id])
-  postalCode     String?  @db.VarChar(20)
-  performers   String  @db.Text // JSON array stored as text
-  imageUrl     String? @db.VarChar(500)
-  organizer    String? @db.VarChar(255)
-  organizerUrl String? @db.VarChar(500)
-  ticketLinks  String  @db.Text // JSON array stored as text
-  createdAt    Int     // Unix timestamp
-  updatedAt    Int     // Unix timestamp
+  id             Int           @id @default(autoincrement())
+  eventName      String        @db.VarChar(500)
+  eventUrl       String        @unique @db.VarChar(500)
+  dateStart      Int           // Unix timestamp (seconds since epoch)
+  dateEnd        Int           // Unix timestamp (seconds since epoch)
+  venue          String        @db.VarChar(500)
+  cityMappingId  Int           // FK to CityMapping
+  cityMapping    CityMapping   @relation(fields: [cityMappingId], references: [id])
+  countryId      Int           // Foreign key (now required)
+  countryObj     Country       @relation(fields: [countryId], references: [id])
+  postalCode     String?       @db.VarChar(20)
+  performers     String        @db.Text // JSON array stored as text
+  imageUrl       String?       @db.VarChar(500)
+  organizer      String?       @db.VarChar(255)
+  organizerUrl   String?       @db.VarChar(500)
+  ticketLinks    String        @db.Text // JSON array stored as text
+  createdAt      Int           // Unix timestamp
+  updatedAt      Int           // Unix timestamp
 
   artists          ArtistConcert[]  // Many-to-many through junction
   userInteractions UserConcert[]
 
-  @@index([city])
-  @@index([normalizedCity])
   @@index([countryId])
   @@index([dateStart])
   @@index([eventUrl])
+  @@index([cityMappingId])
 }
 
 model Setting {

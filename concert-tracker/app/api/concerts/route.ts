@@ -16,9 +16,13 @@ export async function GET(request: Request) {
         name: countryName
       };
     }
-    if (city) where.city = city;
+    if (city) {
+      where.cityMapping = {
+        originalCity: city
+      };
+    }
 
-    // Fetch concerts with artists via junction table
+    // Fetch concerts with artists via junction table and city mapping
     const concerts = await prisma.concert.findMany({
       where,
       include: {
@@ -30,6 +34,14 @@ export async function GET(request: Request) {
             isPrimary: 'desc', // Primary artist first
           },
         },
+        cityMapping: {
+          include: {
+            cityNormalized: {
+              include: { country: true }
+            }
+          }
+        },
+        countryObj: true,
       },
       orderBy: {
         dateStart: 'asc',

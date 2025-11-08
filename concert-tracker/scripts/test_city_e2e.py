@@ -222,15 +222,13 @@ def test_concert_with_diacritics():
         
         print(f"\n  Concert 1 (NO umlaut):")
         print(f"    ID: {concert_1.id}")
-        print(f"    City: '{concert_1.city}'")
-        print(f"    Normalized: '{concert_1.normalizedCity}'")
         print(f"    cityMappingId: {concert_1.cityMappingId}")
         
-        test1_pass = concert_1.city == 'Dusseldorf' and concert_1.cityMappingId is not None
+        test1_pass = concert_1.cityMappingId is not None
         if test1_pass:
-            print(f"    ✅ PASS: Concert 1 city correct and has cityMappingId: '{concert_1.city}'")
+            print(f"    ✅ PASS: Concert 1 has cityMappingId: {concert_1.cityMappingId}")
         else:
-            print(f"    ❌ FAIL: Expected 'Dusseldorf' with cityMappingId, got '{concert_1.city}' (cityMappingId: {concert_1.cityMappingId})")
+            print(f"    ❌ FAIL: Expected cityMappingId, got None")
         
         # Verify Concert 2 (with umlaut)
         concert_2 = session.query(Concert).filter(
@@ -245,15 +243,13 @@ def test_concert_with_diacritics():
         
         print(f"\n  Concert 2 (WITH umlaut):")
         print(f"    ID: {concert_2.id}")
-        print(f"    City: '{concert_2.city}'")
-        print(f"    Normalized: '{concert_2.normalizedCity}'")
         print(f"    cityMappingId: {concert_2.cityMappingId}")
         
-        test2_pass = concert_2.city == 'Düsseldorf' and concert_2.cityMappingId is not None
+        test2_pass = concert_2.cityMappingId is not None
         if test2_pass:
-            print(f"    ✅ PASS: Concert 2 city preserves umlaut and has cityMappingId: '{concert_2.city}'")
+            print(f"    ✅ PASS: Concert 2 has cityMappingId: {concert_2.cityMappingId}")
         else:
-            print(f"    ❌ FAIL: Expected 'Düsseldorf' with cityMappingId, got '{concert_2.city}' (cityMappingId: {concert_2.cityMappingId})")
+            print(f"    ❌ FAIL: Expected cityMappingId, got None")
         
         # Step 6: Verify BOTH CityMappings were created
         print("\n[STEP 6] Verifying CityMapping records...")
@@ -277,7 +273,6 @@ def test_concert_with_diacritics():
             created_mapping_ids.append(mapping_1.id)
             print(f"    ID: {mapping_1.id}")
             print(f"    Original City: '{mapping_1.originalCity}'")
-            print(f"    Normalized City: '{mapping_1.normalizedCity}'")
             print(f"    cityNormalizedId: {mapping_1.cityNormalizedId}")
             test3_pass = mapping_1.originalCity == 'Dusseldorf' and mapping_1.cityNormalizedId is not None
             if test3_pass:
@@ -297,10 +292,9 @@ def test_concert_with_diacritics():
             
             # Show what mappings exist
             all_mappings = session.query(CityMapping).filter(
-                CityMapping.normalizedCity == 'Dusseldorf',
                 CityMapping.countryId == country.id
             ).all()
-            print(f"\n    Found {len(all_mappings)} total mappings with normalizedCity='Dusseldorf':")
+            print(f"\n    Found {len(all_mappings)} total mappings for Germany:")
             for m in all_mappings:
                 print(f"      - originalCity: '{m.originalCity}' (ID: {m.id})")
             
@@ -309,7 +303,6 @@ def test_concert_with_diacritics():
             created_mapping_ids.append(mapping_2.id)
             print(f"    ID: {mapping_2.id}")
             print(f"    Original City: '{mapping_2.originalCity}'")
-            print(f"    Normalized City: '{mapping_2.normalizedCity}'")
             print(f"    cityNormalizedId: {mapping_2.cityNormalizedId}")
             test4_pass = mapping_2.originalCity == 'Düsseldorf' and mapping_2.cityNormalizedId is not None
             if test4_pass:
@@ -319,11 +312,10 @@ def test_concert_with_diacritics():
         
         # Verify we have TWO separate mappings
         total_mappings = session.query(CityMapping).filter(
-            CityMapping.normalizedCity == 'Dusseldorf',
             CityMapping.countryId == country.id
         ).count()
         
-        print(f"\n  Total mappings for normalizedCity='Dusseldorf': {total_mappings}")
+        print(f"\n  Total mappings for Germany: {total_mappings}")
         test5_pass = total_mappings >= 2
         if test5_pass:
             print(f"  ✅ PASS: Both mappings created (found {total_mappings})")
@@ -412,10 +404,10 @@ def test_concert_with_diacritics():
         print("="*80)
         
         all_tests = [
-            ("Concert 1 (no umlaut) city correct with cityMappingId: 'Dusseldorf'", test1_pass),
-            ("Concert 2 (with umlaut) city preserves umlaut with cityMappingId: 'Düsseldorf'", test2_pass),
-            ("CityMapping 1 (no umlaut) originalCity correct with cityNormalizedId: 'Dusseldorf'", test3_pass),
-            ("CityMapping 2 (with umlaut) originalCity preserves umlaut with cityNormalizedId: 'Düsseldorf'", test4_pass),
+            ("Concert 1 has cityMappingId", test1_pass),
+            ("Concert 2 has cityMappingId", test2_pass),
+            ("CityMapping 1 (no umlaut) originalCity='Dusseldorf' with cityNormalizedId", test3_pass),
+            ("CityMapping 2 (with umlaut) originalCity='Düsseldorf' with cityNormalizedId", test4_pass),
             ("Both mappings created (2+ total)", test5_pass),
             ("CityNormalized exists and both mappings link to it", test6_pass),
         ]

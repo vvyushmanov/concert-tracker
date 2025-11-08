@@ -13,7 +13,20 @@ interface Concert {
   dateStart: number;
   dateEnd: number;
   venue: string;
-  city: string;
+  cityMapping: {
+    id: number;
+    originalCity: string;
+    latitude: string | null;
+    longitude: string | null;
+    cityNormalized: {
+      normalizedCity: string;
+      country: {
+        id: number;
+        name: string;
+        code: string;
+      };
+    };
+  };
   countryObj?: {
     id: number;
     name: string;
@@ -280,7 +293,7 @@ export default function ConcertDetailPage() {
                   <div className="text-gray-600 dark:text-gray-400">
                     {concert.venue}
                     <br />
-                    {concert.city}, {concert.countryObj?.name}
+                    {concert.cityMapping.originalCity}, {concert.countryObj?.name}
                     {concert.postalCode && ` ${concert.postalCode}`}
                   </div>
                 </div>

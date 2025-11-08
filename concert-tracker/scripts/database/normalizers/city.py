@@ -11,7 +11,7 @@ from unidecode import unidecode
 import requests
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from database.models import CityMapping
+from database.models import CityMapping, CityNormalized
 from database.normalizers.country import get_or_create_country
 
 
@@ -71,9 +71,10 @@ class CityNormalizer:
         # Step 1: Check if we already have a mapping for this EXACT original city (preserving diacritics)
         existing_mapping = self._check_manual_mapping(city, country)
         if existing_mapping:
+            normalized_city = existing_mapping.city_normalized.normalizedCity if existing_mapping.city_normalized else None
             if self.verbose:
-                print(f"[NORMALIZE] Found {existing_mapping.source} mapping: '{city}' -> '{existing_mapping.normalizedCity}'")
-            return existing_mapping.normalizedCity
+                print(f"[NORMALIZE] Found {existing_mapping.source} mapping: '{city}' -> '{normalized_city}'")
+            return normalized_city
         
         if self.verbose:
             print(f"[NORMALIZE] No existing mapping found for original city")
@@ -388,9 +389,10 @@ class CityNormalizer:
             )
             
             if distance <= threshold_km:
+                normalized = existing.city_normalized.normalizedCity if existing.city_normalized else None
                 if self.verbose:
-                    print(f"[EXACT_MATCH] Found existing city at same location: '{existing.normalizedCity}' ({distance:.3f} km away)")
-                return existing.normalizedCity
+                    print(f"[EXACT_MATCH] Found existing city at same location: '{normalized}' ({distance:.3f} km away)")
+                return normalized
         
         if self.verbose:
             print(f"[EXACT_MATCH] No existing city found within {threshold_km} km")
@@ -439,13 +441,15 @@ class CityNormalizer:
                 # Get stored metadata for comparison (if available from extratags)
                 # For now, we'll cluster to ANY nearby city that was seen first
                 # In future, we could store importance/population in CityMapping
-                candidates.append({
-                    'name': nearby.normalizedCity,
-                    'distance': distance
-                })
-                
-                if self.verbose:
-                    print(f"[CLUSTER] Found nearby city: '{nearby.normalizedCity}' at {distance:.2f} km")
+                normalized = nearby.city_normalized.normalizedCity if nearby.city_normalized else None
+                if normalized:
+                    candidates.append({
+                        'name': normalized,
+                        'distance': distance
+                    })
+                    
+                    if self.verbose:
+                        print(f"[CLUSTER] Found nearby city: '{normalized}' at {distance:.2f} km")
         
         if candidates:
             # Cluster to the closest city
@@ -648,12 +652,37 @@ class CityNormalizer:
         country_obj = get_or_create_country(self.db, country, verbose=self.verbose)
         country_id = country_obj.id if country_obj else None
         
-        # Create new mapping
         now = int(datetime.now(timezone.utc).timestamp())
+        
+        # Step 1: Get or create CityNormalized record
+        city_normalized = self.db.query(CityNormalized).filter(
+            CityNormalized.normalizedCity == normalized_city,
+            CityNormalized.countryId == country_id
+        ).first()
+        
+        if not city_normalized:
+            city_normalized = CityNormalized(
+                normalizedCity=normalized_city,
+                countryId=country_id,
+                createdAt=now,
+                updatedAt=now
+            )
+            try:
+                self.db.add(city_normalized)
+                self.db.flush()  # Get the ID without committing
+            except IntegrityError:
+                # Another process created it, query again
+                self.db.rollback()
+                city_normalized = self.db.query(CityNormalized).filter(
+                    CityNormalized.normalizedCity == normalized_city,
+                    CityNormalized.countryId == country_id
+                ).first()
+        
+        # Step 2: Create CityMapping linked to CityNormalized
         mapping = CityMapping(
             originalCity=original_city,
             countryId=country_id,
-            normalizedCity=normalized_city,
+            cityNormalizedId=city_normalized.id,
             latitude=str(latitude) if latitude is not None else None,
             longitude=str(longitude) if longitude is not None else None,
             source=source,
@@ -686,3 +715,47 @@ class CityNormalizer:
             longitude: Longitude (optional)
         """
         self._store_mapping(original_city, country, normalized_city, latitude, longitude, 'manual')
+
+
+def get_or_create_city_mapping(session: Session, original_city: str, country: str, verbose: bool = False) -> Optional[CityMapping]:
+    """Get or create a city mapping for the given city and country.
+    
+    This is the main entry point for getting city mappings. It will:
+    1. Check if mapping exists in database
+    2. If not, normalize the city name and create a new mapping
+    3. Link to CityNormalized table
+    
+    Args:
+        session: SQLAlchemy session
+        original_city: Original city name (with diacritics preserved)
+        country: Country name
+        verbose: Enable verbose logging
+        
+    Returns:
+        CityMapping object or None if country not found
+    """
+    # Get country object
+    country_obj = get_or_create_country(session, country, verbose=verbose)
+    if not country_obj:
+        return None
+    
+    # Check if mapping already exists
+    existing = session.query(CityMapping).filter(
+        CityMapping.originalCity == original_city,
+        CityMapping.countryId == country_obj.id
+    ).first()
+    
+    if existing:
+        return existing
+    
+    # Create new mapping using normalizer
+    normalizer = CityNormalizer(session, verbose=verbose)
+    normalized_city = normalizer.normalize(original_city, country)
+    
+    # Query again in case normalizer created it
+    mapping = session.query(CityMapping).filter(
+        CityMapping.originalCity == original_city,
+        CityMapping.countryId == country_obj.id
+    ).first()
+    
+    return mapping

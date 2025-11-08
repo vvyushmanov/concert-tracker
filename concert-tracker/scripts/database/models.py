@@ -41,10 +41,30 @@ class Country(Base):
     code = Column(String, unique=True, nullable=False, index=True)  # ISO code: "tr", "fr"
     createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
     updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
+    
+    normalized_cities = relationship('CityNormalized', back_populates='country', cascade='all, delete-orphan')
     user_active_countries = relationship('UserActiveCountry', back_populates='country', cascade='all, delete-orphan')
 
     def __repr__(self):
         return f"<Country(id={self.id}, name='{self.name}', code='{self.code}')>"
+
+
+class CityNormalized(Base):
+    """Normalized city model - stores unique normalized city names per country"""
+    __tablename__ = 'CityNormalized'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    normalizedCity = Column(String, nullable=False, index=True)
+    countryId = Column(Integer, ForeignKey('Country.id'), nullable=False, index=True)
+    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
+    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
+    
+    # Relationships
+    country = relationship('Country', back_populates='normalized_cities')
+    city_mappings = relationship('CityMapping', back_populates='city_normalized', cascade='all, delete-orphan')
+    
+    def __repr__(self):
+        return f"<CityNormalized(id={self.id}, normalizedCity='{self.normalizedCity}', countryId={self.countryId})>"
 
 
 class CityMapping(Base):
@@ -59,16 +79,21 @@ class CityMapping(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     # Binary collation in MySQL to preserve diacritics (Düsseldorf ≠ Dusseldorf)
     originalCity = Column(String, nullable=False)
-    countryId = Column(Integer, ForeignKey('Country.id'), nullable=False, index=True)  # Now required
-    normalizedCity = Column(String, nullable=False, index=True)
+    countryId = Column(Integer, ForeignKey('Country.id'), nullable=False, index=True)
+    cityNormalizedId = Column(Integer, ForeignKey('CityNormalized.id'), nullable=False, index=True)  # FK to CityNormalized
     latitude = Column(String, nullable=True)  # Store as string for precision
     longitude = Column(String, nullable=True)  # Store as string for precision
     source = Column(String, nullable=False)  # 'manual', 'geocoded', 'text_normalized'
     createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
     updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
     
+    # Relationships
+    city_normalized = relationship('CityNormalized', back_populates='city_mappings')
+    concerts = relationship('Concert', back_populates='city_mapping', cascade='all, delete-orphan')
+    
     def __repr__(self):
-        return f"<CityMapping('{self.originalCity}' -> '{self.normalizedCity}', countryId={self.countryId})>"
+        normalized = self.city_normalized.normalizedCity if self.city_normalized else 'None'
+        return f"<CityMapping('{self.originalCity}' -> '{normalized}', countryId={self.countryId})>"
 
 
 class Concert(Base):
@@ -81,9 +106,8 @@ class Concert(Base):
     dateStart = Column(Integer, nullable=False, index=True)  # Unix timestamp
     dateEnd = Column(Integer, nullable=False)  # Unix timestamp
     venue = Column(String, nullable=False)
-    city = Column(String, nullable=False, index=True)  # Original city name
-    normalizedCity = Column(String, nullable=False, index=True)  # Normalized city name for grouping
-    countryId = Column(Integer, ForeignKey('Country.id'), nullable=False, index=True)  # Now required
+    cityMappingId = Column(Integer, ForeignKey('CityMapping.id'), nullable=False, index=True)  # FK to CityMapping
+    countryId = Column(Integer, ForeignKey('Country.id'), nullable=False, index=True)
     postalCode = Column(String, nullable=True)
     performers = Column(Text, nullable=False)  # JSON array stored as text
     imageUrl = Column(String, nullable=True)
@@ -95,7 +119,8 @@ class Concert(Base):
     createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
     updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
     
-    # Relationship
+    # Relationships
+    city_mapping = relationship('CityMapping', back_populates='concerts')
     artists = relationship('ArtistConcert', back_populates='concert', cascade='all, delete-orphan')
     user_interactions = relationship('UserConcert', back_populates='concert', cascade='all, delete-orphan')
     

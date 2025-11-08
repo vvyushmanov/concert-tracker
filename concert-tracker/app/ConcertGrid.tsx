@@ -12,7 +12,20 @@ type Concert = {
   dateStart: number;
   dateEnd: number;
   venue: string;
-  city: string;
+  cityMapping: {
+    id: number;
+    originalCity: string;
+    latitude: string | null;
+    longitude: string | null;
+    cityNormalized: {
+      normalizedCity: string;
+      country: {
+        id: number;
+        name: string;
+        code: string;
+      };
+    };
+  };
   countryObj?: {
     id: number;
     name: string;
@@ -63,7 +76,7 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
           concert.eventName.toLowerCase().includes(query) ||
           concert.artist.name.toLowerCase().includes(query) ||
           concert.venue.toLowerCase().includes(query) ||
-          concert.city.toLowerCase().includes(query);
+          concert.cityMapping.originalCity.toLowerCase().includes(query);
         if (!matchesSearch) return false;
       }
 
@@ -275,7 +288,7 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
                     </p>
                     <p className="flex items-start gap-2">
                       <span className="text-base">📍</span>
-                      <span>{concert.venue}, {concert.city}, {concert.countryObj?.name}</span>
+                      <span>{concert.venue}, {concert.cityMapping.originalCity}, {concert.countryObj?.name}</span>
                     </p>
                     {concert.artists && concert.artists.length > 0 && (
                       <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
@@ -354,7 +367,7 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
                       </p>
                       <p className="flex items-start gap-2">
                         <span className="text-base">📍</span>
-                        <span>{concert.venue}, {concert.city}, {concert.countryObj?.name}</span>
+                        <span>{concert.venue}, {concert.cityMapping.originalCity}, {concert.countryObj?.name}</span>
                       </p>
                       {concert.artists && concert.artists.length > 0 && (
                         <div className="pt-2 border-t border-gray-200 dark:border-gray-700">

@@ -592,17 +592,21 @@ class TestArtistConcertLinks:
             self.assert_true(user_artist_e.recent, "UserArtist E marked as recent")
     
     def test_7_concert_artistid_not_changed(self):
-        """Test 7: Verify Concert.artistId doesn't change on re-scan"""
+        """Test 7: Verify primary artist doesn't change on re-scan (via ArtistConcert)"""
         print("\n" + "="*80)
-        print("TEST 7: Concert.artistId remains stable across scans")
+        print("TEST 7: Primary artist remains stable across scans")
         print("="*80)
         
         # Get concert from test 3
         concert = self.session.query(Concert).filter_by(eventUrl='https://test.com/concert3').first()
         artist_a = self.session.query(Artist).filter_by(name='Test Artist A').first()
         
-        initial_artist_id = concert.artistId
-        self.assert_equal(initial_artist_id, artist_a.id, "Initial artistId is Artist A")
+        # Check primary artist via ArtistConcert table (new approach)
+        initial_primary = self.session.query(ArtistConcert).filter_by(
+            concertId=concert.id,
+            isPrimary=True
+        ).first()
+        self.assert_equal(initial_primary.artistId, artist_a.id, "Initial primary artist is Artist A")
         
         # User 2 scans again with different primary artist in their list
         writer = ConcertDatabaseWriter(user_id=self.user2.id, debug=self.verbose)
@@ -637,9 +641,13 @@ class TestArtistConcertLinks:
         concert = self.session.query(Concert).filter_by(eventUrl='https://test.com/concert3').first()
         artist_a = self.session.query(Artist).filter_by(name='Test Artist A').first()
         
-        # Verify artistId didn't change
-        self.assert_equal(concert.artistId, initial_artist_id, "Concert.artistId unchanged (still Artist A)")
-        self.assert_equal(concert.artistId, artist_a.id, "Concert.artistId still points to Artist A")
+        # Verify primary artist didn't change (via ArtistConcert table)
+        final_primary = self.session.query(ArtistConcert).filter_by(
+            concertId=concert.id,
+            isPrimary=True
+        ).first()
+        self.assert_equal(final_primary.artistId, initial_primary.artistId, "Primary artist unchanged (still Artist A)")
+        self.assert_equal(final_primary.artistId, artist_a.id, "Primary artist still points to Artist A")
     
     def print_summary(self):
         """Print test summary"""

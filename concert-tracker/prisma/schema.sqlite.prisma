@@ -34,50 +34,72 @@ model Country {
   createdAt Int
   updatedAt Int
 
-  concerts     Concert[]
-  cityMappings CityMapping[]
+  concerts         Concert[]
+  cityMappings     CityMapping[]
+  normalizedCities CityNormalized[]
   userActiveCountries UserActiveCountry[]
 
   @@index([code])
   @@index([name])
 }
 
-model CityMapping {
+model CityNormalized {
   id             Int      @id @default(autoincrement())
-  originalCity   String
-  countryId      Int      // Foreign key (now required)
-  countryObj     Country  @relation(fields: [countryId], references: [id])
   normalizedCity String
-  latitude       String?
-  longitude      String?
-  source         String  // 'manual' | 'geocoded' | 'text_normalized'
+  countryId      Int
+  country        Country  @relation(fields: [countryId], references: [id])
   createdAt      Int
   updatedAt      Int
+
+  cityMappings   CityMapping[]
+
+  @@unique([normalizedCity, countryId])
+  @@index([countryId])
+}
+
+model CityMapping {
+  id               Int              @id @default(autoincrement())
+  originalCity     String
+  countryId        Int              // Foreign key (now required)
+  countryObj       Country          @relation(fields: [countryId], references: [id])
+  cityNormalizedId Int?             // NEW: FK to CityNormalized (nullable during migration)
+  cityNormalized   CityNormalized?  @relation(fields: [cityNormalizedId], references: [id])
+  normalizedCity   String           // DEPRECATED: Will be removed after migration
+  latitude         String?
+  longitude        String?
+  source           String           // 'manual' | 'geocoded' | 'text_normalized'
+  createdAt        Int
+  updatedAt        Int
+
+  concerts         Concert[]
 
   @@unique([originalCity, countryId])
   @@index([normalizedCity, countryId])
   @@index([countryId])
+  @@index([cityNormalizedId])
 }
 
 model Concert {
-  id             Int     @id @default(autoincrement())
+  id             Int           @id @default(autoincrement())
   eventName      String
-  eventUrl       String  @unique
-  dateStart      Int     // Unix timestamp (seconds since epoch)
-  dateEnd        Int     // Unix timestamp (seconds since epoch)
+  eventUrl       String        @unique
+  dateStart      Int           // Unix timestamp (seconds since epoch)
+  dateEnd        Int           // Unix timestamp (seconds since epoch)
   venue          String
-  city           String   // Original city name
-  normalizedCity String   // Normalized city name for grouping
-  countryId      Int      // Foreign key (now required)
-  countryObj     Country  @relation(fields: [countryId], references: [id])
+  cityMappingId  Int?          // NEW: FK to CityMapping (nullable during migration)
+  cityMapping    CityMapping?  @relation(fields: [cityMappingId], references: [id])
+  city           String        // DEPRECATED: Original city name
+  normalizedCity String        // DEPRECATED: Normalized city name for grouping
+  countryId      Int           // Foreign key (now required)
+  countryObj     Country       @relation(fields: [countryId], references: [id])
   postalCode     String?
-  performers   String  // JSON array stored as text
-  imageUrl     String?
-  organizer    String?
-  organizerUrl String?
-  ticketLinks  String  // JSON array stored as text
-  createdAt    Int     // Unix timestamp
-  updatedAt    Int     // Unix timestamp
+  performers     String        // JSON array stored as text
+  imageUrl       String?
+  organizer      String?
+  organizerUrl   String?
+  ticketLinks    String        // JSON array stored as text
+  createdAt      Int           // Unix timestamp
+  updatedAt      Int           // Unix timestamp
 
   artists          ArtistConcert[]  // Many-to-many through junction
   userInteractions UserConcert[]
@@ -87,6 +109,7 @@ model Concert {
   @@index([countryId])
   @@index([dateStart])
   @@index([eventUrl])
+  @@index([cityMappingId])
 }
 
 model Setting {

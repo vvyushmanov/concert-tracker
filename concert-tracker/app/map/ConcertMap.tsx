@@ -345,7 +345,7 @@ export default function ConcertMap({ concerts, currentUserId, selectedFriendIds,
             <strong>${artistNames}</strong>
           </div>
           <div style="font-size: 12px; color: #666; margin-bottom: 4px;">
-            📍 ${concert.city}, ${concert.country.name}
+            📍 ${concert.cityMapping?.originalCity || 'Unknown'}, ${concert.country.name}
           </div>
           <div style="font-size: 12px; color: #666; margin-bottom: 4px;">
             📅 ${new Date(concert.dateStart * 1000).toLocaleDateString()}

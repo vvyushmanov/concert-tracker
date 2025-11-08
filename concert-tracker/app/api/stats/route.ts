@@ -11,22 +11,44 @@ export async function GET() {
         _count: true,
       }),
       prisma.concert.groupBy({
-        by: ['city'],
+        by: ['cityMappingId'],
         _count: true,
         orderBy: {
           _count: {
-            city: 'desc',
+            cityMappingId: 'desc',
           },
         },
         take: 10,
       }),
     ]);
 
+    // Fetch city names for top cities
+    const cityMappingIds = cities.map(c => c.cityMappingId).filter(id => id !== null) as number[];
+    const cityMappings = await prisma.cityMapping.findMany({
+      where: { id: { in: cityMappingIds } },
+      select: {
+        id: true,
+        cityNormalized: {
+          select: {
+            normalizedCity: true
+          }
+        }
+      }
+    });
+    
+    const cityNameMap = new Map(
+      cityMappings.map(cm => [cm.id, cm.cityNormalized?.normalizedCity || 'Unknown'])
+    );
+
     return NextResponse.json({
       totalConcerts,
       totalArtists,
       countries: countries.map(c => ({ countryId: c.countryId, count: c._count })),
-      topCities: cities.map(c => ({ city: c.city, count: c._count })),
+      topCities: cities.map(c => ({ 
+        cityMappingId: c.cityMappingId,
+        city: cityNameMap.get(c.cityMappingId!) || 'Unknown',
+        count: c._count 
+      })),
     });
   } catch (error) {
     console.error('Error fetching stats:', error);

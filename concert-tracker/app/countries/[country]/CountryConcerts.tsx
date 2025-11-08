@@ -12,8 +12,20 @@ type Concert = {
   dateStart: number;
   dateEnd: number;
   venue: string;
-  city: string;
-  normalizedCity: string;
+  cityMapping: {
+    id: number;
+    originalCity: string;
+    latitude: string | null;
+    longitude: string | null;
+    cityNormalized: {
+      normalizedCity: string;
+      country: {
+        id: number;
+        name: string;
+        code: string;
+      };
+    };
+  };
   interested: boolean;
   notes: string | null;
   artist: {
@@ -51,7 +63,10 @@ export default function CountryConcerts({ concerts }: CountryConcertsProps) {
   }, [concerts]);
 
   const cities = useMemo(() => {
-    return [...new Set(concerts.map(c => c.normalizedCity))].sort();
+    return [...new Set(concerts
+      .map(c => c.cityMapping?.cityNormalized?.normalizedCity)
+      .filter((city): city is string => city !== undefined)
+    )].sort();
   }, [concerts]);
 
   // Filter and sort concerts
@@ -64,7 +79,7 @@ export default function CountryConcerts({ concerts }: CountryConcertsProps) {
           concert.eventName.toLowerCase().includes(query) ||
           concert.artist.name.toLowerCase().includes(query) ||
           concert.venue.toLowerCase().includes(query) ||
-          concert.city.toLowerCase().includes(query);
+          concert.cityMapping?.originalCity?.toLowerCase().includes(query);
         if (!matchesSearch) return false;
       }
 
@@ -72,7 +87,7 @@ export default function CountryConcerts({ concerts }: CountryConcertsProps) {
       if (selectedArtist && concert.artists && !concert.artists.some((ac: any) => ac.artistId === selectedArtist)) return false;
 
       // City filter
-      if (selectedCity && concert.normalizedCity !== selectedCity) return false;
+      if (selectedCity && concert.cityMapping?.cityNormalized?.normalizedCity !== selectedCity) return false;
 
       // Interested filter
       if (showInterestedOnly && !concert.interested) return false;
@@ -123,7 +138,7 @@ export default function CountryConcerts({ concerts }: CountryConcertsProps) {
   // Group by normalized city
   const groupByCity = (concertList: Concert[]) => {
     return concertList.reduce((acc, concert) => {
-      const key = concert.normalizedCity;
+      const key = concert.cityMapping?.cityNormalized?.normalizedCity || 'Unknown';
       if (!acc[key]) {
         acc[key] = [];
       }

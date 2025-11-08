@@ -5,8 +5,14 @@ export interface MapConcert {
   dateStart: number;
   dateEnd: number;
   venue: string;
-  city: string;
-  normalizedCity: string;
+  city: string;  // Computed from cityMapping.originalCity
+  normalizedCity: string;  // Computed from cityMapping.cityNormalized.normalizedCity
+  cityMapping?: {
+    originalCity: string;
+    cityNormalized?: {
+      normalizedCity: string;
+    };
+  };
   country: {
     id: number;
     name: string;

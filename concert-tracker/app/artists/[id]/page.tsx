@@ -48,6 +48,17 @@ export default async function ArtistDetailPage({ params }: { params: Promise<{ i
     include: {
       concert: {
         include: {
+          cityMapping: {
+            select: {
+              id: true,
+              originalCity: true,
+              cityNormalized: {
+                select: {
+                  normalizedCity: true,
+                }
+              }
+            }
+          },
           countryObj: true,
           userInteractions: {
             where: { userId },

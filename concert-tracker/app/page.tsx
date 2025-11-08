@@ -39,6 +39,13 @@ export default async function Home() {
               isPrimary: 'desc', // Primary artist first
             },
           },
+          cityMapping: {
+            include: {
+              cityNormalized: {
+                include: { country: true }
+              }
+            }
+          },
           countryObj: true,
         }
       }

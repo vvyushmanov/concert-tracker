@@ -32,8 +32,16 @@ export default async function CountriesPage() {
       concert: {
         select: {
           countryObj: true,
-          city: true,
-          normalizedCity: true,
+          cityMapping: {
+            select: {
+              originalCity: true,
+              cityNormalized: {
+                select: {
+                  normalizedCity: true
+                }
+              }
+            }
+          },
           id: true,
           artists: {
             select: {
@@ -73,7 +81,7 @@ export default async function CountriesPage() {
       };
     }
     acc[countryName].count++;
-    acc[countryName].cities.add(concert.normalizedCity);
+    acc[countryName].cities.add(concert.cityMapping.cityNormalized.normalizedCity);
     if (concert.artist?.name) {
       acc[countryName].artists.add(concert.artist.name);
     }

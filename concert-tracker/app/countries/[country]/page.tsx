@@ -20,6 +20,24 @@ export default async function CountryDetailPage({ params }: { params: Promise<{ 
       }
     },
     include: {
+      cityMapping: {
+        select: {
+          id: true,
+          originalCity: true,
+          cityNormalized: {
+            select: {
+              normalizedCity: true,
+            }
+          }
+        }
+      },
+      countryObj: {
+        select: {
+          id: true,
+          name: true,
+          code: true,
+        }
+      },
       artists: {
         include: {
           artist: {
@@ -99,7 +117,10 @@ export default async function CountryDetailPage({ params }: { params: Promise<{ 
     );
 
   // Get unique normalized cities and artists
-  const cities = [...new Set(transformedConcerts.map(c => c.normalizedCity))];
+  const cities = [...new Set(transformedConcerts
+    .map(c => c.cityMapping?.cityNormalized?.normalizedCity)
+    .filter((city): city is string => city !== undefined)
+  )];
   const artists = new Set(transformedConcerts.map(c => c.artist.name)).size;
 
   return (

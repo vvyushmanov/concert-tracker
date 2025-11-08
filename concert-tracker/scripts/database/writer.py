@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database.models import Artist, Concert, ArtistConcert, UserArtist, UserConcert, get_session
-from database.normalizers.city import CityNormalizer
+from database.normalizers.city import CityNormalizer, get_or_create_city_mapping
 from database.normalizers.country import get_or_create_country
 
 
@@ -347,15 +347,20 @@ class ConcertDatabaseWriter:
         performers_json = json.dumps(concert_data.get('performers', []))
         ticket_links_json = json.dumps(concert_data.get('ticket_links', []))
         
-        # Normalize city name
+        # Get or create city mapping (this handles normalization internally)
         original_city = concert_data.get('city', '')
         country_name = concert_data.get('country', '')
-        normalized_city = self.normalizer.normalize(original_city, country_name)
-        self.stats['cities_normalized'] += 1
+        city_mapping = get_or_create_city_mapping(self.session, original_city, country_name, verbose=self.debug)
         
-        # Get or create country
-        country_obj = get_or_create_country(self.session, country_name, verbose=self.debug)
-        country_id = country_obj.id if country_obj else None
+        if city_mapping:
+            city_mapping_id = city_mapping.id
+            country_id = city_mapping.countryId
+            self.stats['cities_normalized'] += 1
+        else:
+            # Fallback if city mapping creation failed
+            city_mapping_id = None
+            country_obj = get_or_create_country(self.session, country_name, verbose=self.debug)
+            country_id = country_obj.id if country_obj else None
         
         if concert:
             # Check if any fields have changed
@@ -367,8 +372,7 @@ class ConcertDatabaseWriter:
                 'dateStart': self.parse_date(concert_data.get('date_start')),
                 'dateEnd': self.parse_date(concert_data.get('date_end')),
                 'venue': concert_data.get('venue', ''),
-                'city': original_city,
-                'normalizedCity': normalized_city,
+                'cityMappingId': city_mapping_id,
                 'countryId': country_id,
                 'postalCode': concert_data.get('postal_code'),
                 'performers': performers_json,
@@ -407,8 +411,7 @@ class ConcertDatabaseWriter:
                 dateStart=self.parse_date(concert_data.get('date_start')),
                 dateEnd=self.parse_date(concert_data.get('date_end')),
                 venue=concert_data.get('venue', ''),
-                city=original_city,
-                normalizedCity=normalized_city,
+                cityMappingId=city_mapping_id,
                 countryId=country_id,
                 postalCode=concert_data.get('postal_code'),
                 performers=performers_json,
@@ -420,13 +423,14 @@ class ConcertDatabaseWriter:
             self.session.add(concert)
             self.stats['concerts_created'] += 1
             if self.debug:
+                normalized = city_mapping.city_normalized.normalizedCity if city_mapping and city_mapping.city_normalized else 'Unknown'
                 print(f"[DB] Created new concert: {concert_data.get('event_name', 'Unknown')}")
                 print(f"     - Date: {concert_data.get('date_start')}")
                 print(f"     - Venue: {concert_data.get('venue', 'Unknown')}")
-                print(f"     - City: {original_city} → {normalized_city}")
+                print(f"     - City: {original_city} → {normalized}")
                 print(f"     - Country: {country_name}")
         
-        return normalized_city
+        return
     
     def write_concerts(
         self,
@@ -484,8 +488,8 @@ class ConcertDatabaseWriter:
                     mbid=mbid
                 )
                 
-                # Upsert concert and get normalized city
-                normalized_city = self.upsert_concert(
+                # Upsert concert
+                self.upsert_concert(
                     concert_data,
                     artist,
                     artist_playcounts,
@@ -512,12 +516,9 @@ class ConcertDatabaseWriter:
                     if self.user_id:
                         self.create_user_concert_link(concert)
                 
-                # Store normalized city back in concert_data for display purposes
-                if normalized_city:
-                    concert_data['normalizedCity'] = normalized_city
-                
             except Exception as e:
                 print(f"Error writing concert {concert_data.get('event_name', 'Unknown')}: {e}")
+                print(traceback.format_exc())
                 self.stats['errors'] += 1
                 continue
         

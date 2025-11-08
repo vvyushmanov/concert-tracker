@@ -29,6 +29,14 @@ export async function GET(
             isPrimary: 'desc', // Primary artist first
           },
         },
+        cityMapping: {
+          include: {
+            cityNormalized: {
+              include: { country: true }
+            }
+          }
+        },
+        countryObj: true,
         userInteractions: session ? {
           where: { userId: parseInt(session.user.id) },
           select: { interested: true, notes: true, isPrivate: true }
@@ -181,6 +189,14 @@ export async function PATCH(
             isPrimary: 'desc', // Primary artist first
           },
         },
+        cityMapping: {
+          include: {
+            cityNormalized: {
+              include: { country: true }
+            }
+          }
+        },
+        countryObj: true,
         userInteractions: {
           where: { userId },
           select: { interested: true, notes: true, isPrivate: true }
