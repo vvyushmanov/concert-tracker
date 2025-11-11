@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
+import { FriendshipStatus, NotificationType } from '@prisma/client';
 
 // Helper: Keep only last 100 notifications per user
 async function cleanupNotifications(userId: number) {
@@ -65,7 +66,7 @@ export async function PATCH(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
   }
   
-  if (friendship.status !== 'PENDING') {
+  if (friendship.status !== FriendshipStatus.PENDING) {
     return NextResponse.json({ error: 'Request already processed' }, { status: 400 });
   }
   
@@ -75,14 +76,14 @@ export async function PATCH(
     // Accept friend request
     await prisma.friendship.update({
       where: { id: friendshipId },
-      data: { status: 'ACCEPTED', updatedAt: now }
+      data: { status: FriendshipStatus.ACCEPTED, updatedAt: now }
     });
     
     // Create notification for requester
     await prisma.notification.create({
       data: {
         userId: friendship.userId,
-        type: 'FRIEND_ACCEPTED',
+        type: NotificationType.FRIEND_ACCEPTED,
         fromUserId: userId,
         message: `${currentUsername} accepted your friend request`,
         createdAt: now
@@ -149,7 +150,7 @@ export async function DELETE(
     where: { id: friendship.id }
   });
   
-  const message = friendship.status === 'PENDING' 
+  const message = friendship.status === FriendshipStatus.PENDING 
     ? 'Friend request cancelled' 
     : 'Friend removed';
   

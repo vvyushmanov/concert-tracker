@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
+import { FriendshipStatus, NotificationType } from '@prisma/client';
 
 // Helper: Keep only last 100 notifications per user
 async function cleanupNotifications(userId: number) {
@@ -31,8 +32,8 @@ export async function GET() {
   const friendships = await prisma.friendship.findMany({
     where: {
       OR: [
-        { userId, status: 'ACCEPTED' },
-        { friendId: userId, status: 'ACCEPTED' }
+        { userId, status: FriendshipStatus.ACCEPTED },
+        { friendId: userId, status: FriendshipStatus.ACCEPTED }
       ]
     },
     include: {
@@ -121,8 +122,8 @@ export async function POST(request: Request) {
   const friendCount = await prisma.friendship.count({
     where: {
       OR: [
-        { userId, status: 'ACCEPTED' },
-        { friendId: userId, status: 'ACCEPTED' }
+        { userId, status: FriendshipStatus.ACCEPTED },
+        { friendId: userId, status: FriendshipStatus.ACCEPTED }
       ]
     }
   });
@@ -142,16 +143,16 @@ export async function POST(request: Request) {
   });
   
   if (existing) {
-    if (existing.status === 'ACCEPTED') {
+    if (existing.status === FriendshipStatus.ACCEPTED) {
       return NextResponse.json({ error: 'Already friends' }, { status: 400 });
     }
-    if (existing.status === 'PENDING') {
+    if (existing.status === FriendshipStatus.PENDING) {
       // Auto-accept if both users have pending requests
       if (existing.userId === targetUser.id && existing.friendId === userId) {
         // Target user already sent request to current user - auto-accept both
         await prisma.friendship.update({
           where: { id: existing.id },
-          data: { status: 'ACCEPTED', updatedAt: Math.floor(Date.now() / 1000) }
+          data: { status: FriendshipStatus.ACCEPTED, updatedAt: Math.floor(Date.now() / 1000) }
         });
         
         // Create notification for both users
@@ -160,14 +161,14 @@ export async function POST(request: Request) {
           data: [
             {
               userId,
-              type: 'FRIEND_ACCEPTED',
+              type: NotificationType.FRIEND_ACCEPTED,
               fromUserId: targetUser.id,
               message: `${targetUser.username} accepted your friend request`,
               createdAt: now
             },
             {
               userId: targetUser.id,
-              type: 'FRIEND_ACCEPTED',
+              type: NotificationType.FRIEND_ACCEPTED,
               fromUserId: userId,
               message: `${currentUsername} accepted your friend request`,
               createdAt: now
@@ -194,7 +195,7 @@ export async function POST(request: Request) {
     data: {
       userId,
       friendId: targetUser.id,
-      status: 'PENDING',
+      status: FriendshipStatus.PENDING,
       createdAt: now,
       updatedAt: now
     }
@@ -204,7 +205,7 @@ export async function POST(request: Request) {
   await prisma.notification.create({
     data: {
       userId: targetUser.id,
-      type: 'FRIEND_REQUEST',
+      type: NotificationType.FRIEND_REQUEST,
       fromUserId: userId,
       message: `${currentUsername} sent you a friend request`,
       createdAt: now

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
+import { FriendshipStatus } from '@prisma/client';
 
 // GET /api/friends/requests - List pending incoming/outgoing requests
 export async function GET() {
@@ -15,7 +16,7 @@ export async function GET() {
   const incoming = await prisma.friendship.findMany({
     where: {
       friendId: userId,
-      status: 'PENDING'
+      status: FriendshipStatus.PENDING
     },
     include: {
       user: { select: { id: true, username: true } }
@@ -27,7 +28,7 @@ export async function GET() {
   const outgoing = await prisma.friendship.findMany({
     where: {
       userId,
-      status: 'PENDING'
+      status: FriendshipStatus.PENDING
     },
     include: {
       friend: { select: { id: true, username: true } }

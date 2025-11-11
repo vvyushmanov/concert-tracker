@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { auth } from '@/auth';
+import { FriendshipStatus } from '@prisma/client';
 
 export async function GET() {
   try {
@@ -18,8 +19,8 @@ export async function GET() {
     const friendships = await prisma.friendship.findMany({
       where: {
         OR: [
-          { userId: userId, status: 'ACCEPTED' },
-          { friendId: userId, status: 'ACCEPTED' }
+          { userId: userId, status: FriendshipStatus.ACCEPTED },
+          { friendId: userId, status: FriendshipStatus.ACCEPTED }
         ]
       },
       include: {

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { NotificationType } from '@prisma/client';
 
 interface Notification {
   id: number;
@@ -88,7 +89,7 @@ export default function NotificationsClient() {
     }
     
     // Navigate based on notification type
-    if (notification.type === 'FRIEND_REQUEST' || notification.type === 'FRIEND_ACCEPTED') {
+    if (notification.type === NotificationType.FRIEND_REQUEST || notification.type === NotificationType.FRIEND_ACCEPTED) {
       router.push('/friends');
     }
     // Add more navigation logic for other notification types in the future
@@ -111,9 +112,9 @@ export default function NotificationsClient() {
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
-      case 'FRIEND_REQUEST':
+      case NotificationType.FRIEND_REQUEST:
         return '👋';
-      case 'FRIEND_ACCEPTED':
+      case NotificationType.FRIEND_ACCEPTED:
         return '✅';
       default:
         return '🔔';

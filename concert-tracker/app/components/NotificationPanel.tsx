@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { NotificationType } from '@prisma/client';
 
 interface Notification {
   id: number;
@@ -168,10 +169,10 @@ export default function NotificationPanel({ onClose, onUpdate }: NotificationPan
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <div className="flex items-center space-x-2">
-                    {notification.type === 'FRIEND_REQUEST' && (
+                    {notification.type === NotificationType.FRIEND_REQUEST && (
                       <span className="text-lg">👋</span>
                     )}
-                    {notification.type === 'FRIEND_ACCEPTED' && (
+                    {notification.type === NotificationType.FRIEND_ACCEPTED && (
                       <span className="text-lg">✅</span>
                     )}
                     <p className="text-sm text-gray-900 dark:text-white">
