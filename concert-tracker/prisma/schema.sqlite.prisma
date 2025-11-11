@@ -207,6 +207,7 @@ model UserArtist {
   @@unique([userId, artistId])
   @@index([userId])
   @@index([artistId])
+  @@index([userId, playcount])
 }
 
 model UserActiveCountry {
@@ -252,6 +253,8 @@ model Friendship {
   @@index([userId])
   @@index([friendId])
   @@index([status])
+  @@index([userId, status])
+  @@index([friendId, status])
 }
 
 model Notification {
