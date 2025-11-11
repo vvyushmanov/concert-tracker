@@ -104,6 +104,7 @@ model Concert {
   @@index([dateStart])
   @@index([eventUrl])
   @@index([cityMappingId])
+  @@index([countryId, dateStart])
 }
 
 model Setting {
@@ -146,7 +147,7 @@ model UserSetting {
   createdAt Int
   updatedAt Int
 
-  user User @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, key])
   @@index([userId])
@@ -162,13 +163,15 @@ model UserConcert {
   createdAt  Int
   updatedAt  Int
 
-  user    User    @relation(fields: [userId], references: [id])
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   concert Concert @relation(fields: [concertId], references: [id])
 
   @@unique([userId, concertId])
   @@index([userId])
   @@index([concertId])
   @@index([isPrivate])
+  @@index([interested])
+  @@index([userId, interested])
 }
 
 model UserArtist {
@@ -181,7 +184,7 @@ model UserArtist {
   createdAt        Int
   updatedAt        Int
 
-  user   User   @relation(fields: [userId], references: [id])
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   artist Artist @relation(fields: [artistId], references: [id])
 
   @@unique([userId, artistId])
@@ -195,7 +198,7 @@ model UserActiveCountry {
   countryId Int
   createdAt Int
 
-  user    User    @relation(fields: [userId], references: [id])
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   country Country @relation(fields: [countryId], references: [id])
 
   @@unique([userId, countryId])
@@ -211,7 +214,7 @@ model SettingAuditLog {
   newValue  String  @db.Text
   createdAt Int
 
-  user User @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([key])
   @@index([userId])
