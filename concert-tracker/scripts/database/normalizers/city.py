@@ -382,7 +382,7 @@ class CityNormalizer:
         
         # Find cities at the same location (within threshold)
         for existing in existing_cities:
-            existing_coords = (float(existing.latitude), float(existing.longitude))
+            existing_coords = (existing.latitude, existing.longitude)
             distance = self._haversine_distance(
                 lat, lon,
                 existing_coords[0], existing_coords[1]
@@ -431,7 +431,7 @@ class CityNormalizer:
         # Find nearby cities within cluster radius
         candidates = []
         for nearby in nearby_cities:
-            nearby_coords = (float(nearby.latitude), float(nearby.longitude))
+            nearby_coords = (nearby.latitude, nearby.longitude)
             distance = self._haversine_distance(
                 lat, lon,
                 nearby_coords[0], nearby_coords[1]
@@ -683,8 +683,8 @@ class CityNormalizer:
             originalCity=original_city,
             countryId=country_id,
             cityNormalizedId=city_normalized.id,
-            latitude=str(latitude) if latitude is not None else None,
-            longitude=str(longitude) if longitude is not None else None,
+            latitude=latitude,
+            longitude=longitude,
             source=source,
             createdAt=now,
             updatedAt=now

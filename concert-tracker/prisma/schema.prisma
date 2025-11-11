@@ -75,8 +75,8 @@ model CityMapping {
   countryObj       Country          @relation(fields: [countryId], references: [id])
   cityNormalizedId Int              // FK to CityNormalized
   cityNormalized   CityNormalized   @relation(fields: [cityNormalizedId], references: [id])
-  latitude         String?          @db.VarChar(50)
-  longitude        String?          @db.VarChar(50)
+  latitude         Float?
+  longitude        Float?
   source           String           @db.VarChar(50) // 'manual' | 'geocoded' | 'text_normalized'
   createdAt        Int
   updatedAt        Int

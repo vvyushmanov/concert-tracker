@@ -76,8 +76,8 @@ model CityMapping {
   cityNormalizedId Int?             // NEW: FK to CityNormalized (nullable during migration)
   cityNormalized   CityNormalized?  @relation(fields: [cityNormalizedId], references: [id])
   normalizedCity   String           // DEPRECATED: Will be removed after migration
-  latitude         String?
-  longitude        String?
+  latitude         Float?
+  longitude        Float?
   source           String           // 'manual' | 'geocoded' | 'text_normalized'
   createdAt        Int
   updatedAt        Int

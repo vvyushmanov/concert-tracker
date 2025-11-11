@@ -3,7 +3,7 @@ SQLAlchemy database models for concert tracker
 Matches Prisma schema for Next.js web app
 """
 
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Text, UniqueConstraint, Index
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Text, Float, UniqueConstraint, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from datetime import datetime, timezone
@@ -81,8 +81,8 @@ class CityMapping(Base):
     originalCity = Column(String, nullable=False)
     countryId = Column(Integer, ForeignKey('Country.id'), nullable=False, index=True)
     cityNormalizedId = Column(Integer, ForeignKey('CityNormalized.id'), nullable=False, index=True)  # FK to CityNormalized
-    latitude = Column(String, nullable=True)  # Store as string for precision
-    longitude = Column(String, nullable=True)  # Store as string for precision
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
     source = Column(String, nullable=False)  # 'manual', 'geocoded', 'text_normalized'
     createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
     updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
