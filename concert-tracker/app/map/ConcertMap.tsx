@@ -18,21 +18,31 @@ interface ConcertMapProps {
   concerts: MapConcert[];
   currentUserId: number;
   selectedFriendIds: number[];
-  onConcertClick?: (concert: MapConcert) => void;
+  onMarkerClick?: (concertIds: number[]) => void;
+  onViewportChange?: (visibleConcertIds: number[]) => void;
+  sidebarMinimized?: boolean;
+  triggerViewportUpdate?: number;
 }
 
-export default function ConcertMap({ concerts, currentUserId, selectedFriendIds, onConcertClick }: ConcertMapProps) {
+export default function ConcertMap({ concerts, currentUserId, selectedFriendIds, onMarkerClick, onViewportChange, sidebarMinimized, triggerViewportUpdate }: ConcertMapProps) {
   const mapRef = useRef<L.Map | null>(null);
   const markersLayerRef = useRef<L.MarkerClusterGroup | null>(null);
 
   // Store current values in refs so iconCreateFunction can access them
   const currentUserIdRef = useRef(currentUserId);
   const selectedFriendIdsRef = useRef(selectedFriendIds);
+  const concertsRef = useRef(concerts);
+  const onViewportChangeRef = useRef(onViewportChange);
+  
+  // Track if this is the initial load to only fit bounds once
+  const hasInitializedBoundsRef = useRef(false);
   
   useEffect(() => {
     currentUserIdRef.current = currentUserId;
     selectedFriendIdsRef.current = selectedFriendIds;
-  }, [currentUserId, selectedFriendIds]);
+    concertsRef.current = concerts;
+    onViewportChangeRef.current = onViewportChange;
+  }, [currentUserId, selectedFriendIds, concerts, onViewportChange]);
 
   // Initialize map AND cluster layer together (only once)
   useEffect(() => {
@@ -49,6 +59,51 @@ export default function ConcertMap({ concerts, currentUserId, selectedFriendIds,
       attribution: '© OpenStreetMap contributors',
       maxZoom: 19,
     }).addTo(map);
+
+    // Clear selection when clicking on the map (not on a marker)
+    map.on('click', () => {
+      if (onMarkerClick) {
+        onMarkerClick([]);
+      }
+    });
+
+    // Track viewport changes only when user releases the map
+    const updateVisibleConcerts = () => {
+      const currentOnViewportChange = onViewportChangeRef.current;
+      if (!currentOnViewportChange) return;
+      
+      try {
+        const bounds = map.getBounds();
+        const visibleIds: number[] = [];
+        
+        // Use ref to get current concerts array
+        const currentConcerts = concertsRef.current;
+        
+        // Check which concerts are in the current viewport
+        currentConcerts.forEach(concert => {
+          if (concert.coordinates) {
+            const { lat, lng } = concert.coordinates;
+            if (bounds.contains([lat, lng])) {
+              visibleIds.push(concert.id);
+            }
+          }
+        });
+        
+        currentOnViewportChange(visibleIds);
+      } catch (error) {
+        // Map not fully initialized yet, skip this update
+        console.log('Map not ready for viewport calculation');
+      }
+    };
+
+    // Update visible concerts only when drag ends or zoom ends
+    map.on('dragend', updateVisibleConcerts);  // Fires when user releases mouse after dragging
+    map.on('zoomend', updateVisibleConcerts);  // Fires when zoom animation completes
+    
+    // Initial update after map is fully loaded
+    map.whenReady(() => {
+      updateVisibleConcerts();
+    });
 
     mapRef.current = map;
 
@@ -374,8 +429,25 @@ export default function ConcertMap({ concerts, currentUserId, selectedFriendIds,
 
       marker.bindPopup(popupContent);
 
-      if (onConcertClick) {
-        marker.on('click', () => onConcertClick(concert));
+      // Handle marker click - find all concerts at this location
+      if (onMarkerClick) {
+        marker.on('click', (e) => {
+          // Stop propagation to prevent map click handler from firing
+          L.DomEvent.stopPropagation(e);
+          
+          // Find all concerts at the same coordinates
+          const concertsAtLocation = concerts.filter(c => 
+            c.coordinates && 
+            c.coordinates.lat === lat && 
+            c.coordinates.lng === lng
+          );
+          onMarkerClick(concertsAtLocation.map(c => c.id));
+        });
+
+        // Clear selection when popup is closed
+        marker.on('popupclose', () => {
+          onMarkerClick([]);
+        });
       }
 
       // Add marker to cluster layer and track it
@@ -390,15 +462,56 @@ export default function ConcertMap({ concerts, currentUserId, selectedFriendIds,
       boundsCount: bounds.length
     });
 
-    // Fit bounds only on first load (when map was empty)
-    if (bounds.length > 0 && markerMap.size <= concerts.length && concerts.length > 0) {
-      const wasEmpty = markerMap.size === 0;
-      if (wasEmpty || markerMap.size === concerts.length) {
-        console.log('🎯 Fitting bounds to markers');
-        mapRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 12 });
-      }
+    // Fit bounds only on very first load (never again after that)
+    if (bounds.length > 0 && !hasInitializedBoundsRef.current && concerts.length > 0) {
+      console.log('🎯 Fitting bounds to markers (initial load only)');
+      mapRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 12 });
+      hasInitializedBoundsRef.current = true;
     }
   }, [concerts, currentUserId, selectedFriendIds]);
+
+  // Invalidate map size when sidebar is toggled
+  useEffect(() => {
+    if (!mapRef.current) return;
+    
+    // Wait for CSS transition to complete (300ms) before invalidating size
+    const timer = setTimeout(() => {
+      mapRef.current?.invalidateSize();
+      console.log('🗺️ Map size invalidated after sidebar toggle');
+    }, 350);
+    
+    return () => clearTimeout(timer);
+  }, [sidebarMinimized]);
+
+  // Recalculate viewport when triggered by filter changes
+  useEffect(() => {
+    if (!mapRef.current || !onViewportChangeRef.current || triggerViewportUpdate === 0) return;
+
+    const updateVisibleConcerts = () => {
+      try {
+        const bounds = mapRef.current!.getBounds();
+        const visibleIds: number[] = [];
+        
+        const currentConcerts = concertsRef.current;
+        
+        currentConcerts.forEach(concert => {
+          if (concert.coordinates) {
+            const { lat, lng } = concert.coordinates;
+            if (bounds.contains([lat, lng])) {
+              visibleIds.push(concert.id);
+            }
+          }
+        });
+        
+        onViewportChangeRef.current!(visibleIds);
+        console.log('🔄 Viewport recalculated after filter change');
+      } catch (error) {
+        console.log('Map not ready for viewport calculation');
+      }
+    };
+
+    updateVisibleConcerts();
+  }, [triggerViewportUpdate]);
 
   return (
     <>

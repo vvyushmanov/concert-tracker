@@ -15,6 +15,10 @@ const TimelineSlider = dynamic(() => import('./TimelineSlider'), {
   ssr: false,
 });
 
+const ConcertSidebar = dynamic(() => import('./ConcertSidebar'), {
+  ssr: false,
+});
+
 /**
  * Helper functions for date conversion
  * HTML5 date inputs require YYYY-MM-DD format and work with local dates (not UTC)
@@ -81,6 +85,12 @@ export default function MapClient() {
   const [error, setError] = useState<string | null>(null);
   const [selectedPreset, setSelectedPreset] = useState<string>('Next Year');
   const [showCustomDateRange, setShowCustomDateRange] = useState(false);
+  
+  // Sidebar state
+  const [isSidebarMinimized, setIsSidebarMinimized] = useState(false);
+  const [selectedConcertIds, setSelectedConcertIds] = useState<number[]>([]);
+  const [visibleConcertIds, setVisibleConcertIds] = useState<number[]>([]);
+  const [triggerViewportUpdate, setTriggerViewportUpdate] = useState(0);
 
   // Filter state
   const [filters, setFilters] = useState<MapFilters>({
@@ -156,6 +166,32 @@ export default function MapClient() {
     // Only show concerts with more than 1 user interaction (shared)
     return concerts.filter(concert => concert.userInteractions.length > 1);
   }, [concerts, filters.sharedOnly]);
+
+  // Handle concert selection from map or sidebar
+  const handleConcertClick = (concertId: number) => {
+    // For now, just select the single concert
+    // In the future, this could be enhanced to support multi-select
+    setSelectedConcertIds([concertId]);
+  };
+
+  // Handle marker click from map (can have multiple concerts at same location)
+  const handleMarkerClick = (concertIds: number[]) => {
+    setSelectedConcertIds(concertIds);
+  };
+
+  // Handle viewport change from map
+  const handleViewportChange = (visibleIds: number[]) => {
+    setVisibleConcertIds(visibleIds);
+  };
+
+  // Trigger viewport recalculation when filtered concerts change
+  useEffect(() => {
+    // When filters change (e.g., sharedOnly toggle, interestedOnly toggle), trigger map to recalculate viewport
+    // Skip initial render (when concerts is empty array on mount)
+    if (concerts.length > 0 || filteredConcerts.length > 0) {
+      setTriggerViewportUpdate(prev => prev + 1);
+    }
+  }, [filteredConcerts, concerts]);
 
   return (
     <div className="flex flex-col bg-gray-50 dark:bg-gray-900" style={{ height: 'calc(100vh - 3rem)' }}>
@@ -446,8 +482,8 @@ export default function MapClient() {
           </div>
         </div>
 
-        {/* Map Container */}
-        <div className="flex-1 relative">
+        {/* Map Container with Sidebar */}
+        <div className="flex-1 flex relative">
           {error ? (
             <div className="absolute inset-0 flex items-center justify-center z-10">
               <div className="text-center">
@@ -483,22 +519,47 @@ export default function MapClient() {
                   </div>
                 </div>
               )}
-              <ConcertMap
-                key="concert-map-singleton"
+              {/* Map */}
+              <div 
+                className="flex-1 relative transition-all duration-300"
+                style={{ 
+                  marginRight: isSidebarMinimized ? '48px' : '384px' 
+                }}
+              >
+                <ConcertMap
+                  key="concert-map-singleton"
+                  concerts={filteredConcerts}
+                  currentUserId={session ? parseInt(session.user.id) : 0}
+                  selectedFriendIds={filters.friendIds}
+                  onMarkerClick={handleMarkerClick}
+                  onViewportChange={handleViewportChange}
+                  sidebarMinimized={isSidebarMinimized}
+                  triggerViewportUpdate={triggerViewportUpdate}
+                />
+                <TimelineSlider
+                  startDate={filters.startDate}
+                  endDate={filters.endDate}
+                  minDate={Math.floor(Date.now() / 1000)}
+                  maxDate={Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60)} // 1 year
+                  onChange={(start, end) => {
+                    setFilters({ ...filters, startDate: start, endDate: end });
+                    setSelectedPreset('Custom');
+                    setShowCustomDateRange(false);
+                  }}
+                />
+              </div>
+
+              {/* Concert Sidebar */}
+              <ConcertSidebar
                 concerts={filteredConcerts}
                 currentUserId={session ? parseInt(session.user.id) : 0}
                 selectedFriendIds={filters.friendIds}
-              />
-              <TimelineSlider
-                startDate={filters.startDate}
-                endDate={filters.endDate}
-                minDate={Math.floor(Date.now() / 1000)}
-                maxDate={Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60)} // 1 year
-                onChange={(start, end) => {
-                  setFilters({ ...filters, startDate: start, endDate: end });
-                  setSelectedPreset('Custom');
-                  setShowCustomDateRange(false);
-                }}
+                selectedConcertIds={selectedConcertIds}
+                visibleConcertIds={visibleConcertIds}
+                onConcertClick={handleConcertClick}
+                isMinimized={isSidebarMinimized}
+                onToggleMinimize={() => setIsSidebarMinimized(!isSidebarMinimized)}
+                onConcertsUpdate={fetchConcerts}
               />
             </>
           )}
