@@ -31,6 +31,17 @@ export default async function CalendarPage() {
     include: {
       concert: {
         include: {
+          cityMapping: {
+            select: {
+              id: true,
+              originalCity: true,
+              cityNormalized: {
+                select: {
+                  normalizedCity: true,
+                }
+              }
+            }
+          },
           artists: {
             include: {
               artist: true,
@@ -77,10 +88,12 @@ export default async function CalendarPage() {
   // Get unique cities from user's concerts
   const cities = Array.from(
     new Map(
-      concertsWithUserData.map(c => [
-        `${c.normalizedCity}-${c.countryObj?.name}`,
-        { city: c.normalizedCity, country: c.countryObj?.name || 'Unknown' }
-      ])
+      concertsWithUserData
+        .filter(c => c.cityMapping?.cityNormalized?.normalizedCity)
+        .map(c => [
+          `${c.cityMapping.cityNormalized.normalizedCity}-${c.countryObj?.name}`,
+          { city: c.cityMapping.cityNormalized.normalizedCity, country: c.countryObj?.name || 'Unknown' }
+        ])
     ).values()
   ) as { city: string; country: string }[];
 
