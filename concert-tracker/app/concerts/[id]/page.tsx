@@ -181,78 +181,82 @@ export default function ConcertDetailPage() {
   const isSameDay = concert.dateStart === concert.dateEnd;
 
   return (
-    <div className="min-h-screen p-8 bg-gray-50 dark:bg-gray-900">
-      <main className="max-w-4xl mx-auto">
-        {/* Back button */}
+    <div className="bg-gray-50 dark:bg-gray-900">
+      {/* Back button - minimal padding */}
+      <div className="px-6 py-3 border-b border-gray-200 dark:border-gray-700">
         <Link
           href="/"
-          className="inline-flex items-center text-blue-600 dark:text-blue-400 hover:underline mb-6"
+          className="inline-flex items-center text-blue-600 dark:text-blue-400 hover:underline text-sm font-medium"
         >
-          ← Back to all concerts
+          ← Back to concerts
         </Link>
+      </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
-          {/* Concert Image */}
-          {concert.imageUrl && (
-            <div className="w-full h-96 relative">
-              <Image
-                src={concert.imageUrl}
-                alt={concert.eventName}
-                fill
-                className="object-cover"
-                priority
-              />
-            </div>
-          )}
-
-          <div className="p-8">
-            {/* Event Title */}
-            <h1 className="text-4xl font-bold mb-6">{concert.eventName}</h1>
-
-            {/* Action Buttons */}
-            <div className="mb-6 flex flex-wrap gap-3">
-              <button
-                onClick={toggleInterested}
-                disabled={isSaving}
-                className={`px-6 py-3 rounded-lg font-medium transition-colors ${
-                  concert.interested
-                    ? 'bg-yellow-400 dark:bg-yellow-600 text-yellow-900 dark:text-yellow-100 hover:bg-yellow-500 dark:hover:bg-yellow-700'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                } disabled:opacity-50`}
-              >
-                {concert.interested ? '⭐ Pinned' : '☆ Pin Concert'}
-              </button>
-
-              <button
-                onClick={togglePrivacy}
-                disabled={isSaving}
-                className={`px-6 py-3 rounded-lg font-medium transition-colors ${
-                  concert.isPrivate
-                    ? 'bg-purple-500 dark:bg-purple-600 text-white hover:bg-purple-600 dark:hover:bg-purple-700'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                } disabled:opacity-50`}
-                title={concert.isPrivate ? 'Hidden from friends on map' : 'Visible to friends on map'}
-              >
-                {concert.isPrivate ? '🔒 Private' : '🌐 Public'}
-              </button>
-            </div>
-
-            {concert.isPrivate && (
-              <div className="mb-6 p-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
-                <p className="text-sm text-purple-900 dark:text-purple-100">
-                  🔒 This concert is hidden from your friends on the concert map.
-                </p>
+      {/* Main content - account for navbar (3rem) and back button (~44px) */}
+      <main className="px-40 py-10" style={{ height: 'calc(100vh - 3rem - 44px)' }}>
+        <div className="h-full bg-white dark:bg-gray-800 rounded-xl shadow-xl overflow-hidden">
+          {/* Horizontal layout: image left (poster ratio ~0.8:1), content right */}
+          <div className="flex flex-col lg:flex-row h-full p-6">
+            {/* Concert Image - poster aspect ratio (728x911 ≈ 4:5) */}
+            {concert.imageUrl && (
+              <div className="w-full lg:w-[28%] lg:flex-shrink-0 h-64 lg:h-full relative bg-gray-900 rounded-lg overflow-hidden lg:mr-6">
+                <Image
+                  src={concert.imageUrl}
+                  alt={concert.eventName}
+                  fill
+                  className="object-contain"
+                  priority
+                />
               </div>
             )}
 
-            {/* Event Details */}
-            <div className="space-y-4 mb-8">
-              {/* Your Artists */}
-              {concert.artists && concert.artists.length > 0 && (
-                <div className="flex items-start gap-3">
-                  <span className="text-2xl">🎸</span>
-                  <div className="flex-1">
-                    <div className="font-semibold mb-2">Your Artists</div>
+            {/* Content area - scrollable */}
+            <div className="flex-1 overflow-y-auto mt-4 lg:mt-0">
+            {/* Header: Title + Action Buttons */}
+            <div className="flex items-start justify-between gap-4 mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
+              <div className="flex-1 min-w-0">
+                <h1 className="text-2xl font-bold mb-2">{concert.eventName}</h1>
+                {concert.isPrivate && (
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded text-xs font-medium">
+                    🔒 Hidden from friends
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2 flex-shrink-0">
+                <button
+                  onClick={toggleInterested}
+                  disabled={isSaving}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    concert.interested
+                      ? 'bg-yellow-400 dark:bg-yellow-600 text-yellow-900 dark:text-yellow-100 hover:bg-yellow-500 dark:hover:bg-yellow-700'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  } disabled:opacity-50`}
+                >
+                  {concert.interested ? '⭐' : '☆'}
+                </button>
+                <button
+                  onClick={togglePrivacy}
+                  disabled={isSaving}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    concert.isPrivate
+                      ? 'bg-purple-500 dark:bg-purple-600 text-white hover:bg-purple-600 dark:hover:bg-purple-700'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  } disabled:opacity-50`}
+                  title={concert.isPrivate ? 'Hidden from friends on map' : 'Visible to friends on map'}
+                >
+                  {concert.isPrivate ? '🔒' : '🌐'}
+                </button>
+              </div>
+            </div>
+
+            {/* Two-column grid for event details */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-4 mb-6">
+              {/* Left Column */}
+              <div className="space-y-4">
+                {/* Your Artists */}
+                {concert.artists && concert.artists.length > 0 && (
+                  <div>
+                    <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">🎸 Your Artists</div>
                     <div className="flex flex-wrap gap-2">
                       {concert.artists
                         .filter(ac => ac.artist.playcount && ac.artist.playcount > 0)
@@ -272,51 +276,53 @@ export default function ConcertDetailPage() {
                       }
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              <div className="flex items-start gap-3">
-                <span className="text-2xl">📅</span>
+                {/* Date */}
                 <div>
-                  <div className="font-semibold">Date</div>
-                  <div className="text-gray-600 dark:text-gray-400">
+                  <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">📅 Date</div>
+                  <div className="text-gray-900 dark:text-gray-100">
                     {format(startDate, 'EEEE, MMMM dd, yyyy')}
-                    {!isSameDay && ` - ${format(endDate, 'EEEE, MMMM dd, yyyy')}`}
+                    {!isSameDay && (
+                      <>
+                        <br />
+                        <span className="text-sm text-gray-600 dark:text-gray-400">to {format(endDate, 'EEEE, MMMM dd, yyyy')}</span>
+                      </>
+                    )}
                   </div>
                 </div>
-              </div>
 
-              <div className="flex items-start gap-3">
-                <span className="text-2xl">📍</span>
-                <div>
-                  <div className="font-semibold">Location</div>
-                  <div className="text-gray-600 dark:text-gray-400">
-                    {concert.venue}
-                    <br />
-                    {concert.cityMapping.originalCity}, {concert.countryObj?.name}
-                    {concert.postalCode && ` ${concert.postalCode}`}
-                  </div>
-                </div>
-              </div>
-
-              {concert.performers.length > 0 && (
-                <div className="flex items-start gap-3">
-                  <span className="text-2xl">🎤</span>
+                {/* Performers */}
+                {concert.performers.length > 0 && (
                   <div>
-                    <div className="font-semibold">Performers</div>
-                    <div className="text-gray-600 dark:text-gray-400">
+                    <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">🎤 Performers</div>
+                    <div className="text-gray-900 dark:text-gray-100">
                       {concert.performers.join(', ')}
                     </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
 
-              {concert.organizer && (
-                <div className="flex items-start gap-3">
-                  <span className="text-2xl">🎪</span>
+              {/* Right Column */}
+              <div className="space-y-4">
+                {/* Location */}
+                <div>
+                  <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">📍 Location</div>
+                  <div className="text-gray-900 dark:text-gray-100">
+                    {concert.venue}
+                    <br />
+                    <span className="text-sm text-gray-600 dark:text-gray-400">
+                      {concert.cityMapping.originalCity}, {concert.countryObj?.name}
+                      {concert.postalCode && ` ${concert.postalCode}`}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Organizer */}
+                {concert.organizer && (
                   <div>
-                    <div className="font-semibold">Organizer</div>
-                    <div className="text-gray-600 dark:text-gray-400">
+                    <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">🎪 Organizer</div>
+                    <div className="text-gray-900 dark:text-gray-100">
                       {concert.organizerUrl ? (
                         <a
                           href={concert.organizerUrl}
@@ -331,57 +337,53 @@ export default function ConcertDetailPage() {
                       )}
                     </div>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
 
-            {/* Ticket Links */}
-            {concert.ticketLinks.length > 0 && (
-              <div className="mb-8">
-                <h2 className="text-xl font-bold mb-3">Get Tickets</h2>
-                <div className="flex flex-wrap gap-3">
-                  {concert.ticketLinks.map((link, index) => (
+                {/* Tickets & Event Link */}
+                <div>
+                  <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">🎫 Tickets & Info</div>
+                  <div className="flex flex-wrap gap-2">
+                    {concert.ticketLinks.length > 0 && concert.ticketLinks.map((link, index) => (
+                      <a
+                        key={index}
+                        href={link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                      >
+                        🎫 Tickets {concert.ticketLinks.length > 1 && `#${index + 1}`}
+                      </a>
+                    ))}
                     <a
-                      key={index}
-                      href={link}
+                      href={concert.eventUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      className="inline-flex items-center px-4 py-2 text-sm bg-gray-700 dark:bg-gray-600 text-white rounded-lg hover:bg-gray-800 dark:hover:bg-gray-700 transition-colors font-medium"
                     >
-                      Buy Tickets {concert.ticketLinks.length > 1 && `#${index + 1}`}
+                      🔗 Event Details
                     </a>
-                  ))}
+                  </div>
                 </div>
               </div>
-            )}
-
-            {/* Event Link */}
-            <a
-              href={concert.eventUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block mb-8 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
-            >
-              View Full Event Details →
-            </a>
+            </div>
 
             {/* Personal Notes */}
-            <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
-              <h2 className="text-xl font-bold mb-3">Personal Notes</h2>
+            <div>
+              <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">📝 Personal Notes</div>
               {isEditing ? (
                 <div>
                   <textarea
                     value={editNotes}
                     onChange={(e) => setEditNotes(e.target.value)}
-                    className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white mb-3"
-                    rows={4}
+                    className="w-full p-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white mb-2.5"
+                    rows={3}
                     placeholder="Add your personal notes about this concert..."
                   />
                   <div className="flex gap-2">
                     <button
                       onClick={saveNotes}
                       disabled={isSaving}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                      className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 font-medium"
                     >
                       {isSaving ? 'Saving...' : 'Save'}
                     </button>
@@ -390,7 +392,7 @@ export default function ConcertDetailPage() {
                         setIsEditing(false);
                         setEditNotes(concert.notes || '');
                       }}
-                      className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                      className="px-4 py-2 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors font-medium"
                     >
                       Cancel
                     </button>
@@ -399,22 +401,23 @@ export default function ConcertDetailPage() {
               ) : (
                 <div>
                   {concert.notes ? (
-                    <p className="text-gray-600 dark:text-gray-400 mb-3 whitespace-pre-wrap">
+                    <p className="text-gray-600 dark:text-gray-400 mb-2.5 whitespace-pre-wrap">
                       {concert.notes}
                     </p>
                   ) : (
-                    <p className="text-gray-400 dark:text-gray-500 mb-3 italic">
+                    <p className="text-gray-400 dark:text-gray-500 mb-2.5 italic">
                       No notes yet
                     </p>
                   )}
                   <button
                     onClick={() => setIsEditing(true)}
-                    className="text-blue-600 dark:text-blue-400 hover:underline"
+                    className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
                   >
                     {concert.notes ? 'Edit Notes' : 'Add Notes'}
                   </button>
                 </div>
               )}
+            </div>
             </div>
           </div>
         </div>
