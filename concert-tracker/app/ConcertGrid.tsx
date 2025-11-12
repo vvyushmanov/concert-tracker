@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import { format } from 'date-fns';
 import Image from 'next/image';
 import Link from 'next/link';
+import ConcertDetailSidebar from './components/ConcertDetailSidebar';
 
 type Concert = {
   id: number;
@@ -63,6 +64,7 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
   const [showInterestedOnly, setShowInterestedOnly] = useState(false);
   const [showPastEvents, setShowPastEvents] = useState(false);
   const [sortBy, setSortBy] = useState<'date' | 'artist' | 'playcount' | 'recent' | 'multiartist'>('date');
+  const [selectedConcertId, setSelectedConcertId] = useState<number | null>(null);
 
   const now = Math.floor(Date.now() / 1000); // Current time in Unix timestamp
 
@@ -253,10 +255,10 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
             const isSameDay = concert.dateStart === concert.dateEnd;
             
             return (
-              <Link
+              <div
                 key={concert.id}
-                href={`/concerts/${concert.id}`}
-                className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow block relative"
+                onClick={() => setSelectedConcertId(concert.id)}
+                className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow cursor-pointer relative"
               >
                 {concert.interested && (
                   <div className="absolute top-2 right-2 z-10 bg-yellow-400 text-yellow-900 px-2 py-1 rounded-full text-xs font-bold">
@@ -314,28 +316,28 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
                     )}
                   </div>
                 </div>
-              </Link>
+              </div>
             );
           })
-        )}
+          )}
         </div>
       </div>
 
-      {/* Past Concerts Grid */}
+      {/* Past Events Section */}
       {showPastEvents && pastConcerts.length > 0 && (
-        <div>
-          <h2 className="text-xl font-bold mb-4 text-gray-500 dark:text-gray-400">Past Concerts</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 opacity-75">
+        <div className="mb-8">
+          <h2 className="text-2xl font-bold mb-4 text-gray-500 dark:text-gray-400">Past Events</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {pastConcerts.map((concert) => {
               const startDate = new Date(concert.dateStart * 1000);
               const endDate = new Date(concert.dateEnd * 1000);
               const isSameDay = concert.dateStart === concert.dateEnd;
               
               return (
-                <Link
+                <div
                   key={concert.id}
-                  href={`/concerts/${concert.id}`}
-                  className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow block relative"
+                  onClick={() => setSelectedConcertId(concert.id)}
+                  className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow cursor-pointer relative"
                 >
                   {concert.interested && (
                     <div className="absolute top-2 right-2 z-10 bg-yellow-400 text-yellow-900 px-2 py-1 rounded-full text-xs font-bold">
@@ -393,12 +395,18 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
                       )}
                     </div>
                   </div>
-                </Link>
+                </div>
               );
             })}
           </div>
         </div>
       )}
+      
+      {/* Concert Detail Sidebar */}
+      <ConcertDetailSidebar 
+        concertId={selectedConcertId}
+        onClose={() => setSelectedConcertId(null)}
+      />
     </div>
   );
 }
