@@ -166,59 +166,37 @@ export default function ConcertDetailSidebar({ concertId, onClose }: ConcertDeta
 
   return (
     <>
-      {/* Backdrop with fade animation - positioned at viewport level */}
+      {/* Side-panel with slide animation - no backdrop */}
       <div 
-        className={`transition-all duration-300 ${
-          concertId ? 'opacity-100' : 'opacity-0 pointer-events-none'
-        }`}
-        style={{ 
-          position: 'fixed',
-          inset: 0,
-          margin: 0,
-          padding: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.6)',
-          backdropFilter: 'blur(4px)',
-          zIndex: 9998 
-        }}
-        onClick={onClose}
-      />
-      
-      {/* Modern close button - floating on backdrop */}
-      <button
-        onClick={onClose}
-        className={`fixed bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-full p-3 shadow-lg hover:shadow-xl hover:scale-110 transition-all duration-300 group ${
-          concertId ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-4 pointer-events-none'
-        }`}
-        style={{
-          top: '50%',
-          transform: 'translateY(-50%)',
-          right: typeof window !== 'undefined' && window.innerWidth < 768 ? 'calc(100% - 60px)' : (typeof window !== 'undefined' && window.innerWidth < 1024 ? 'calc(600px + 20px)' : 'calc(700px + 20px)'),
-          zIndex: 9999
-        }}
-        aria-label="Close"
-      >
-        <svg className="w-6 h-6 group-hover:rotate-90 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
-      
-      {/* Sidebar with slide animation - positioned at viewport level */}
-      <div 
-        className={`bg-white dark:bg-gray-800 shadow-2xl overflow-y-auto transition-transform duration-300 ease-out ${
+        className={`bg-white dark:bg-gray-800 shadow-2xl overflow-y-auto transition-all duration-300 ease-out border-l border-gray-200 dark:border-gray-700 ${
           concertId ? 'translate-x-0' : 'translate-x-full'
         }`}
         style={{ 
           position: 'fixed',
-          inset: '0 0 0 auto',
-          margin: 0,
-          padding: 0,
-          width: typeof window !== 'undefined' && window.innerWidth < 768 ? '100%' : (typeof window !== 'undefined' && window.innerWidth < 1024 ? '600px' : '700px'),
-          zIndex: 9999 
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: typeof window !== 'undefined' && window.innerWidth < 768 ? '100%' : (typeof window !== 'undefined' && window.innerWidth < 1024 ? '500px' : '600px'),
+          zIndex: 1000
         }}
       >
+        {/* Close button - inside panel header */}
+        <div className="sticky top-0 z-10 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Concert Details</h2>
+          <button
+            onClick={onClose}
+            className="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-full p-2 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all duration-200 group"
+            aria-label="Close"
+          >
+            <svg className="w-5 h-5 group-hover:rotate-90 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
 
+        {/* Content area */}
         {loading ? (
-          <div className="flex flex-col items-center justify-center min-h-screen gap-4">
+          <div className="flex flex-col items-center justify-center min-h-[calc(100vh-5rem)] gap-4">
             <div className="relative w-16 h-16">
               <div className="absolute inset-0 border-4 border-gray-200 dark:border-gray-700 rounded-full"></div>
               <div className="absolute inset-0 border-4 border-blue-600 dark:border-blue-500 rounded-full border-t-transparent animate-spin"></div>

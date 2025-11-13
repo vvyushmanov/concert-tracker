@@ -65,6 +65,7 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
   const [showPastEvents, setShowPastEvents] = useState(false);
   const [sortBy, setSortBy] = useState<'date' | 'artist' | 'playcount' | 'recent' | 'multiartist'>('date');
   const [selectedConcertId, setSelectedConcertId] = useState<number | null>(null);
+  const [isFilterCollapsed, setIsFilterCollapsed] = useState(false);
 
   const now = Math.floor(Date.now() / 1000); // Current time in Unix timestamp
 
@@ -135,28 +136,40 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
   }, [initialConcerts, searchQuery, selectedArtist, selectedCountry, showInterestedOnly, sortBy, now]);
 
   return (
-    <div className="space-y-6">
-      {/* Search and Filters */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4">
-        {/* Search Bar */}
-        <div className="mb-4">
-          <input
-            type="text"
-            placeholder="Search concerts, artists, venues, cities..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-        </div>
-
-        {/* Filters Row */}
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+    <div className="flex gap-4 transition-all duration-300 relative">
+      {/* Left Sidebar - Filters (collapsible on desktop) */}
+      {!isFilterCollapsed && (
+        <div className="hidden lg:block w-64 flex-shrink-0">
+          <div className="sticky bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 space-y-4" style={{ top: '64px' }}>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-lg font-bold">Filters</h3>
+              <button
+                onClick={() => setIsFilterCollapsed(true)}
+                className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 p-1"
+                title="Collapse filters"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                </svg>
+              </button>
+            </div>
+          
           <div>
-            <label className="block text-sm font-medium mb-2">Artist</label>
+            <input
+              type="text"
+              placeholder="Search..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-1.5">Artist</label>
             <select
               value={selectedArtist || ''}
               onChange={(e) => setSelectedArtist(e.target.value ? parseInt(e.target.value) : null)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"
+              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"
             >
               <option value="">All Artists</option>
               {artists.map(artist => (
@@ -166,11 +179,11 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-2">Country</label>
+            <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-1.5">Country</label>
             <select
               value={selectedCountry || ''}
               onChange={(e) => setSelectedCountry(e.target.value || null)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"
+              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"
             >
               <option value="">All Countries</option>
               {countries.map(country => (
@@ -180,11 +193,11 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-2">Sort By</label>
+            <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-1.5">Sort By</label>
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as any)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"
+              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"
             >
               <option value="date">Date</option>
               <option value="artist">Artist Name</option>
@@ -194,7 +207,7 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
             </select>
           </div>
 
-          <div className="flex items-end">
+          <div>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -206,7 +219,19 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
             </label>
           </div>
 
-          <div className="flex items-end">
+          <div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showPastEvents}
+                onChange={(e) => setShowPastEvents(e.target.checked)}
+                className="w-4 h-4"
+              />
+              <span className="text-sm font-medium">Show Past Events</span>
+            </label>
+          </div>
+
+          <div>
             <button
               onClick={() => {
                 setSearchQuery('');
@@ -216,34 +241,43 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
                 setShowPastEvents(false);
                 setSortBy('date');
               }}
-              className="w-full px-4 py-2 text-sm bg-gray-200 dark:bg-gray-700 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600"
+              className="w-full px-4 py-2 text-sm bg-gray-200 dark:bg-gray-700 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
             >
               Clear All
             </button>
           </div>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Results Count */}
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-gray-600 dark:text-gray-400">
-          {upcomingConcerts.length} upcoming concert{upcomingConcerts.length !== 1 ? 's' : ''}
-          {pastConcerts.length > 0 && ` • ${pastConcerts.length} past concert${pastConcerts.length !== 1 ? 's' : ''}`}
-        </div>
-        {pastConcerts.length > 0 && (
-          <button
-            onClick={() => setShowPastEvents(!showPastEvents)}
-            className="text-sm px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600"
-          >
-            {showPastEvents ? 'Hide' : 'Show'} Past Events
-          </button>
-        )}
-      </div>
+      {/* Expand button when filters are collapsed - modern vertical tab design */}
+      {isFilterCollapsed && (
+        <button
+          onClick={() => setIsFilterCollapsed(false)}
+          className="hidden lg:flex fixed left-0 flex-col items-center gap-2 bg-white dark:bg-gray-800 rounded-r-lg shadow-lg px-2 py-4 hover:px-3 transition-all duration-200 border-r border-t border-b border-gray-200 dark:border-gray-700 group"
+          style={{ top: '80px', zIndex: 50 }}
+          title="Show filters"
+        >
+          <svg className="w-5 h-5 text-gray-600 dark:text-gray-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+          </svg>
+          <span className="text-xs font-medium text-gray-600 dark:text-gray-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors" style={{ writingMode: 'vertical-rl' }}>
+            Filters
+          </span>
+        </button>
+      )}
+
+      {/* Main content area - shifts when sidebar opens */}
+      <div className={`flex-1 space-y-6`} style={{
+        marginRight: selectedConcertId ? (typeof window !== 'undefined' && window.innerWidth < 768 ? '0' : (typeof window !== 'undefined' && window.innerWidth < 1024 ? '500px' : '600px')) : '0'
+      }}>
 
       {/* Upcoming Concerts Grid */}
       <div>
         <h2 className="text-xl font-bold mb-4">Upcoming Concerts</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className={`grid grid-cols-1 gap-6 ${
+          selectedConcertId ? 'md:grid-cols-2' : 'md:grid-cols-2 lg:grid-cols-3'
+        }`}>
           {upcomingConcerts.length === 0 ? (
             <div className="col-span-full text-center py-12 text-gray-500 dark:text-gray-400">
               No upcoming concerts found matching your filters.
@@ -327,7 +361,9 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
       {showPastEvents && pastConcerts.length > 0 && (
         <div className="mb-8">
           <h2 className="text-2xl font-bold mb-4 text-gray-500 dark:text-gray-400">Past Events</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className={`grid grid-cols-1 gap-6 ${
+            selectedConcertId ? 'md:grid-cols-2' : 'md:grid-cols-2 lg:grid-cols-3'
+          }`}>
             {pastConcerts.map((concert) => {
               const startDate = new Date(concert.dateStart * 1000);
               const endDate = new Date(concert.dateEnd * 1000);
@@ -401,6 +437,8 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
           </div>
         </div>
       )}
+      
+      </div>
       
       {/* Concert Detail Sidebar */}
       <ConcertDetailSidebar 
