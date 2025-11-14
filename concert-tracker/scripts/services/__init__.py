@@ -9,6 +9,7 @@ from services.lastfm_service import LastFMService
 from services.fanart_service import FanartService
 from services.musicbrainz_service import MusicBrainzService
 from services.metadata_service import ArtistMetadataService
+from services.artist_source_manager import ArtistSourceManager
 from services.proxy import ProxyManager
 
 __all__ = [
@@ -17,5 +18,6 @@ __all__ = [
     'FanartService',
     'MusicBrainzService',
     'ArtistMetadataService',
+    'ArtistSourceManager',
     'ProxyManager',
 ]

@@ -18,8 +18,7 @@ from dotenv import load_dotenv
 
 # Import from library modules
 from parsers import CountryConcertParser, GracefulShutdown
-from utils import fetch_lastfm_artists
-from services import ProxyManager
+from services import ProxyManager, ArtistSourceManager, LastFMService
 from config import ConfigManager, load_user_config
 
 # Import database writer if available
@@ -299,30 +298,59 @@ def main():
             lastfm_user = config.get('LASTFM_USER', '')
             min_playcount = config.get_int('MIN_PLAYCOUNT', 40)
         
-        # Fetch Last.fm artists if filtering is enabled
+        # Fetch artists for concert filtering
         lastfm_artists = set()
         recent_artists = set()
         artist_playcounts = {}
-        
+        artist_playcounts_12month = {}
+        artist_mbids = {}
+
         if not args.no_filter:
-            if not lastfm_api_key:
-                print("ERROR: LASTFM_API_KEY not found in settings")
-                return 1
-            
-            if not lastfm_user:
-                print("ERROR: LASTFM_USER not found in settings")
-                return 1
-            
-            print(f"Last.fm user: {lastfm_user}")
-            print(f"Minimum playcount threshold: {min_playcount}")
-            
-            lastfm_artists, recent_artists, artist_playcounts, artist_playcounts_12month, artist_mbids = fetch_lastfm_artists(
-                lastfm_api_key,
-                user=lastfm_user,
+            # Get database session for ArtistSourceManager
+            # Use db_writer's session if available, otherwise create temporary session
+            if db_writer:
+                manager_session = db_writer.session
+            else:
+                from database.models import get_session
+                manager_session = get_session(args.db_path)
+
+            # Initialize Last.fm service if API key available
+            lastfm_service = None
+            if lastfm_api_key and lastfm_user:
+                lastfm_service = LastFMService(lastfm_api_key)
+
+            # Create ArtistSourceManager
+            manager = ArtistSourceManager(
+                session=manager_session,
+                user_id=args.user_id,
+                lastfm_service=lastfm_service,
+                lastfm_user=lastfm_user,
                 min_playcount=min_playcount
             )
+
+            # Validate that we have at least one artist source
+            if not manager.has_any_source():
+                print("ERROR: No artist sources available!")
+                print("  - Last.fm not configured (missing LASTFM_API_KEY or LASTFM_USER)")
+                print("  - No artists in UserArtist table for this user")
+                print("\nPlease either:")
+                print("  1. Configure Last.fm credentials in settings, OR")
+                print("  2. Add artists to UserArtist table, OR")
+                print("  3. Use --no-filter to fetch all concerts")
+                return 1
+
+            # Show which sources are being used
+            print(f"Artist sources: {manager.get_source_summary()}")
+            if lastfm_user:
+                print(f"Last.fm user: {lastfm_user}")
+            print(f"Minimum playcount threshold: {min_playcount}")
+
+            # Fetch artists from all available sources
+            lastfm_artists, recent_artists, artist_playcounts, artist_playcounts_12month, artist_mbids = \
+                manager.fetch_filtering_artists()
+
             if not lastfm_artists:
-                print("WARNING: No Last.fm artists loaded, proceeding without filtering")
+                print("WARNING: No artists loaded from any source, proceeding without filtering")
         else:
             print("Filtering disabled - will fetch all concerts")
         

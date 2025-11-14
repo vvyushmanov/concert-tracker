@@ -150,9 +150,13 @@ class LastFMService:
                 'format': 'json',
                 'limit': limit
             }
+
+            headers = {
+                'User-Agent': 'ConcertTracker/1.0 (https://github.com/vyushmanov/concert-tracker)'
+            }
             
             print("  Fetching overall top artists...")
-            response_overall = requests.get(self.BASE_URL, params=params_overall, timeout=30)
+            response_overall = requests.get(self.BASE_URL, params=params_overall, timeout=30, headers=headers)
             response_overall.raise_for_status()
             data_overall = response_overall.json()
             
@@ -177,10 +181,18 @@ class LastFMService:
             
             overall_dict = self._process_artist_list(artists_overall)
             month12_dict = self._process_artist_list(artists_12month)
-            
-            print(f"  ✓ Loaded {len(overall_dict)} overall artists")
-            print(f"  ✓ Loaded {len(month12_dict)} 12-month artists")
-            
+
+            # Count unique artists (exclude MBID keys which are UUIDs)
+            # MBIDs are UUIDs: 36 chars, format xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+            def is_mbid(key: str) -> bool:
+                return len(key) == 36 and key.count('-') == 4
+
+            overall_count = sum(1 for key in overall_dict.keys() if not is_mbid(key))
+            month12_count = sum(1 for key in month12_dict.keys() if not is_mbid(key))
+
+            print(f"  ✓ Loaded {overall_count} overall artists (from Last.fm API)")
+            print(f"  ✓ Loaded {month12_count} artists with 12-month activity")
+
             return overall_dict, month12_dict
             
         except Exception as e:
