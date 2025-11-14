@@ -8,10 +8,10 @@ A full-stack concert tracking application that discovers upcoming concerts based
 
 ```bash
 # Correct way to run Python scripts:
-venv/bin/python concert-tracker/scripts/parse_concerts.py --args
+~/lastfm-parser/venv/bin/python concert-tracker/scripts/parse_concerts.py --args
 
 # Correct way to run tests:
-venv/bin/python concert-tracker/scripts/tests/test_mb_service.py
+~/lastfm-parser/venv/bin/python concert-tracker/scripts/tests/test_mb_service.py
 
 # NEVER use system python3 directly for project scripts
 ```

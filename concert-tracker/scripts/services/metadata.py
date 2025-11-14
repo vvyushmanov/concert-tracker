@@ -24,7 +24,6 @@ from sqlalchemy.orm import sessionmaker
 
 from database.models import Artist, UserArtist
 from database.config import get_engine
-from utils import fetch_all_user_artists, lookup_artist_playcounts
 from config import ConfigManager, load_user_config
 from services import ArtistMetadataService
 from utils import log
@@ -85,37 +84,51 @@ def fetch_fanart_image(mbid: str, api_key: str) -> tuple:
 
 def fetch_metadata_for_new_artists(db_path: str = None, silent: bool = False, user_id: int = None) -> int:
     """Fetch metadata (MBID + images) for artists without complete metadata
-    
+
     This is a simplified version optimized for calling after parser runs.
     It focuses on MBID repair and image fetching, skipping playcount refresh.
-    
+
+    Strategy:
+        - MBID repair: MusicBrainz (primary) → Last.fm (fallback if configured)
+        - Images: Fanart.tv (if configured)
+        - Playcounts: Skipped (use fetch_metadata.py for full refresh)
+
     Args:
         db_path: Path to SQLite database (for SQLite) or None to use DATABASE_URL env var (for MySQL)
         silent: If True, suppress most output
         user_id: If provided, only process artists associated with this user
-        
+
     Returns:
         0 on success, 1 on error
     """
     def log_internal(message: str):
         if not silent:
             log(message)
-    
-    # Get API keys from config
+
+    # Get API keys from config (both optional)
     config = ConfigManager()
     fanart_api_key = config.get('FANART_API_KEY')
-    if not fanart_api_key:
-        if not silent:
-            print("Warning: FANART_API_KEY not found - skipping image fetch")
-        return 0
-    
     lastfm_api_key = config.get('LASTFM_API_KEY')
-    if not lastfm_api_key:
-        if not silent:
-            print("Warning: LASTFM_API_KEY not found - skipping MBID repair")
-        return 0
-    
     lastfm_user = config.get('LASTFM_USER', '')
+
+    # Check what services are available
+    fanart_available = bool(fanart_api_key)
+    lastfm_available = bool(lastfm_api_key and lastfm_user)
+
+    if not silent:
+        log_internal("Metadata sources:")
+        log_internal(f"  MusicBrainz: ✓ Available (no auth required)")
+        log_internal(f"  Last.fm: {'✓ Configured' if lastfm_available else '✗ Not configured'}")
+        log_internal(f"  Fanart.tv: {'✓ Configured' if fanart_available else '✗ Not configured'}")
+
+    # MusicBrainz is always available, so we can always try MBID repair
+    # Fanart.tv is optional
+    if not fanart_available and not lastfm_available:
+        if not silent:
+            log_internal("Warning: No metadata services configured")
+            log_internal("Will use MusicBrainz for MBID lookups only")
+
+    lastfm_user = lastfm_user if lastfm_available else None
     
     # Connect to database
     try:
@@ -146,17 +159,32 @@ def fetch_metadata_for_new_artists(db_path: str = None, silent: bool = False, us
         
         # MBID Auto-Repair for artists without MBID
         artists_missing_mbid = [a for a in all_artists if not a.mbid]
-        
+
         if artists_missing_mbid:
             log_internal(f"  Repairing MBIDs for {len(artists_missing_mbid)} artists...")
-            overall_dict, month12_dict = fetch_all_user_artists(lastfm_api_key, lastfm_user)
-            
+
             mbid_repair_count = 0
+            mbid_from_mb = 0
+            mbid_from_lastfm = 0
+
+            # Primary: Try MusicBrainz first
+            from services import MusicBrainzService
+            mb_service = MusicBrainzService()
+
             for artist in artists_missing_mbid:
-                _, _, mbid = lookup_artist_playcounts(artist.name, None, overall_dict, month12_dict)
-                
-                # Fallback to artist.getinfo if not found
-                if not mbid:
+                mbid = None
+
+                # Try MusicBrainz
+                try:
+                    mbid = mb_service.get_artist_mbid(artist.name)
+                    if mbid:
+                        mbid_from_mb += 1
+                except Exception as e:
+                    if not silent:
+                        log_internal(f"    MusicBrainz lookup failed for {artist.name}: {e}")
+
+                # Fallback to Last.fm if configured and MB failed
+                if not mbid and lastfm_available:
                     try:
                         params = {
                             'method': 'artist.getinfo',
@@ -170,32 +198,40 @@ def fetch_metadata_for_new_artists(db_path: str = None, silent: bool = False, us
                         if 'artist' in data:
                             mbid = data['artist'].get('mbid', '').strip()
                             mbid = mbid if mbid else None
+                            if mbid:
+                                mbid_from_lastfm += 1
                     except Exception:
                         pass
-                
+
                 if mbid:
                     artist.mbid = mbid
                     mbid_repair_count += 1
-            
+
             session.commit()
             log_internal(f"  ✓ Repaired {mbid_repair_count}/{len(artists_missing_mbid)} MBIDs")
+            log_internal(f"    - From MusicBrainz: {mbid_from_mb}")
+            if lastfm_available:
+                log_internal(f"    - From Last.fm: {mbid_from_lastfm}")
         
         # Fetch images for artists with MBID but no image
         artists_needing_images = [a for a in all_artists if a.mbid and not a.imageUrl]
-        
+
         if artists_needing_images:
-            log_internal(f"  Fetching images for {len(artists_needing_images)} artists...")
-            images_found = 0
-            
-            for artist in artists_needing_images:
-                image_url, _ = fetch_fanart_image(artist.mbid, fanart_api_key)
-                if image_url:
-                    artist.imageUrl = image_url
-                    images_found += 1
-                time.sleep(0.25)  # Rate limiting
-            
-            session.commit()
-            log_internal(f"  ✓ Found {images_found}/{len(artists_needing_images)} images")
+            if not fanart_available:
+                log_internal(f"  ⚠️  Skipping image fetch for {len(artists_needing_images)} artists (Fanart.tv not configured)")
+            else:
+                log_internal(f"  Fetching images for {len(artists_needing_images)} artists...")
+                images_found = 0
+
+                for artist in artists_needing_images:
+                    image_url, _ = fetch_fanart_image(artist.mbid, fanart_api_key)
+                    if image_url:
+                        artist.imageUrl = image_url
+                        images_found += 1
+                    time.sleep(0.25)  # Rate limiting
+
+                session.commit()
+                log_internal(f"  ✓ Found {images_found}/{len(artists_needing_images)} images")
         
         session.close()
         return 0
