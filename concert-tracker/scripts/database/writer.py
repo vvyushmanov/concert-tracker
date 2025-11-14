@@ -4,6 +4,7 @@ Handles upserts and data conversion from parser format to database format
 """
 
 import json
+import traceback
 from datetime import datetime, timezone
 from typing import List, Dict, Set
 from sqlalchemy.exc import IntegrityError
@@ -142,10 +143,10 @@ class ConcertDatabaseWriter:
         if user_artist:
             # Update metrics if changed
             updated = False
-            if user_artist.playcount != playcount:
+            if playcount != 0 and user_artist.playcount != playcount:
                 user_artist.playcount = playcount
                 updated = True
-            if user_artist.playcount12month != playcount12month:
+            if user_artist.playcount12month is not None and user_artist.playcount12month != playcount12month:
                 user_artist.playcount12month = playcount12month
                 updated = True
             if user_artist.recent != recent:
@@ -258,7 +259,7 @@ class ConcertDatabaseWriter:
             artist = self.get_or_create_artist(name=artist_name, mbid=mbid)
             
             if self.debug:
-                print(f"           Artist ID: {artist.id} (MBID: {mbid or 'none'})")
+                print(f"           Artist ID: {artist.id} (MBID: {artist.mbid or 'none'})")
             
             # Create/update UserArtist with user-specific stats for ALL matched artists
             if self.user_id:
@@ -441,18 +442,33 @@ class ConcertDatabaseWriter:
         artist_mbids: Dict[str, str] = None
     ):
         """Write multiple concerts to database
-        
+
         Args:
             concerts: List of concert data from parser
-            artist_playcounts: Dict of artist overall playcounts from Last.fm
-            artist_playcounts_12month: Dict of artist 12-month playcounts from Last.fm
-            recent_artists: Set of recent artists from Last.fm
-            artist_mbids: Dict of artist MusicBrainz IDs from Last.fm
+            artist_playcounts: Dict of artist overall playcounts (optional, can be empty if Last.fm not used)
+            artist_playcounts_12month: Dict of artist 12-month playcounts (optional, can be empty if Last.fm not used)
+            recent_artists: Set of recent artists (optional, can be empty if Last.fm not used)
+            artist_mbids: Dict of artist MusicBrainz IDs (can be from Last.fm, MusicBrainz, or database)
+
+        Note:
+            This method gracefully handles missing Last.fm data. If playcounts/recent artists
+            are not provided, artists will still be created with default values (0 playcounts).
+            MBIDs can come from any source (Last.fm, MusicBrainz, or existing database records).
         """
         artist_playcounts = artist_playcounts or {}
         artist_playcounts_12month = artist_playcounts_12month or {}
         recent_artists = recent_artists or set()
         artist_mbids = artist_mbids or {}
+
+        # Log data availability for debugging
+        if self.debug:
+            has_playcounts = bool(artist_playcounts or artist_playcounts_12month)
+            has_mbids = bool(artist_mbids)
+            has_recent = bool(recent_artists)
+            print(f"[DB] Writing {len(concerts)} concerts with metadata:")
+            print(f"     - Playcounts available: {'Yes' if has_playcounts else 'No'}")
+            print(f"     - MBIDs available: {'Yes' if has_mbids else 'No'}")
+            print(f"     - Recent artists marked: {'Yes' if has_recent else 'No'}")
         
         for concert_data in concerts:
             try:
