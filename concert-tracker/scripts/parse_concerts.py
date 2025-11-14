@@ -31,8 +31,8 @@ except ImportError:
 
 
 def finalize_and_cleanup(db_writer, args, data_to_save, all_concerts, lastfm_artists):
-    """Finalize database writes and fetch metadata for new artists
-    
+    """Finalize database writes and fetch metadata for artists
+
     Args:
         db_writer: Database writer instance (or None)
         args: Command line arguments
@@ -43,27 +43,35 @@ def finalize_and_cleanup(db_writer, args, data_to_save, all_concerts, lastfm_art
     # Save JSON if needed
     if args.output in ['json', 'both'] and not args.dry_run:
         print(f"✅ Final output: {len(data_to_save)} concerts in {args.json}")
-    
+
     # Handle database finalization
     if args.output in ['db', 'both'] and db_writer and not args.dry_run:
         db_writer.print_stats()
-        
-        # Auto-fetch metadata for newly created artists
+
+        # Auto-fetch metadata for all artists (new and existing without complete metadata)
+        # This includes MBID repair and image fetching
+        # Strategy: MusicBrainz (primary) → Last.fm (fallback if configured)
+        # Always run to ensure no artists are missing MBIDs or images
+        print(f"\n🔄 Fetching metadata for artists...")
         if db_writer.stats['artists_created'] > 0:
-            print(f"\n🔄 Fetching metadata for {db_writer.stats['artists_created']} new artists...")
-            try:
-                from services.metadata import fetch_metadata_for_new_artists
-                result = fetch_metadata_for_new_artists(args.db_path, silent=False, user_id=args.user_id)
-                if result == 0:
-                    print("✅ Metadata fetch completed")
-                else:
-                    print(f"⚠️  Metadata fetch had issues")
-            except Exception as e:
-                print(f"⚠️  Could not auto-fetch metadata: {e}")
-        
+            print(f"   - New artists created: {db_writer.stats['artists_created']}")
+        print(f"   - Checking all artists for missing MBIDs/images...")
+
+        try:
+            from services.metadata import fetch_metadata_for_new_artists
+            # Note: fetch_metadata_for_new_artists reads Last.fm config from ConfigManager
+            # It will use MusicBrainz as primary source and Last.fm as fallback if configured
+            result = fetch_metadata_for_new_artists(args.db_path, silent=False, user_id=args.user_id)
+            if result == 0:
+                print("✅ Metadata fetch completed")
+            else:
+                print(f"⚠️  Metadata fetch had issues (exit code: {result})")
+        except Exception as e:
+            print(f"⚠️  Could not auto-fetch metadata: {e}")
+
         db_writer.close()
         print(f"✅ Database output: {args.db_path}")
-    
+
     # Optionally save all concerts (JSON only)
     if args.save_all and lastfm_artists and args.output in ['json', 'both'] and not args.dry_run:
         all_filename = args.json.replace('.json', '_all.json')
