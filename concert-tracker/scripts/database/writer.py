@@ -473,21 +473,30 @@ class ConcertDatabaseWriter:
         for concert_data in concerts:
             try:
                 # Get matched artists (primary artist for this concert)
+                # In filter mode: matched_artists is set by parser
+                # In no-filter mode: matched_artists may be missing, use all performers
                 matched_artists = concert_data.get('matched_artists', [])
-                
+                all_performers = concert_data.get('performers', [])
+
+                # If no matched_artists (no-filter mode), use all performers
+                if not matched_artists:
+                    matched_artists = all_performers
+
                 if self.debug:
-                    all_performers = concert_data.get('performers', [])
                     print(f"\n[DB] Processing concert: {concert_data.get('event_name', 'Unknown')}")
                     print(f"     All performers: {', '.join(all_performers)}")
+                    has_filter = 'matched_artists' in concert_data
+                    mode = "FILTERED" if has_filter else "NO-FILTER"
+                    print(f"     Mode: {mode}")
                     print(f"     Matched artists: {', '.join(matched_artists) if matched_artists else 'NONE'}")
-                
+
                 if not matched_artists:
-                    # Skip concerts without matched artists
+                    # Skip concerts without any artists at all
                     if self.debug:
-                        print(f"     ⚠️  SKIPPED: No matched artists")
+                        print(f"     ⚠️  SKIPPED: No artists (no performers)")
                     continue
-                
-                # Use first matched artist as primary
+
+                # Use first matched artist (or first performer in no-filter mode) as primary
                 primary_artist_name = matched_artists[0]
                 playcount = artist_playcounts.get(primary_artist_name, 0)
                 playcount12month = artist_playcounts_12month.get(primary_artist_name, 0)
