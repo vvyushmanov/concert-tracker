@@ -100,14 +100,20 @@ def load_credentials(
     if user_id is None:
         config = ConfigManager()
 
+        # Get country codes from COUNTRY_CODES setting (global mode doesn't use UserActiveCountry)
+        try:
+            country_codes = config.get_list('COUNTRY_CODES', [])
+        except Exception:
+            country_codes = []
+
         credentials = UserCredentials(
             user_id=None,
             username=None,
             lastfm_api_key=config.get('LASTFM_API_KEY'),
-            lastfm_user=config.get('LASTFM_USER', ''),
+            lastfm_user=None,
             fanart_api_key=config.get('FANART_API_KEY'),
             min_playcount=config.get_int('MIN_PLAYCOUNT', 40),
-            country_codes=config.get_active_country_codes(),
+            country_codes=country_codes,
             settings={}
         )
 

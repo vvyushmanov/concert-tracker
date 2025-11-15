@@ -160,7 +160,7 @@ def main():
         all_artists = session.query(Artist).filter(Artist.id.in_(user_artist_ids)).all()
         log(f"Processing {len(all_artists)} artists for user ID {args.user_id}")
     else:
-        # Legacy mode: all artists
+        # Global mode: all artists
         all_artists = session.query(Artist).all()
         log(f"Processing all {len(all_artists)} artists (no user filter)")
     
