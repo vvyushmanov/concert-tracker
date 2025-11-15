@@ -82,7 +82,7 @@ def fetch_fanart_image(mbid: str, api_key: str) -> tuple:
     service = FanartService(api_key)
     return service.fetch_artist_image(mbid)
 
-def fetch_metadata_for_new_artists(db_path: str = None, silent: bool = False, user_id: int = None) -> int:
+def fetch_metadata_for_new_artists(db_path: str = None, silent: bool = False, user_id: int = None, batch_size: int = 20) -> int:
     """Fetch metadata (MBID + images) for artists without complete metadata
 
     This is a simplified version optimized for calling after parser runs.
@@ -92,11 +92,13 @@ def fetch_metadata_for_new_artists(db_path: str = None, silent: bool = False, us
         - MBID repair: MusicBrainz (primary) → Last.fm (fallback if configured)
         - Images: Fanart.tv (if configured)
         - Playcounts: Skipped (use fetch_metadata.py for full refresh)
+        - Batch commits: Saves progress every N artists to prevent data loss
 
     Args:
         db_path: Path to SQLite database (for SQLite) or None to use DATABASE_URL env var (for MySQL)
         silent: If True, suppress most output
         user_id: If provided, only process artists associated with this user
+        batch_size: Number of artists to process before committing to database (default: 20)
 
     Returns:
         0 on success, 1 on error
@@ -107,9 +109,16 @@ def fetch_metadata_for_new_artists(db_path: str = None, silent: bool = False, us
 
     # Get API keys from config (both optional)
     config = ConfigManager()
+    lastfm_api_key = None
+    lastfm_user = None
+    if user_id:
+        user_config_data = load_user_config(user_id, db_path)
+        user_settings = user_config_data['settings']
+        lastfm_api_key = user_settings.get('LASTFM_API_KEY')
+        lastfm_user = user_settings.get('LASTFM_USER', '')
+
     fanart_api_key = config.get('FANART_API_KEY')
-    lastfm_api_key = config.get('LASTFM_API_KEY')
-    lastfm_user = config.get('LASTFM_USER', '')
+    
 
     # Check what services are available
     fanart_available = bool(fanart_api_key)
@@ -171,17 +180,23 @@ def fetch_metadata_for_new_artists(db_path: str = None, silent: bool = False, us
             from services import MusicBrainzService
             mb_service = MusicBrainzService()
 
-            for artist in artists_missing_mbid:
+            for idx, artist in enumerate(artists_missing_mbid, 1):
                 mbid = None
+
+                # Show progress
+                if not silent:
+                    log_internal(f"    [{idx}/{len(artists_missing_mbid)}] {artist.name}")
 
                 # Try MusicBrainz
                 try:
-                    mbid = mb_service.get_artist_mbid(artist.name)
+                    mbid = mb_service.get_artist_mbid(artist.name, verbose=(not silent))
                     if mbid:
                         mbid_from_mb += 1
+                        if not silent:
+                            log_internal(f"      ✓ MusicBrainz MBID: {mbid}")
                 except Exception as e:
                     if not silent:
-                        log_internal(f"    MusicBrainz lookup failed for {artist.name}: {e}")
+                        log_internal(f"      ✗ MusicBrainz lookup failed: {e}")
 
                 # Fallback to Last.fm if configured and MB failed
                 if not mbid and lastfm_available:
@@ -200,18 +215,40 @@ def fetch_metadata_for_new_artists(db_path: str = None, silent: bool = False, us
                             mbid = mbid if mbid else None
                             if mbid:
                                 mbid_from_lastfm += 1
-                    except Exception:
-                        pass
+                                if not silent:
+                                    log_internal(f"      ✓ Last.fm MBID: {mbid}")
+                    except Exception as e:
+                        if not silent:
+                            log_internal(f"      ✗ Last.fm lookup failed: {e}")
 
                 if mbid:
                     artist.mbid = mbid
                     mbid_repair_count += 1
+                elif not silent:
+                    log_internal(f"      ✗ No MBID found")
 
-            session.commit()
-            log_internal(f"  ✓ Repaired {mbid_repair_count}/{len(artists_missing_mbid)} MBIDs")
-            log_internal(f"    - From MusicBrainz: {mbid_from_mb}")
-            if lastfm_available:
-                log_internal(f"    - From Last.fm: {mbid_from_lastfm}")
+                # Batch commit to save progress
+                if idx % batch_size == 0:
+                    try:
+                        session.commit()
+                        if not silent:
+                            log_internal(f"    💾 Saved progress ({idx}/{len(artists_missing_mbid)} artists processed)")
+                    except Exception as e:
+                        session.rollback()
+                        if not silent:
+                            log_internal(f"    ⚠️  Batch commit failed: {e}")
+
+            # Final commit for remaining artists
+            try:
+                session.commit()
+                log_internal(f"  ✓ Repaired {mbid_repair_count}/{len(artists_missing_mbid)} MBIDs")
+                log_internal(f"    - From MusicBrainz: {mbid_from_mb}")
+                if lastfm_available:
+                    log_internal(f"    - From Last.fm: {mbid_from_lastfm}")
+            except Exception as e:
+                session.rollback()
+                if not silent:
+                    log_internal(f"  ⚠️  Final commit failed: {e}")
         
         # Fetch images for artists with MBID but no image
         artists_needing_images = [a for a in all_artists if a.mbid and not a.imageUrl]
@@ -222,16 +259,44 @@ def fetch_metadata_for_new_artists(db_path: str = None, silent: bool = False, us
             else:
                 log_internal(f"  Fetching images for {len(artists_needing_images)} artists...")
                 images_found = 0
+                fanart_service = FanartService(fanart_api_key)
 
-                for artist in artists_needing_images:
-                    image_url, _ = fetch_fanart_image(artist.mbid, fanart_api_key)
+                for idx, artist in enumerate(artists_needing_images, 1):
+                    # Show progress
+                    if not silent:
+                        log_internal(f"    [{idx}/{len(artists_needing_images)}] {artist.name}")
+
+                    image_url, image_type = fanart_service.fetch_artist_image(artist.mbid, verbose=(not silent))
                     if image_url:
                         artist.imageUrl = image_url
                         images_found += 1
-                    time.sleep(0.25)  # Rate limiting
+                        if not silent:
+                            log_internal(f"      ✓ Found {image_type}: {image_url[:60]}...")
+                    elif not silent:
+                        log_internal(f"      ✗ No image found")
 
-                session.commit()
-                log_internal(f"  ✓ Found {images_found}/{len(artists_needing_images)} images")
+                    # Rate limiting (safer delay for Fanart.tv)
+                    time.sleep(0.5)
+
+                    # Batch commit to save progress
+                    if idx % batch_size == 0:
+                        try:
+                            session.commit()
+                            if not silent:
+                                log_internal(f"    💾 Saved progress ({idx}/{len(artists_needing_images)} artists processed)")
+                        except Exception as e:
+                            session.rollback()
+                            if not silent:
+                                log_internal(f"    ⚠️  Batch commit failed: {e}")
+
+                # Final commit for remaining artists
+                try:
+                    session.commit()
+                    log_internal(f"  ✓ Found {images_found}/{len(artists_needing_images)} images")
+                except Exception as e:
+                    session.rollback()
+                    if not silent:
+                        log_internal(f"  ⚠️  Final commit failed: {e}")
         
         session.close()
         return 0

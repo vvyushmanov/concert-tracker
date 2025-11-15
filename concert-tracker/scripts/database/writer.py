@@ -359,9 +359,10 @@ class ConcertDatabaseWriter:
             self.stats['cities_normalized'] += 1
         else:
             # Fallback if city mapping creation failed
-            city_mapping_id = None
-            country_obj = get_or_create_country(self.session, country_name, verbose=self.debug)
-            country_id = country_obj.id if country_obj else None
+            # We cannot insert a concert without a valid cityMappingId (NOT NULL constraint)
+            if self.debug:
+                print(f"     ⚠️  Skipping concert - failed to create city mapping for '{original_city}' in '{country_name}'")
+            raise ValueError(f"Failed to create city mapping for '{original_city}' in '{country_name}'")
         
         if concert:
             # Check if any fields have changed
@@ -540,10 +541,17 @@ class ConcertDatabaseWriter:
                     # If user_id is set, create UserConcert link
                     if self.user_id:
                         self.create_user_concert_link(concert)
+
+                self.session.commit()
                 
             except Exception as e:
                 print(f"Error writing concert {concert_data.get('event_name', 'Unknown')}: {e}")
-                print(traceback.format_exc())
+                # Only show full traceback in debug mode
+                if self.debug:
+                    print(traceback.format_exc())
+                # Critical: Rollback the session to clear the dirty state
+                # This prevents PendingRollbackError on subsequent operations
+                self.session.rollback()
                 self.stats['errors'] += 1
                 continue
         
