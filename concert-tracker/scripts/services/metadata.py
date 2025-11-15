@@ -24,10 +24,11 @@ from sqlalchemy.orm import sessionmaker
 
 from database.models import Artist, UserArtist
 from database.config import get_engine
-from config import ConfigManager, load_user_config
+from config import ConfigManager
 from services import ArtistMetadataService
 from utils import log
 from services import FanartService
+from utils.credentials import load_credentials
 # Load environment variables
 load_dotenv()
 
@@ -93,11 +94,12 @@ def fetch_metadata_for_new_artists(db_path: str = None, silent: bool = False, us
         - Images: Fanart.tv (if configured)
         - Playcounts: Skipped (use fetch_metadata.py for full refresh)
         - Batch commits: Saves progress every N artists to prevent data loss
+        - Credentials: Uses centralized load_credentials() for user-specific mode
 
     Args:
         db_path: Path to SQLite database (for SQLite) or None to use DATABASE_URL env var (for MySQL)
         silent: If True, suppress most output
-        user_id: If provided, only process artists associated with this user
+        user_id: If provided, only process artists associated with this user (loads credentials via load_credentials())
         batch_size: Number of artists to process before committing to database (default: 5)
 
     Returns:
@@ -108,17 +110,33 @@ def fetch_metadata_for_new_artists(db_path: str = None, silent: bool = False, us
             log(message)
 
     # Get API keys from config (both optional)
-    config = ConfigManager()
     lastfm_api_key = None
     lastfm_user = None
-    if user_id:
-        user_config_data = load_user_config(user_id, db_path)
-        user_settings = user_config_data['settings']
-        lastfm_api_key = user_settings.get('LASTFM_API_KEY')
-        lastfm_user = user_settings.get('LASTFM_USER', '')
+    fanart_api_key = None
 
-    fanart_api_key = config.get('FANART_API_KEY')
-    
+    if user_id:
+        try:
+            credentials, validation = load_credentials(
+                user_id=user_id,
+                db_path=db_path,
+                require_lastfm=False,
+                require_countries=False
+            )
+            # Even if validation has errors, we can still proceed with available credentials
+            # (Last.fm and Fanart are optional for metadata fetching)
+            lastfm_api_key = credentials.lastfm_api_key
+            lastfm_user = credentials.lastfm_user
+            fanart_api_key = credentials.fanart_api_key
+        except Exception as e:
+            # Fallback to global config on error
+            if not silent:
+                log_internal(f"Warning: Could not load user credentials: {e}")
+            config = ConfigManager()
+            fanart_api_key = config.get('FANART_API_KEY')
+    else:
+        # No user specified, use global config
+        config = ConfigManager()
+        fanart_api_key = config.get('FANART_API_KEY')
 
     # Check what services are available
     fanart_available = bool(fanart_api_key)

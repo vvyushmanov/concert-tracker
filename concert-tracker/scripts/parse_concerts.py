@@ -2,8 +2,18 @@
 """
 CLI entry point for concert parsing
 
-Parses concerts from concerts-metal.com, filters by Last.fm artists,
+Parses concerts from concerts-metal.com, filters by artist sources,
 and saves to database or JSON.
+
+Artist Sources:
+    - UserArtist table (user-specific saved artists)
+    - Last.fm API (optional, if configured)
+    - No filter mode (--no-filter): fetch all concerts
+
+Credential Loading:
+    - Uses centralized load_credentials() for user-specific mode
+    - Validates credentials and provides helpful error messages
+    - Falls back to global ConfigManager for legacy mode
 
 Usage:
     python cli/parse_concerts.py [options]
@@ -21,6 +31,7 @@ from parsers import CountryConcertParser, GracefulShutdown
 from services import ProxyManager, ArtistSourceManager, LastFMService
 from config import ConfigManager, load_user_config
 from utils.validation import validate_artist_sources, validate_user_id
+from utils.credentials import load_credentials
 
 # Import database writer if available
 try:
@@ -274,35 +285,32 @@ def main():
         
         # Load user-specific or global config
         if args.user_id:
-            # User-specific mode: load from UserSetting and UserActiveCountry
-            try:
-                user_config_data = load_user_config(args.user_id, args.db_path)
-                user_settings = user_config_data['settings']
-                country_codes = user_config_data['active_countries']
-                
-                print(f"User: {user_config_data['user'].username} (ID: {args.user_id})")
-                print(f"Active countries for user: {', '.join(country_codes) if country_codes else 'None'}")
-                
-                if not country_codes:
-                    print("ERROR: No active countries configured for this user")
-                    print("Please activate countries in the Settings page before running the scanner")
-                    return 1
-                
-                # Get Last.fm settings from user config
-                lastfm_api_key = user_settings.get('LASTFM_API_KEY')
-                lastfm_user = user_settings.get('LASTFM_USER')
-                min_playcount = int(user_settings.get('MIN_PLAYCOUNT', '1'))
-                
-            except ValueError as e:
-                print(f"ERROR: {e}")
+            # User-specific mode: load credentials using centralized loader
+            credentials, validation = load_credentials(
+                user_id=args.user_id,
+                db_path=args.db_path,
+                require_countries=True
+            )
+
+            if validation.is_error():
+                print(validation)
                 return 1
+
+            # Extract credentials
+            country_codes = credentials.country_codes
+            lastfm_api_key = credentials.lastfm_api_key
+            lastfm_user = credentials.lastfm_user
+            min_playcount = credentials.min_playcount
+
+            print(f"User: {credentials.username} (ID: {args.user_id})")
+            print(f"Active countries for user: {', '.join(country_codes) if country_codes else 'None'}")
         else:
             # Global mode: use ConfigManager (legacy)
             config = ConfigManager()
             country_codes = config.get_active_country_codes()
-            
+
             print(f"Country codes from config: {', '.join(country_codes)}")
-            
+
             lastfm_api_key = config.get('LASTFM_API_KEY')
             lastfm_user = config.get('LASTFM_USER', '')
             min_playcount = config.get_int('MIN_PLAYCOUNT', 40)

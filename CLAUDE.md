@@ -91,6 +91,8 @@ lastfm-parser/
 │   │   │   ├── proxy.py            # Proxy rotation
 │   │   │   └── http_client.py      # Rate-limited HTTP
 │   │   ├── utils/                  # Shared utilities
+│   │   │   ├── credentials.py      # Centralized credential loading
+│   │   │   └── validation.py       # Validation utilities
 │   │   ├── tests/                  # Integration tests
 │   │   ├── requirements.txt        # Python dependencies
 │   │   ├── startup.sh              # Docker initialization
@@ -416,11 +418,19 @@ Notifications
 ### 2. Configuration Management (Python)
 ```
 Priority: Database Setting table > .env > Hardcoded defaults
+
 ConfigManager (Singleton)
 ├── Caches settings (60s TTL)
 ├── Thread-safe
 ├── Auto-migrates ENV → DB on first run
-└── Used by all Python scripts
+└── Used for global settings
+
+Credential Loading (utils/credentials.py)
+├── load_credentials(user_id, db_path, require_lastfm, require_countries)
+├── Returns: (UserCredentials, ValidationResult)
+├── Handles user-specific + global credential hierarchy
+├── Validates credentials with helpful error messages
+└── Used by: parse_concerts.py, fetch_metadata.py, services/metadata.py
 ```
 
 ### 3. City Normalization
@@ -658,8 +668,12 @@ Located in: `concert-tracker/scripts/tests/`
 ### Add Python Script Feature
 1. Create in `scripts/feature.py`
 2. Import from library modules: `from config import ConfigManager`, `from database import ...`
-3. Use ConfigManager for settings
-4. Return exit code 0 (success) or 1 (failure)
+3. For user-specific scripts:
+   - Use `from utils.credentials import load_credentials`
+   - Call `credentials, validation = load_credentials(user_id, db_path, ...)`
+   - Check validation errors before proceeding
+4. For global settings: Use ConfigManager
+5. Return exit code 0 (success) or 1 (failure)
 
 ### Schema Changes
 1. Edit `prisma/schema.prisma`
