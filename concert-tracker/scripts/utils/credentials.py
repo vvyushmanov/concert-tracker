@@ -18,12 +18,17 @@ Global Settings (Setting table):
 Usage:
 ======
 
-User-specific mode (required):
+User-specific mode (for per-user filtering):
     credentials, validation = load_credentials(user_id=1)
     # credentials.lastfm_user comes from UserSetting
     # credentials.min_playcount comes from UserSetting
     # credentials.lastfm_api_key from UserSetting or global fallback
     # credentials.fanart_api_key always from global Setting
+
+Global mode (for all concerts/artists):
+    credentials, validation = load_credentials()  # No user_id
+    # All credentials come from global Setting table
+    # Use for: refreshing all artists, getting all concerts, admin tasks
 """
 
 from typing import Dict, Optional, Tuple
@@ -55,19 +60,22 @@ class UserCredentials:
 
 
 def load_credentials(
-    user_id: int,
+    user_id: Optional[int] = None,
     db_path: Optional[str] = None,
     require_lastfm: bool = False,
     require_countries: bool = False
 ) -> Tuple[UserCredentials, ValidationResult]:
     """
-    Load user-specific credentials with validation
+    Load credentials with validation - supports both user-specific and global modes
 
     This function centralizes credential loading logic used across scripts.
-    All credentials are loaded per-user from UserSetting table.
+    - With user_id: Loads per-user credentials from UserSetting table
+      Use for: Per-user concert filtering, user-specific artist lists
+    - Without user_id: Loads global credentials from Setting table
+      Use for: Refreshing all artists, getting all concerts, admin tasks
 
     Args:
-        user_id: User ID (REQUIRED - no global mode)
+        user_id: User ID (optional - if None, uses global mode)
         db_path: Database path (for SQLite)
         require_lastfm: If True, return error if Last.fm not configured
         require_countries: If True, return error if no active countries
@@ -75,20 +83,65 @@ def load_credentials(
     Returns:
         Tuple of (UserCredentials, ValidationResult)
         - UserCredentials: Loaded credentials (may be incomplete)
-        - ValidationResult: Validation status (ERROR, WARNING, or VALID)
+        - ValidationResult: Validation status (ERROR or VALID)
 
-    Example:
+    Example (user-specific mode):
         credentials, validation = load_credentials(user_id=1, db_path="data/db.sqlite")
         if validation.is_error():
             print(validation)
             return 1
 
-        # Use credentials
-        if credentials.has_lastfm():
-            lastfm_service = LastFMService(credentials.lastfm_api_key)
+    Example (global mode):
+        credentials, validation = load_credentials(db_path="data/db.sqlite")
+        # Returns global configuration for admin/maintenance tasks
     """
 
-    # Load user-specific configuration
+    # Global mode - no user_id provided
+    if user_id is None:
+        config = ConfigManager()
+
+        credentials = UserCredentials(
+            user_id=None,
+            username=None,
+            lastfm_api_key=config.get('LASTFM_API_KEY'),
+            lastfm_user=config.get('LASTFM_USER', ''),
+            fanart_api_key=config.get('FANART_API_KEY'),
+            min_playcount=config.get_int('MIN_PLAYCOUNT', 40),
+            country_codes=config.get_active_country_codes(),
+            settings={}
+        )
+
+        # Validation
+        validation_messages = []
+        has_errors = False
+
+        # Check Last.fm if required
+        if require_lastfm and not credentials.has_lastfm():
+            validation_messages.append("Last.fm credentials required but not configured")
+            has_errors = True
+
+        # Check countries if required
+        if require_countries and not credentials.country_codes:
+            validation_messages.append("No active countries configured")
+            has_errors = True
+
+        if has_errors:
+            return credentials, ValidationResult(
+                status=ValidationStatus.ERROR,
+                message="\n".join(validation_messages),
+                suggestions=[
+                    "Configure global settings in the Setting table",
+                    "Or use --user-id for per-user configuration"
+                ]
+            )
+
+        # Success - global mode
+        return credentials, ValidationResult(
+            status=ValidationStatus.VALID,
+            message="Using global configuration (all concerts/artists mode)"
+        )
+
+    # User-specific mode - load user configuration
     try:
         user_config_data = load_user_config(user_id, db_path)
         user = user_config_data['user']

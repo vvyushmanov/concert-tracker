@@ -10,9 +10,10 @@ Metadata Sources:
     - Fanart.tv: Optional source for high-resolution artist images
 
 Credential Loading:
-    - Uses centralized load_credentials() for user-specific mode (--user-id)
+    - Uses centralized load_credentials() for all modes
+    - User-specific mode: --user-id (for per-user metadata)
+    - Global mode: no --user-id (for refreshing all artists, admin tasks)
     - Validates credentials and provides helpful error messages
-    - Falls back to global ConfigManager for legacy mode
 
 Usage:
     python cli/fetch_metadata.py [options]
@@ -30,7 +31,6 @@ from sqlalchemy.orm import sessionmaker
 from database.models import Artist, UserArtist
 from database.config import get_engine
 from utils import fetch_all_user_artists, lookup_artist_playcounts
-from config import ConfigManager
 from services import ArtistMetadataService
 from utils import log
 from services.metadata import fetch_fanart_image, update_user_artist_stats
@@ -79,35 +79,31 @@ def main():
     
     args = parser.parse_args()
     
-    # Load user-specific or global config
+    # Load credentials using centralized loader
+    # Supports both user-specific mode (with --user-id) and global mode (without --user-id)
+    credentials, validation = load_credentials(
+        user_id=args.user_id,
+        db_path=args.db_path,
+        require_lastfm=False,
+        require_countries=False
+    )
+
+    if validation.is_error():
+        print(validation)
+        return 1
+
+    # Extract credentials (works for both user-specific and global modes)
+    lastfm_api_key = credentials.lastfm_api_key
+    lastfm_user = credentials.lastfm_user
+    fanart_api_key = credentials.fanart_api_key
+
+    # Display configuration info
     if args.user_id:
-        # User-specific mode: load credentials using centralized loader
-        credentials, validation = load_credentials(
-            user_id=args.user_id,
-            db_path=args.db_path,
-            require_lastfm=False,
-            require_countries=False
-        )
-
-        if validation.is_error():
-            print(validation)
-            return 1
-
-        # Extract credentials
-        lastfm_api_key = credentials.lastfm_api_key
-        lastfm_user = credentials.lastfm_user
-        fanart_api_key = credentials.fanart_api_key
-
         log(f"User-specific mode: {credentials.username} (ID: {args.user_id})")
         log(f"Last.fm user: {lastfm_user}")
     else:
-        # Global mode (legacy)
-        log("WARNING: Running in legacy mode without --user-id")
-        log("Playcounts will not be saved. Use --user-id for full functionality.")
-        config = ConfigManager()
-        fanart_api_key = config.get('FANART_API_KEY')
-        lastfm_api_key = config.get('LASTFM_API_KEY')
-        lastfm_user = config.get('LASTFM_USER', '')
+        log(f"ℹ️  {validation.message}")  # Global mode for all artists
+        log("Note: Playcounts will not be saved without --user-id (global mode)")
         log(f"Last.fm user: {lastfm_user}")
     
     # Check what services are available (all optional now)

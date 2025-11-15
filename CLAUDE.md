@@ -426,9 +426,11 @@ ConfigManager (Singleton)
 └── Used for global settings
 
 Credential Loading (utils/credentials.py)
-├── load_credentials(user_id, db_path, require_lastfm, require_countries)
+├── load_credentials(user_id=None, db_path, require_lastfm, require_countries)
 ├── Returns: (UserCredentials, ValidationResult)
-├── Handles user-specific + global credential hierarchy
+├── Supports both user-specific and global modes
+│   ├── With user_id: Per-user credentials (for user-specific filtering)
+│   └── Without user_id: Global credentials (for all concerts/artists, admin tasks)
 ├── Validates credentials with helpful error messages
 └── Used by: parse_concerts.py, fetch_metadata.py, services/metadata.py
 ```

@@ -69,7 +69,7 @@ credentials.lastfm_api_key   # UserSetting OR global Setting
 credentials.fanart_api_key   # Global Setting (shared)
 ```
 
-**Note:** Global mode has been removed. All scripts now require `--user-id` parameter for proper per-user configuration.
+**Note:** Both modes are fully supported. Use user-specific mode for per-user concert filtering, or global mode for refreshing all artists and administrative tasks.
 
 ---
 
@@ -96,6 +96,13 @@ if validation.is_error():
 if credentials.has_lastfm():
     service = LastFMService(credentials.lastfm_api_key)
     artists = service.fetch_top_artists(credentials.lastfm_user)
+
+# Global mode (for all concerts/artists, admin tasks)
+credentials, validation = load_credentials(
+    db_path="data/db.sqlite",
+    require_countries=True
+)
+# All credentials from global Setting table
 ```
 
 ### UserCredentials Dataclass
@@ -135,14 +142,14 @@ class UserCredentials:
 All scripts now use the centralized `load_credentials()` function (refactored as of 2025-01-15):
 
 1. **parse_concerts.py** - Concert parser ✅
-   - Requires: `user_id` (recommended), `country_codes`
-   - Optional: `lastfm_api_key`, `lastfm_user`
-   - Uses `load_credentials()` for user-specific mode
+   - With `--user-id`: Filters by user's artists
+   - Without `--user-id`: Gets all concerts (global mode)
+   - Uses `load_credentials()` for both modes
 
 2. **fetch_metadata.py** - Metadata fetcher ✅
-   - Requires: `user_id` (recommended)
-   - Optional: `lastfm_api_key`, `lastfm_user`, `fanart_api_key`
-   - Uses `load_credentials()` for user-specific mode
+   - With `--user-id`: Updates user-specific playcounts
+   - Without `--user-id`: Refreshes all artists (global mode)
+   - Uses `load_credentials()` for both modes
 
 3. **services/metadata.py** - Metadata service functions ✅
    - Called by parse_concerts.py
@@ -168,10 +175,12 @@ lastfm_api_key = credentials.lastfm_api_key  # ✅ UserSetting or global
 fanart_api_key = credentials.fanart_api_key  # ✅ Global Setting
 ```
 
-### DON'T: Load credentials without user_id
+### DON'T: Mix global and user-specific modes incorrectly
 ```python
-# WRONG - user_id is now required
-credentials = load_credentials(user_id=None)  # ❌ TypeError
+# WRONG - Using global mode when user-specific filtering is needed
+credentials = load_credentials()  # ❌ Won't filter by user's artists
+# Use user-specific mode for per-user filtering
+credentials = load_credentials(user_id=1)  # ✅ Correct
 ```
 
 ### DON'T: Access ConfigManager directly for user-specific settings

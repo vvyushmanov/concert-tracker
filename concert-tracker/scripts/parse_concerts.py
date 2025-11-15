@@ -11,9 +11,10 @@ Artist Sources:
     - No filter mode (--no-filter): fetch all concerts
 
 Credential Loading:
-    - Uses centralized load_credentials() for user-specific mode
+    - Uses centralized load_credentials() for all modes
+    - User-specific mode: --user-id (for per-user concert filtering)
+    - Global mode: no --user-id (for all concerts/artists, admin tasks)
     - Validates credentials and provides helpful error messages
-    - Falls back to global ConfigManager for legacy mode
 
 Usage:
     python cli/parse_concerts.py [options]
@@ -29,8 +30,8 @@ from dotenv import load_dotenv
 # Import from library modules
 from parsers import CountryConcertParser, GracefulShutdown
 from services import ProxyManager, ArtistSourceManager, LastFMService
-from config import ConfigManager, load_user_config
-from utils.validation import validate_artist_sources, validate_user_id
+from config import ConfigManager
+from utils.validation import validate_artist_sources
 from utils.credentials import load_credentials
 
 # Import database writer if available
@@ -283,37 +284,31 @@ def main():
             print("   --use-proxies webshare  (add WEBSHARE_PROXY_URL to .env)")
             print("   --use-proxies custom    (create proxies.txt)\n")
         
-        # Load user-specific or global config
+        # Load credentials using centralized loader
+        # Supports both user-specific mode (with --user-id) and global mode (without --user-id)
+        credentials, validation = load_credentials(
+            user_id=args.user_id,
+            db_path=args.db_path,
+            require_countries=True
+        )
+
+        if validation.is_error():
+            print(validation)
+            return 1
+
+        # Extract credentials (works for both user-specific and global modes)
+        country_codes = credentials.country_codes
+        lastfm_api_key = credentials.lastfm_api_key
+        lastfm_user = credentials.lastfm_user
+        min_playcount = credentials.min_playcount
+
+        # Display configuration info
         if args.user_id:
-            # User-specific mode: load credentials using centralized loader
-            credentials, validation = load_credentials(
-                user_id=args.user_id,
-                db_path=args.db_path,
-                require_countries=True
-            )
-
-            if validation.is_error():
-                print(validation)
-                return 1
-
-            # Extract credentials
-            country_codes = credentials.country_codes
-            lastfm_api_key = credentials.lastfm_api_key
-            lastfm_user = credentials.lastfm_user
-            min_playcount = credentials.min_playcount
-
             print(f"User: {credentials.username} (ID: {args.user_id})")
             print(f"Active countries for user: {', '.join(country_codes) if country_codes else 'None'}")
         else:
-            # Global mode: use ConfigManager (legacy)
-            config = ConfigManager()
-            country_codes = config.get_active_country_codes()
-
+            print(f"ℹ️  {validation.message}")  # Global mode for all concerts/artists
             print(f"Country codes from config: {', '.join(country_codes)}")
-
-            lastfm_api_key = config.get('LASTFM_API_KEY')
-            lastfm_user = config.get('LASTFM_USER', '')
-            min_playcount = config.get_int('MIN_PLAYCOUNT', 40)
         
         # Fetch artists for concert filtering
         lastfm_artists = set()
