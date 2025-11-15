@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 from parsers import CountryConcertParser, GracefulShutdown
 from services import ProxyManager, ArtistSourceManager, LastFMService
 from config import ConfigManager, load_user_config
+from utils.validation import validate_artist_sources, validate_user_id
 
 # Import database writer if available
 try:
@@ -336,19 +337,26 @@ def main():
                 min_playcount=min_playcount
             )
 
-            # Validate that we have at least one artist source
-            if not manager.has_any_source():
-                print("ERROR: No artist sources available!")
-                print("  - Last.fm not configured (missing LASTFM_API_KEY or LASTFM_USER)")
-                print("  - No artists in UserArtist table for this user")
-                print("\nPlease either:")
-                print("  1. Configure Last.fm credentials in settings, OR")
-                print("  2. Add artists to UserArtist table, OR")
-                print("  3. Use --no-filter to fetch all concerts")
+            # Validate artist sources using centralized validation
+            from database.models import UserArtist
+            userartist_count = manager_session.query(UserArtist).filter_by(userId=args.user_id).count()
+
+            validation_result = validate_artist_sources(
+                user_id=args.user_id,
+                lastfm_configured=(lastfm_service is not None and lastfm_user is not None),
+                userartist_count=userartist_count,
+                no_filter=False  # We're in filter mode here
+            )
+
+            # Print validation result
+            print(validation_result)
+
+            # Exit if validation failed
+            if validation_result.is_error():
                 return 1
 
             # Show which sources are being used
-            print(f"Artist sources: {manager.get_source_summary()}")
+            print(f"\nArtist sources: {manager.get_source_summary()}")
             if lastfm_user:
                 print(f"Last.fm user: {lastfm_user}")
             print(f"Minimum playcount threshold: {min_playcount}")
@@ -360,7 +368,15 @@ def main():
             if not lastfm_artists:
                 print("WARNING: No artists loaded from any source, proceeding without filtering")
         else:
-            print("Filtering disabled - will fetch all concerts")
+            # Validate no-filter mode
+            validation_result = validate_artist_sources(
+                user_id=args.user_id,
+                lastfm_configured=False,  # Doesn't matter in no-filter mode
+                userartist_count=0,  # Doesn't matter in no-filter mode
+                no_filter=True
+            )
+            print(validation_result)
+            print()
         
         print()
         
