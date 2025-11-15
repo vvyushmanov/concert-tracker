@@ -20,14 +20,15 @@ A full-stack concert tracking application that discovers upcoming concerts based
 
 ## Project Overview
 
-**Purpose**: Monitor upcoming metal/rock concerts for artists you listen to on Last.fm across specified countries.
+**Purpose**: Monitor upcoming metal/rock concerts for artists you listen to across specified countries.
 
 **Key Features**:
-- Last.fm integration for artist discovery
+- **Flexible artist sources**: Last.fm integration (optional), UserArtist table, or both
+- **Multiple filtering modes**: Filter by your artists, or fetch all concerts (--no-filter)
 - Web scraping of concerts-metal.com for event data
 - Interactive concert map with friend features
 - User authentication and multi-user support
-- Concert metadata enrichment (MBID, images, playcounts)
+- Concert metadata enrichment (MBID via MusicBrainz/Last.fm, images, playcounts)
 - Friend network for sharing concert interests
 - Per-user concert tracking and interest management
 
@@ -135,6 +136,7 @@ lastfm-parser/
 - **Requests**: HTTP client
 - **python-dotenv**: Environment configuration
 - **mysqlclient**: MySQL connector
+- **musicbrainzngs**: MusicBrainz API client (MBID lookups)
 
 ### DevOps
 - **Docker & Docker Compose**: Containerization
@@ -265,27 +267,36 @@ UserActiveCountry
    │   ├── Parses HTML with BeautifulSoup
    │   └── Extracts: event name, date, venue, performers
    │
-   ├── Last.fm Filter
-   │   ├── Fetches user's top artists (configurable playcount threshold)
-   │   └── Filters concerts to only those with matching artists
+   ├── Artist Source Management (ArtistSourceManager)
+   │   ├── Fetches artists from UserArtist table (always)
+   │   ├── Optionally fetches from Last.fm API (if configured)
+   │   ├── Returns union of both sources
+   │   ├── Validation: ensures at least one source available (or --no-filter)
+   │   └── Filter modes:
+   │       - Filter mode: Only concerts with matched artists
+   │       - No-filter mode (--no-filter): All concerts, all performers
    │
    └── ConcertDatabaseWriter
        ├── Normalizes cities (original → normalized mapping)
        ├── Links artists via ArtistConcert junction
        ├── Creates/updates Concert, Artist, UserConcert records
+       ├── Handles missing playcounts gracefully (defaults to 0)
        └── Outputs: JSON file or database
 
 2. METADATA ENRICHMENT PHASE
    fetch_metadata.py
-   ├── Last.fm lookups
+   ├── MusicBrainz lookups (PRIMARY)
+   │   ├── Queries for artist MBIDs (rate-limited: 1.1s/request)
+   │   ├── Updates Artist.mbid
+   │   └── Works independently of Last.fm
+   │
+   ├── Last.fm lookups (OPTIONAL - fallback for MBIDs)
    │   ├── Fetches artist playcounts (global & per-user)
-   │   └── Updates UserArtist stats
+   │   ├── Updates UserArtist stats
+   │   ├── Fallback MBID source if MusicBrainz fails
+   │   └── Skipped entirely if not configured
    │
-   ├── MusicBrainz lookups
-   │   ├── Queries for artist MBIDs
-   │   └── Updates Artist.mbid
-   │
-   └── Fanart.tv lookups
+   └── Fanart.tv lookups (OPTIONAL)
        ├── Fetches high-res artist images
        └── Updates Artist.imageUrl
 
@@ -308,10 +319,13 @@ Scanner Initiation (User clicks "Scan")
 
 Scan Execution (Background)
 └── parse_concerts.py --user-id {userId}
+    ├── ArtistSourceManager fetches artists from:
+    │   ├── UserArtist table (per-user saved artists)
+    │   └── Last.fm API (optional, if configured)
+    ├── Filters concerts by union of sources (or all if --no-filter)
     ├── Creates UserConcert entries (interested=false by default)
-    ├── Fetches user's Last.fm artists
-    ├── Filters concerts by those artists
-    └── Stores user-specific stats in UserArtist
+    ├── Stores user-specific stats in UserArtist
+    └── Triggers metadata enrichment (MusicBrainz → Last.fm)
 
 User Views Concerts
 └── GET / (or /api/concerts)
@@ -487,11 +501,17 @@ docker compose -f docker-compose.dev.yml up
 # Inside container or with venv
 cd concert-tracker/scripts
 
-# Parse concerts for a user
+# Parse concerts for a user (filter by UserArtist + Last.fm)
 python parse_concerts.py --user-id 1 --output db --use-proxies webshare
 
-# Fetch metadata
+# Parse ALL concerts without filtering (no artist sources needed)
+python parse_concerts.py --user-id 1 --output db --no-filter
+
+# Fetch metadata (MusicBrainz + optional Last.fm)
 python fetch_metadata.py --user-id 1 --limit 100
+
+# Refresh playcounts (requires Last.fm)
+python fetch_metadata.py --user-id 1 --refresh-playcounts
 
 # Add country
 python add_country.py --code tr --name "Turkey"
@@ -571,13 +591,49 @@ See `.env.example` for all options:
 - ENV fallback for missing keys
 - ConfigManager singleton caches (60s)
 
+### 7. Last.fm Optional Architecture
+- **Last.fm is optional** - system works with UserArtist table alone
+- **MusicBrainz priority** - MBIDs fetched from MusicBrainz first, Last.fm fallback
+- **Artist source union** - UserArtist ∪ Last.fm artists (when both available)
+- **Graceful degradation** - clear error messages when no sources configured
+- **No-filter mode** - fetch all concerts without any artist filtering
+
 ## Testing
 
 ### Unit/Integration Tests (Python)
 Located in: `concert-tracker/scripts/tests/`
-- Tests for services (Last.fm, MusicBrainz)
-- Parser validation
-- Database writer sanity checks
+
+**Service Tests:**
+- `test_mb_service.py` - MusicBrainz API integration
+- `test_lastfm_api_raw.py` - Last.fm API raw responses
+- `test_lastfm_duplicates.py` - Duplicate detection
+
+**Artist Source Tests:**
+- `test_artist_source_manager.py` - ArtistSourceManager unit tests
+- `test_artist_source_integration.py` - Concert filtering integration
+- `test_12month_playcount.py` - 12-month playcount accuracy
+- `test_hyphen_artists.py` - Hyphenated artist name detection
+
+**Last.fm Optional Integration Tests (Phase 7):**
+- `test_scenario_b_userartist_only.py` - UserArtist only (no Last.fm)
+- `test_scenario_c_no_sources.py` - No sources error handling
+- `test_scenario_d_no_filter.py` - --no-filter mode validation
+- `test_scenario_e_metadata_no_lastfm.py` - Metadata script without Last.fm
+
+**Master Test Runner:**
+- `run_phase7_tests.py` - Runs all Phase 7 integration tests
+
+**Running Tests:**
+```bash
+# Run individual test
+~/lastfm-parser/venv/bin/python concert-tracker/scripts/tests/test_scenario_b_userartist_only.py
+
+# Run all Phase 7 tests
+~/lastfm-parser/venv/bin/python concert-tracker/scripts/tests/run_phase7_tests.py
+
+# Verbose mode
+~/lastfm-parser/venv/bin/python concert-tracker/scripts/tests/run_phase7_tests.py --verbose
+```
 
 ### Manual Testing
 1. Scanner: Fetch concerts via UI
@@ -620,6 +676,8 @@ Located in: `concert-tracker/scripts/tests/`
 ## Documentation Files
 
 Key docs in `/docs/`:
+- `LASTFM_OPTIONAL_REFACTORING_PLAN.md` - Last.fm optional refactoring plan (10 phases)
+- `LASTFM_OPTIONAL_STATUS.md` - Implementation status & progress tracking
 - `BACKEND_CHANGES_SUMMARY.md` - Artist-Concert M2M implementation
 - `CITY_RESTRUCTURING_SUMMARY.md` - City normalization design
 - `FRIENDS_FEATURE_PLAN.md` - Social features architecture
@@ -634,13 +692,48 @@ Main branch: `main`
 - Deploy via docker-compose
 
 Recent commits show:
+- Last.fm optional refactoring (Phases 1-7 complete)
+- ArtistSourceManager for flexible artist filtering
+- MusicBrainz priority for MBID lookups
+- Comprehensive test suite (8 test files, 5 scenarios)
+- Critical bugfix: --no-filter mode database writer
 - Concert card improvements
 - Sidebar filters & detail editing
 - Friends feature
 - City restructuring
-- Test coverage improvements
 
 ---
 
-**Last Updated**: November 2024
+## Last.fm Optional Feature
+
+**Status**: ✅ Complete (Phases 1-7 of 10)
+
+The system now supports flexible artist sources:
+
+1. **UserArtist table only** - Works without Last.fm configuration
+2. **Last.fm API only** - Traditional behavior (requires API key)
+3. **Both sources** - Union of UserArtist + Last.fm artists
+4. **No filter mode** - Fetch all concerts without filtering (`--no-filter`)
+
+**Key Components:**
+- `ArtistSourceManager` - Unified artist source management
+- `MusicBrainzService` - Primary MBID source (rate-limited)
+- `ArtistMetadataService` - Optional Last.fm integration
+- Database writer - Handles missing playcount data gracefully
+
+**Error Handling:**
+- Clear validation messages when no artist sources available
+- Helpful suggestions with 3 solutions
+- Graceful degradation when services unavailable
+
+**Testing:**
+- 8 test files covering all scenarios
+- Integration tests with full database flow
+- All tests passing ✅
+
+See [docs/LASTFM_OPTIONAL_STATUS.md](docs/LASTFM_OPTIONAL_STATUS.md) for detailed progress.
+
+---
+
+**Last Updated**: January 2025
 **Technology Version**: Next.js 15, Prisma 5.22, MySQL 8.0, Python 3.12
