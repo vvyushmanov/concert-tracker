@@ -12,13 +12,14 @@ from database.config import get_engine
 from database.models import Country
 from database.normalizers.country import get_or_create_country, lookup_country_by_code
 
-def add_or_update_country(input_value: str) -> dict:
+def add_or_update_country(input_value: str, active: bool = True) -> dict:
     """
     Add or update a country by name or code
-    
+
     Args:
         input_value: Country name or code
-        
+        active: Global active status (default: True)
+
     Returns:
         Dict with success status and country info
     """
@@ -26,28 +27,30 @@ def add_or_update_country(input_value: str) -> dict:
         engine = get_engine()
         Session = sessionmaker(bind=engine)
         session = Session()
-        
+
         # Determine if input is a country code (2 chars) or country name
         input_clean = input_value.strip()
-        
+
         if len(input_clean) <= 2 and input_clean.isalpha():
             # Looks like a country code
             country_code = input_clean.lower()
-            
+
             # Try to find existing country by code
             existing_country = session.query(Country).filter_by(code=country_code).first()
-            
+
             if existing_country:
-                # Country already exists
+                # Country already exists - update active status
+                existing_country.active = active
                 existing_country.updatedAt = int(datetime.now(timezone.utc).timestamp())
                 session.commit()
-                
+
                 return {
                     'success': True,
                     'country': {
                         'id': existing_country.id,
                         'name': existing_country.name,
-                        'code': existing_country.code
+                        'code': existing_country.code,
+                        'active': existing_country.active
                     },
                     'message': f'Country {existing_country.name} ({existing_country.code}) already exists'
                 }
@@ -58,15 +61,17 @@ def add_or_update_country(input_value: str) -> dict:
                     country_name, resolved_code = api_result
                     # Create new country
                     country = get_or_create_country(session, country_name, verbose=False)
+                    country.active = active
                     country.updatedAt = int(datetime.now(timezone.utc).timestamp())
                     session.commit()
-                    
+
                     return {
                         'success': True,
                         'country': {
                             'id': country.id,
                             'name': country.name,
-                            'code': country.code
+                            'code': country.code,
+                            'active': country.active
                         },
                         'message': f'Added {country.name} ({country.code})'
                     }
@@ -78,40 +83,44 @@ def add_or_update_country(input_value: str) -> dict:
         else:
             # Treat as country name
             country_name = input_clean
-            
+
             # Try to find existing country by name
             existing_country = session.query(Country).filter_by(name=country_name).first()
-            
+
             if existing_country:
-                # Country already exists
+                # Country already exists - update active status
+                existing_country.active = active
                 existing_country.updatedAt = int(datetime.now(timezone.utc).timestamp())
                 session.commit()
-                
+
                 return {
                     'success': True,
                     'country': {
                         'id': existing_country.id,
                         'name': existing_country.name,
-                        'code': existing_country.code
+                        'code': existing_country.code,
+                        'active': existing_country.active
                     },
                     'message': f'Country {existing_country.name} ({existing_country.code}) already exists'
                 }
             else:
                 # Create new country using country_helper
                 country = get_or_create_country(session, country_name, verbose=False)
+                country.active = active
                 country.updatedAt = int(datetime.now(timezone.utc).timestamp())
                 session.commit()
-                
+
                 return {
                     'success': True,
                     'country': {
                         'id': country.id,
                         'name': country.name,
-                        'code': country.code
+                        'code': country.code,
+                        'active': country.active
                     },
                     'message': f'Added {country.name} ({country.code})'
                 }
-                
+
     except Exception as e:
         return {
             'success': False,
@@ -126,15 +135,21 @@ def main():
     if len(sys.argv) < 2:
         print(json.dumps({
             'success': False,
-            'error': 'Usage: python add_country.py <country_name_or_code>'
+            'error': 'Usage: python add_country.py <country_name_or_code> [active]'
         }))
         sys.exit(1)
-    
+
     input_value = sys.argv[1]
-    
-    result = add_or_update_country(input_value)
+
+    # Parse active parameter (default: True)
+    active = True
+    if len(sys.argv) >= 3:
+        active_str = sys.argv[2].lower()
+        active = active_str in ('true', '1', 'yes', 'on')
+
+    result = add_or_update_country(input_value, active)
     print(json.dumps(result))
-    
+
     sys.exit(0 if result['success'] else 1)
 
 if __name__ == '__main__':

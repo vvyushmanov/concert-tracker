@@ -35,18 +35,19 @@ class Artist(Base):
 class Country(Base):
     """Country model - stores country metadata"""
     __tablename__ = 'Country'
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String, unique=True, nullable=False, index=True)  # Full name: "Turkey", "France"
     code = Column(String, unique=True, nullable=False, index=True)  # ISO code: "tr", "fr"
+    active = Column(Boolean, nullable=False, default=True, index=True)  # Global admin setting - inactive countries can still be active per-user
     createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
     updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
-    
+
     normalized_cities = relationship('CityNormalized', back_populates='country', cascade='all, delete-orphan')
     user_active_countries = relationship('UserActiveCountry', back_populates='country', cascade='all, delete-orphan')
 
     def __repr__(self):
-        return f"<Country(id={self.id}, name='{self.name}', code='{self.code}')>"
+        return f"<Country(id={self.id}, name='{self.name}', code='{self.code}', active={self.active})>"
 
 
 class CityNormalized(Base):

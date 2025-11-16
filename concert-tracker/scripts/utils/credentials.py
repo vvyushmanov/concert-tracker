@@ -100,9 +100,10 @@ def load_credentials(
     if user_id is None:
         config = ConfigManager()
 
-        # Get country codes from COUNTRY_CODES setting (global mode doesn't use UserActiveCountry)
+        # Get country codes from active countries (Country.active = true)
+        # Falls back to COUNTRY_CODES setting if no active countries found
         try:
-            country_codes = config.get_list('COUNTRY_CODES', [])
+            country_codes = config.get_active_country_codes()
         except Exception:
             country_codes = []
 

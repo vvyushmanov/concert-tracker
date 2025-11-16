@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import CountriesTab from './CountriesTab';
 import AuditLogTab from './AuditLogTab';
 import PrivacyTab from './PrivacyTab';
+import AdminSettingsTab from './AdminSettingsTab';
 
 interface Setting {
   key: string;
@@ -27,15 +28,15 @@ export default function SettingsClient({ isAdmin, userId }: { isAdmin: boolean; 
   }, [activeTab]);
 
   const fetchSettings = async () => {
-    // Skip fetching for countries, privacy, and audit tabs (they have their own data fetching)
-    if (activeTab === 'countries' || activeTab === 'privacy' || activeTab === 'audit') {
+    // Skip fetching for tabs that handle their own data fetching
+    if (activeTab === 'countries' || activeTab === 'privacy' || activeTab === 'audit' || activeTab === 'global') {
       setLoading(false);
       return;
     }
 
     setLoading(true);
     try {
-      const endpoint = activeTab === 'global' ? '/api/settings/global' : '/api/settings/user';
+      const endpoint = '/api/settings/user';
       const response = await fetch(endpoint);
       
       if (response.status === 403) {
@@ -240,6 +241,8 @@ export default function SettingsClient({ isAdmin, userId }: { isAdmin: boolean; 
         <PrivacyTab />
       ) : activeTab === 'audit' ? (
         <AuditLogTab />
+      ) : activeTab === 'global' ? (
+        <AdminSettingsTab />
       ) : (
         <>
           {message && (
