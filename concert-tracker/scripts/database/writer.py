@@ -8,11 +8,9 @@ import traceback
 from datetime import datetime, timezone
 from typing import List, Dict, Set
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
 
 from database.models import Artist, Concert, ArtistConcert, UserArtist, UserConcert, get_session
 from database.normalizers.city import CityNormalizer, get_or_create_city_mapping
-from database.normalizers.country import get_or_create_country
 
 
 class ConcertDatabaseWriter:
@@ -321,19 +319,13 @@ class ConcertDatabaseWriter:
     
     def upsert_concert(
         self,
-        concert_data: Dict,
-        artist: Artist,
-        artist_playcounts: Dict[str, int] = None,
-        recent_artists: Set[str] = None
+        concert_data: Dict
     ) -> str:
         """Insert or update concert in database
-        
+
         Args:
             concert_data: Concert data from parser
-            artist: Artist object (primary artist for this concert)
-            artist_playcounts: Dict of artist playcounts from Last.fm
-            recent_artists: Set of recent artists from Last.fm
-            
+
         Returns:
             Normalized city name
         """
@@ -496,31 +488,10 @@ class ConcertDatabaseWriter:
                     if self.debug:
                         print(f"     ⚠️  SKIPPED: No artists (no performers)")
                     continue
-
-                # Use first matched artist (or first performer in no-filter mode) as primary
-                primary_artist_name = matched_artists[0]
-                playcount = artist_playcounts.get(primary_artist_name, 0)
-                playcount12month = artist_playcounts_12month.get(primary_artist_name, 0)
-                is_recent = primary_artist_name in recent_artists
-                mbid = artist_mbids.get(primary_artist_name)
-                
-                if self.debug:
-                    print(f"     Primary artist: {primary_artist_name} (playcount: {playcount}, 12mo: {playcount12month})")
-                
-                # Get or create artist (global Artist table - shared data only)
-                # Note: UserArtist creation is now handled in link_artists_to_concert()
-                artist = self.get_or_create_artist(
-                    name=primary_artist_name,
-                    mbid=mbid
-                )
                 
                 # Upsert concert
-                self.upsert_concert(
-                    concert_data,
-                    artist,
-                    artist_playcounts,
-                    recent_artists
-                )
+                # Note: Artist creation is handled in link_artists_to_concert() below
+                self.upsert_concert(concert_data)
                 
                 # Get the concert object after upsert for additional operations
                 event_url = concert_data.get('event_url')
