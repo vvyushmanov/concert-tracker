@@ -308,11 +308,11 @@ export default function AdminSettingsTab() {
                     {setting.key.replace(/_/g, ' ')}
                   </span>
                   <span className="block text-xs text-gray-500 mt-1">
-                    {setting.key === 'FANART_API_KEY' && 'API key for fetching artist images'}
-                    {setting.key === 'WEBSHARE_PROXY_URL' && 'Proxy URL for web requests'}
-                    {setting.key === 'LASTFM_API_KEY' && 'Global fallback Last.fm API key'}
-                    {setting.key === 'MIN_PLAYCOUNT' && 'Default minimum playcount threshold'}
-                    {setting.key === 'COUNTRY_CODES' && 'Fallback country codes (JSON array) - used when no active countries'}
+                    {setting.key === 'FANART_API_KEY' && 'API key for fetching artist images from Fanart.tv'}
+                    {setting.key === 'WEBSHARE_PROXY_URL' && 'Webshare.io proxy download URL for web scraping'}
+                    {setting.key === 'LASTFM_API_KEY' && 'Global Last.fm API key - used as fallback when users don\'t have their own API key configured'}
+                    {setting.key === 'MIN_PLAYCOUNT' && 'Default minimum playcount threshold for filtering artists'}
+                    {setting.key === 'COUNTRY_CODES' && 'Fallback country codes (JSON array) - used when no active countries are configured'}
                   </span>
                 </label>
                 {renderInput(setting)}
