@@ -76,10 +76,10 @@ Progress is now saved incrementally instead of all-at-once:
 **Usage**:
 ```python
 # Use default batch size (20)
-fetch_metadata_for_new_artists(user_id=1)
+fetch_artist_metadata(user_id=1)
 
 # Custom batch size (commit every 10 artists)
-fetch_metadata_for_new_artists(user_id=1, batch_size=10)
+fetch_artist_metadata(user_id=1, batch_size=10)
 ```
 
 ### 4. **Improved Rate Limiting** ⏱️
@@ -95,7 +95,7 @@ Rate limiting has been adjusted for safer API usage:
 #### Files Modified:
 - [`metadata.py`](../concert-tracker/scripts/services/metadata.py) - Line 272: Changed sleep from 0.25s to 0.5s
 
-**Note**: Last.fm calls in `fetch_metadata_for_new_artists()` are minimal (only fallback for MBID repair), so no dedicated rate limiter was added.
+**Note**: Last.fm calls in `fetch_artist_metadata()` are minimal (only fallback for MBID repair), so no dedicated rate limiter was added.
 
 ### 5. **Verbose Mode Support** 🔊
 
@@ -124,12 +124,12 @@ cd concert-tracker/scripts
 ~/lastfm-parser/venv/bin/python -c "
 from services.musicbrainz_service import MusicBrainzService
 from services.fanart_service import FanartService
-from services.metadata import fetch_metadata_for_new_artists
+from services.metadata import fetch_artist_metadata
 import inspect
 
 print('MusicBrainz:', MusicBrainzService.MAX_RETRIES, 'retries')
 print('Fanart.tv:', FanartService.MAX_RETRIES, 'retries')
-print('Batch size:', inspect.signature(fetch_metadata_for_new_artists).parameters['batch_size'].default)
+print('Batch size:', inspect.signature(fetch_artist_metadata).parameters['batch_size'].default)
 "
 ```
 
@@ -214,13 +214,13 @@ Edit the call in [`parse_concerts.py`](../concert-tracker/scripts/parse_concerts
 
 ```python
 # Smaller batches (more frequent saves, more DB overhead)
-fetch_metadata_for_new_artists(user_id=user_id, batch_size=10)
+fetch_artist_metadata(user_id=user_id, batch_size=10)
 
 # Larger batches (less frequent saves, less DB overhead)
-fetch_metadata_for_new_artists(user_id=user_id, batch_size=50)
+fetch_artist_metadata(user_id=user_id, batch_size=50)
 
 # Disable batching (save only at the end - not recommended)
-fetch_metadata_for_new_artists(user_id=user_id, batch_size=999999)
+fetch_artist_metadata(user_id=user_id, batch_size=999999)
 ```
 
 ### Adjusting Retry Settings

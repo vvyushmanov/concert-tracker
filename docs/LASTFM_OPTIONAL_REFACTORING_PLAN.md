@@ -50,7 +50,7 @@
 **File:** `concert-tracker/scripts/services/metadata.py`
 
 **Changes:**
-- Update `fetch_metadata_for_new_artists()`:
+- Update `fetch_artist_metadata()`:
   - Make Last.fm completely optional
   - Use MusicBrainz as primary MBID source
   - Skip playcount updates if Last.fm not configured

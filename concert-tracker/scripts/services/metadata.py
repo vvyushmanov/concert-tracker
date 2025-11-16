@@ -83,7 +83,7 @@ def fetch_fanart_image(mbid: str, api_key: str) -> tuple:
     service = FanartService(api_key)
     return service.fetch_artist_image(mbid)
 
-def fetch_metadata_for_new_artists(db_path: str = None, silent: bool = False, user_id: int = None, batch_size: int = 5) -> int:
+def fetch_artist_metadata(db_path: str = None, silent: bool = False, user_id: int = None, batch_size: int = 5) -> int:
     """Fetch metadata (MBID + images) for artists without complete metadata
 
     This is a simplified version optimized for calling after parser runs.

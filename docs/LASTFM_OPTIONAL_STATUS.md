@@ -66,7 +66,7 @@
 **File:** `concert-tracker/scripts/services/metadata.py`
 
 **Implemented:**
-- ✅ `fetch_metadata_for_new_artists()` works without Last.fm
+- ✅ `fetch_artist_metadata()` works without Last.fm
 - ✅ Uses MusicBrainz as primary MBID source
 - ✅ Skips playcount updates if Last.fm not configured
 - ✅ Clear logging for skipped operations

@@ -71,10 +71,10 @@ def finalize_and_cleanup(db_writer, args, data_to_save, all_concerts, lastfm_art
         print(f"   - Checking all artists for missing MBIDs/images...")
 
         try:
-            from services.metadata import fetch_metadata_for_new_artists
-            # Note: fetch_metadata_for_new_artists reads Last.fm config from ConfigManager
+            from services.metadata import fetch_artist_metadata
+            # Note: fetch_artist_metadata reads Last.fm config from ConfigManager
             # It will use MusicBrainz as primary source and Last.fm as fallback if configured
-            result = fetch_metadata_for_new_artists(args.db_path, silent=False, user_id=args.user_id)
+            result = fetch_artist_metadata(args.db_path, silent=False, user_id=args.user_id)
             if result == 0:
                 print("✅ Metadata fetch completed")
             else:
