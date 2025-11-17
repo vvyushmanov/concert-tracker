@@ -216,7 +216,8 @@ model UserActiveCountry {
   id        Int @id @default(autoincrement())
   userId    Int
   countryId Int
-  createdAt Int
+  createdAt Int @default(0)
+  updatedAt Int @default(0)
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   country Country @relation(fields: [countryId], references: [id])
@@ -232,7 +233,8 @@ model SettingAuditLog {
   key       String
   oldValue  String?
   newValue  String
-  createdAt Int
+  createdAt Int @default(0)
+  updatedAt Int @default(0)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -280,7 +282,8 @@ model ArtistConcert {
   artistId  Int
   concertId Int
   isPrimary Boolean @default(false)  // True for the headliner/main artist
-  createdAt Int
+  createdAt Int @default(0)
+  updatedAt Int @default(0)
 
   artist  Artist  @relation(fields: [artistId], references: [id], onDelete: Cascade)
   concert Concert @relation(fields: [concertId], references: [id], onDelete: Cascade)

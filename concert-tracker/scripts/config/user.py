@@ -75,24 +75,6 @@ class UserConfig:
             ]
         return self._active_countries
 
-    def get_user_artists(self) -> list[Artist]:
-        """
-        Get list of artist names for a specific user
-        
-        Returns:
-            List of artist objects
-        """
-
-        # Query artist ids from database
-        user_artist_ids = self.session.query(UserArtist.artistId).filter_by(userId=self.user_id).distinct().all()
-        user_artist_ids = [id[0] for id in user_artist_ids]
-        if not user_artist_ids:
-            print(f"No artists found for user ID {self.user_id}")
-            return []
-        user_artists = self.session.query(Artist).filter(Artist.id.in_(user_artist_ids)).all()
-        return user_artists
-
-
     def close(self):
         """Close database session"""
         self.session.close()
@@ -122,6 +104,5 @@ def load_user_config(user_id: int, db_path: str = None) -> Dict:
         return {
             'user': user,
             'settings': config.get_settings(),
-            'active_countries': config.get_active_countries(),
-            'user_artists': config.get_user_artists()
+            'active_countries': config.get_active_countries()
         }

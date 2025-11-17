@@ -323,6 +323,11 @@ class ConcertDatabaseWriter:
     ) -> str:
         """Insert or update concert in database
 
+        NOTE: Primary artist (artistId field) is preserved on updates to maintain
+        consistency across scans. The primary artist is determined during the initial
+        concert creation and stored in ArtistConcert.isPrimary. This prevents data
+        inconsistency when concerts are rescanned.
+
         Args:
             concert_data: Concert data from parser
 
@@ -374,10 +379,8 @@ class ConcertDatabaseWriter:
                 'organizer': concert_data.get('organizer'),
                 'organizerUrl': concert_data.get('organizer_url'),
                 'ticketLinks': ticket_links_json,
-                # NOTE: Do NOT update artistId for existing concerts
-                # The primary artist is determined by the first scan and stored in ArtistConcert.isPrimary
             }
-            
+
             # Check each field for changes
             for field, new_value in new_values.items():
                 old_value = getattr(concert, field)

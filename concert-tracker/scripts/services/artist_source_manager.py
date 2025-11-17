@@ -2,6 +2,30 @@
 Artist Source Manager - Centralized logic for artist filtering sources
 
 Manages multiple artist sources (UserArtist, Last.fm) for concert filtering
+
+PATTERN FOR OPTIONAL LAST.FM USAGE:
+====================================
+
+All code that uses Last.fm should follow this pattern:
+
+1. Check if Last.fm is configured via credentials/config
+2. If not configured:
+   - Log clear warning message
+   - Degrade gracefully (use alternative source or skip)
+   - Do NOT raise exception (unless require_lastfm=True)
+3. If configured but API fails:
+   - Log error with actionable message
+   - Return empty/default result
+
+Example:
+    if credentials.lastfm_api_key:
+        try:
+            # Use Last.fm
+        except Exception as e:
+            logger.warning(f"Last.fm unavailable: {e}")
+            # Degrade gracefully
+    else:
+        logger.info("Last.fm not configured, using alternative source")
 """
 
 from typing import Set, Dict, Tuple, Optional

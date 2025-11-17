@@ -13,7 +13,23 @@ from database.config import get_engine
 Base = declarative_base()
 
 
-class Artist(Base):
+class TimestampMixin:
+    """Mixin to add timestamp fields to models."""
+
+    createdAt = Column(
+        Integer,
+        nullable=False,
+        default=lambda: int(datetime.now(timezone.utc).timestamp())
+    )
+    updatedAt = Column(
+        Integer,
+        nullable=False,
+        default=lambda: int(datetime.now(timezone.utc).timestamp()),
+        onupdate=lambda: int(datetime.now(timezone.utc).timestamp())
+    )
+
+
+class Artist(TimestampMixin, Base):
     """Artist model - shared artist data (no user-specific fields)"""
     __tablename__ = 'Artist'
     
@@ -21,9 +37,7 @@ class Artist(Base):
     name = Column(String, unique=True, nullable=False, index=True)
     mbid = Column(String, nullable=True)  # MusicBrainz ID
     imageUrl = Column(String, nullable=True)  # Artist image from fanart.tv or Last.fm
-    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
-    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
-    
+
     # Relationship
     concerts = relationship('ArtistConcert', back_populates='artist', cascade='all, delete-orphan')
     user_stats = relationship('UserArtist', back_populates='artist', cascade='all, delete-orphan')
@@ -32,7 +46,7 @@ class Artist(Base):
         return f"<Artist(id={self.id}, name='{self.name}', mbid={self.mbid})>"
 
 
-class Country(Base):
+class Country(TimestampMixin, Base):
     """Country model - stores country metadata"""
     __tablename__ = 'Country'
 
@@ -40,8 +54,6 @@ class Country(Base):
     name = Column(String, unique=True, nullable=False, index=True)  # Full name: "Turkey", "France"
     code = Column(String, unique=True, nullable=False, index=True)  # ISO code: "tr", "fr"
     active = Column(Boolean, nullable=False, default=True, index=True)  # Global admin setting - inactive countries can still be active per-user
-    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
-    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
 
     normalized_cities = relationship('CityNormalized', back_populates='country', cascade='all, delete-orphan')
     user_active_countries = relationship('UserActiveCountry', back_populates='country', cascade='all, delete-orphan')
@@ -50,16 +62,14 @@ class Country(Base):
         return f"<Country(id={self.id}, name='{self.name}', code='{self.code}', active={self.active})>"
 
 
-class CityNormalized(Base):
+class CityNormalized(TimestampMixin, Base):
     """Normalized city model - stores unique normalized city names per country"""
     __tablename__ = 'CityNormalized'
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     normalizedCity = Column(String, nullable=False, index=True)
     countryId = Column(Integer, ForeignKey('Country.id'), nullable=False, index=True)
-    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
-    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
-    
+
     # Relationships
     country = relationship('Country', back_populates='normalized_cities')
     city_mappings = relationship('CityMapping', back_populates='city_normalized', cascade='all, delete-orphan')
@@ -68,15 +78,15 @@ class CityNormalized(Base):
         return f"<CityNormalized(id={self.id}, normalizedCity='{self.normalizedCity}', countryId={self.countryId})>"
 
 
-class CityMapping(Base):
+class CityMapping(TimestampMixin, Base):
     """City mapping model for normalization
-    
+
     Note: In MySQL, originalCity uses utf8mb4_bin collation (binary/accent-sensitive)
     to preserve diacritics. This ensures "Düsseldorf" and "Dusseldorf" are treated
     as distinct cities. See migration: prisma/migrations/fix_citymapping_collation.sql
     """
     __tablename__ = 'CityMapping'
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     # Binary collation in MySQL to preserve diacritics (Düsseldorf ≠ Dusseldorf)
     originalCity = Column(String, nullable=False)
@@ -85,9 +95,7 @@ class CityMapping(Base):
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
     source = Column(String, nullable=False)  # 'manual', 'geocoded', 'text_normalized'
-    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
-    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
-    
+
     # Relationships
     city_normalized = relationship('CityNormalized', back_populates='city_mappings')
     concerts = relationship('Concert', back_populates='city_mapping', cascade='all, delete-orphan')
@@ -97,10 +105,10 @@ class CityMapping(Base):
         return f"<CityMapping('{self.originalCity}' -> '{normalized}', countryId={self.countryId})>"
 
 
-class Concert(Base):
+class Concert(TimestampMixin, Base):
     """Concert model - matches Prisma Concert schema"""
     __tablename__ = 'Concert'
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     eventName = Column(String, nullable=False)
     eventUrl = Column(String, nullable=False, unique=True, index=True)  # Unique constraint for upserts
@@ -115,11 +123,7 @@ class Concert(Base):
     organizer = Column(String, nullable=True)
     organizerUrl = Column(String, nullable=True)
     ticketLinks = Column(Text, nullable=False, default='[]')  # JSON array stored as text
-    
-    # Timestamps (Unix timestamps)
-    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
-    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
-    
+
     # Relationships
     city_mapping = relationship('CityMapping', back_populates='concerts')
     artists = relationship('ArtistConcert', back_populates='concert', cascade='all, delete-orphan')
@@ -129,23 +133,21 @@ class Concert(Base):
         return f"<Concert(id={self.id}, name='{self.eventName}', date={self.dateStart})>"
 
 
-class Setting(Base):
+class Setting(TimestampMixin, Base):
     """Setting model for configuration management"""
     __tablename__ = 'Setting'
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     key = Column(String(100), unique=True, nullable=False, index=True)
     value = Column(Text, nullable=False)
     valueType = Column(String(20), nullable=False)  # 'string', 'int', 'bool', 'json'
     description = Column(Text, nullable=True)
-    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
-    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
-    
+
     def __repr__(self):
         return f"<Setting(key='{self.key}', value='{self.value}', type='{self.valueType}')>"
 
 
-class User(Base):
+class User(TimestampMixin, Base):
     """User model"""
     __tablename__ = 'User'
 
@@ -153,8 +155,6 @@ class User(Base):
     username = Column(String(100), unique=True, nullable=False, index=True)
     hashedPassword = Column(String(255), nullable=False)
     role = Column(String(10), nullable=False, default='USER', index=True)
-    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
-    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
 
     settings = relationship('UserSetting', back_populates='user', cascade='all, delete-orphan')
     concerts = relationship('UserConcert', back_populates='user', cascade='all, delete-orphan')
@@ -163,7 +163,7 @@ class User(Base):
     auditLogs = relationship('SettingAuditLog', back_populates='user', cascade='all, delete-orphan')
 
 
-class UserSetting(Base):
+class UserSetting(TimestampMixin, Base):
     """Per-user settings"""
     __tablename__ = 'UserSetting'
 
@@ -172,8 +172,6 @@ class UserSetting(Base):
     key = Column(String(100), nullable=False)
     value = Column(Text, nullable=False)
     valueType = Column(String(20), nullable=False)
-    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
-    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
 
     user = relationship('User', back_populates='settings')
 
@@ -182,7 +180,7 @@ class UserSetting(Base):
     )
 
 
-class UserConcert(Base):
+class UserConcert(TimestampMixin, Base):
     """User-specific concert interaction data"""
     __tablename__ = 'UserConcert'
 
@@ -192,8 +190,6 @@ class UserConcert(Base):
     interested = Column(Boolean, nullable=False, default=False)
     notes = Column(Text, nullable=True)
     isPrivate = Column(Boolean, nullable=False, default=False)
-    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
-    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
 
     user = relationship('User', back_populates='concerts')
     concert = relationship('Concert', back_populates='user_interactions')
@@ -206,7 +202,7 @@ class UserConcert(Base):
     )
 
 
-class UserArtist(Base):
+class UserArtist(TimestampMixin, Base):
     """User-specific artist metrics"""
     __tablename__ = 'UserArtist'
 
@@ -216,8 +212,6 @@ class UserArtist(Base):
     playcount = Column(Integer, nullable=False, default=0)
     playcount12month = Column(Integer, nullable=False, default=0)
     recent = Column(Boolean, nullable=False, default=False)
-    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
-    updatedAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()), onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
 
     user = relationship('User', back_populates='artists')
     artist = relationship('Artist', back_populates='user_stats')
@@ -229,14 +223,13 @@ class UserArtist(Base):
     )
 
 
-class UserActiveCountry(Base):
+class UserActiveCountry(TimestampMixin, Base):
     """Tracks which countries are active per user"""
     __tablename__ = 'UserActiveCountry'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     userId = Column(Integer, ForeignKey('User.id'), nullable=False)
     countryId = Column(Integer, ForeignKey('Country.id'), nullable=False)
-    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
 
     user = relationship('User', back_populates='activeCountries')
     country = relationship('Country', back_populates='user_active_countries')
@@ -248,7 +241,7 @@ class UserActiveCountry(Base):
     )
 
 
-class SettingAuditLog(Base):
+class SettingAuditLog(TimestampMixin, Base):
     """Audit trail for global setting changes"""
     __tablename__ = 'SettingAuditLog'
 
@@ -257,12 +250,11 @@ class SettingAuditLog(Base):
     key = Column(String(100), nullable=False, index=True)
     oldValue = Column(Text, nullable=True)
     newValue = Column(Text, nullable=False)
-    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
 
     user = relationship('User', back_populates='auditLogs')
 
 
-class ArtistConcert(Base):
+class ArtistConcert(TimestampMixin, Base):
     """Junction table for many-to-many Artist-Concert relationship"""
     __tablename__ = 'ArtistConcert'
 
@@ -270,7 +262,6 @@ class ArtistConcert(Base):
     artistId = Column(Integer, ForeignKey('Artist.id'), nullable=False)
     concertId = Column(Integer, ForeignKey('Concert.id'), nullable=False)
     isPrimary = Column(Boolean, nullable=False, default=False)  # True for headliner/main artist
-    createdAt = Column(Integer, nullable=False, default=lambda: int(datetime.now(timezone.utc).timestamp()))
 
     artist = relationship('Artist', back_populates='concerts')
     concert = relationship('Concert', back_populates='artists')

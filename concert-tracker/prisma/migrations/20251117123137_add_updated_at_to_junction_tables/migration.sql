@@ -1,0 +1,11 @@
+-- AlterTable
+ALTER TABLE `ArtistConcert` ADD COLUMN `updatedAt` INTEGER NOT NULL DEFAULT 0,
+    MODIFY `createdAt` INTEGER NOT NULL DEFAULT 0;
+
+-- AlterTable
+ALTER TABLE `SettingAuditLog` ADD COLUMN `updatedAt` INTEGER NOT NULL DEFAULT 0,
+    MODIFY `createdAt` INTEGER NOT NULL DEFAULT 0;
+
+-- AlterTable
+ALTER TABLE `UserActiveCountry` ADD COLUMN `updatedAt` INTEGER NOT NULL DEFAULT 0,
+    MODIFY `createdAt` INTEGER NOT NULL DEFAULT 0;

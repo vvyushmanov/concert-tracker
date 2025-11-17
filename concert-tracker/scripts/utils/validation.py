@@ -237,42 +237,6 @@ def validate_country_codes(country_codes: list) -> ValidationResult:
     )
 
 
-def validate_user_id(user_id: Optional[int]) -> ValidationResult:
-    """
-    Validate user ID
-
-    Args:
-        user_id: User ID to validate
-
-    Returns:
-        ValidationResult indicating if user ID is valid
-    """
-    if user_id is None:
-        return ValidationResult(
-            status=ValidationStatus.ERROR,
-            message="User ID is required",
-            suggestions=[
-                "Provide --user-id parameter",
-                "Use a valid integer user ID from the database"
-            ]
-        )
-
-    if not isinstance(user_id, int) or user_id <= 0:
-        return ValidationResult(
-            status=ValidationStatus.ERROR,
-            message=f"Invalid user ID: {user_id}",
-            suggestions=[
-                "User ID must be a positive integer",
-                "Check User table for valid user IDs"
-            ]
-        )
-
-    return ValidationResult(
-        status=ValidationStatus.VALID,
-        message=f"User ID valid: {user_id}"
-    )
-
-
 def is_musicbrainz_id(value: str) -> bool:
     """
     Check if a string is a valid MusicBrainz ID (MBID).
