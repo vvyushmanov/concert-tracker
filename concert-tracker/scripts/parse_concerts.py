@@ -29,7 +29,7 @@ from dotenv import load_dotenv
 # Import from library modules
 from parsers import CountryConcertParser, GracefulShutdown
 from services import ProxyManager, ArtistSourceManager, LastFMService
-from services.metadata import fetch_artist_metadata
+from services.metadata_service import fetch_artist_metadata
 from config import ConfigManager
 from utils.validation import validate_artist_sources
 from utils.credentials import load_credentials
