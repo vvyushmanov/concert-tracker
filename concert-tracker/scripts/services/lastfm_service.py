@@ -5,6 +5,8 @@ Last.fm API service for fetching artist data and playcounts
 import requests
 from typing import List, Dict, Set, Tuple, Optional
 
+from utils.validation import is_musicbrainz_id
+
 
 class LastFMService:
     """Client for Last.fm API interactions"""
@@ -183,12 +185,8 @@ class LastFMService:
             month12_dict = self._process_artist_list(artists_12month)
 
             # Count unique artists (exclude MBID keys which are UUIDs)
-            # MBIDs are UUIDs: 36 chars, format xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-            def is_mbid(key: str) -> bool:
-                return len(key) == 36 and key.count('-') == 4
-
-            overall_count = sum(1 for key in overall_dict.keys() if not is_mbid(key))
-            month12_count = sum(1 for key in month12_dict.keys() if not is_mbid(key))
+            overall_count = sum(1 for key in overall_dict.keys() if not is_musicbrainz_id(key))
+            month12_count = sum(1 for key in month12_dict.keys() if not is_musicbrainz_id(key))
 
             print(f"  ✓ Loaded {overall_count} overall artists (from Last.fm API)")
             print(f"  ✓ Loaded {month12_count} artists with 12-month activity")

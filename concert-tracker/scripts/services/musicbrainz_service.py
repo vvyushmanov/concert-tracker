@@ -142,8 +142,7 @@ class MusicBrainzService:
         for idx, artist_name in enumerate(artist_names, 1):
             mbid = self.get_artist_mbid(artist_name)
             result[artist_name] = mbid
-
-            if idx % 10 == 0 or idx == total:
-                print(f"  MusicBrainz: Fetched {idx}/{total} MBIDs...")
+            print(f"  MusicBrainz: Fetched {idx}/{total} MBIDs...")
+            print(f"    {artist_name} -> {mbid}")
 
         return result

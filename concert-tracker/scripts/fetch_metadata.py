@@ -30,10 +30,10 @@ from sqlalchemy.orm import sessionmaker
 # Import from library modules
 from database.models import Artist, UserArtist
 from database.config import get_engine
-from utils import fetch_all_user_artists, lookup_artist_playcounts
+from services.lastfm_service import LastFMService
 from services import ArtistMetadataService
+from services.fanart_service import FanartService
 from utils import log
-from services.metadata import fetch_fanart_image, update_user_artist_stats
 from utils.credentials import load_credentials
 
 # Load environment variables
@@ -109,6 +109,14 @@ def main():
     # Check what services are available (all optional now)
     lastfm_available = bool(lastfm_api_key and lastfm_user)
     fanart_available = bool(fanart_api_key)
+
+    # Create service instances
+    fanart_service = FanartService(api_key=fanart_api_key) if fanart_available else None
+    metadata_service = ArtistMetadataService(
+        lastfm_api_key=lastfm_api_key,
+        fanart_api_key=fanart_api_key,
+        lastfm_user=lastfm_user
+    )
 
     log("\n" + "="*60)
     log("METADATA SOURCES STATUS")
@@ -254,7 +262,8 @@ def main():
         log("=" * 60 + "\n")
 
         # Fetch all user artists in bulk for efficient lookup
-        overall_dict, month12_dict = fetch_all_user_artists(lastfm_api_key, lastfm_user)
+        lastfm_service = LastFMService(api_key=lastfm_api_key)
+        overall_dict, month12_dict = lastfm_service.fetch_all_user_artists(lastfm_user)
         log("")
 
         for artist in artists_without_mbid:
@@ -266,23 +275,19 @@ def main():
             log(f"[{current_index}/{total_count}] Processing: {artist.name}")
             log(f"  MBID: {artist.mbid}")
 
-            # Look up playcounts from pre-fetched data
-            playcount, playcount_12month, _ = lookup_artist_playcounts(
-                artist.name,
-                artist.mbid,
-                overall_dict,
-                month12_dict
-            )
+            # Update user-specific playcounts using metadata service
+            if args.user_id:
+                playcount, playcount_12month = metadata_service.update_user_artist_stats(
+                    session, args.user_id, artist, overall_dict, month12_dict
+                )
 
-            # Update user-specific playcounts
-            if args.user_id and (playcount > 0 or playcount_12month > 0):
-                log(f"  ✓ Updated user playcounts: overall={playcount}, 12-month={playcount_12month}")
-                update_user_artist_stats(session, args.user_id, artist, playcount, playcount_12month)
-                stats['playcounts_updated'] += 1
+                if playcount > 0 or playcount_12month > 0:
+                    log(f"  ✓ Updated user playcounts: overall={playcount}, 12-month={playcount_12month}")
+                    stats['playcounts_updated'] += 1
 
             # Try to fetch image from fanart.tv if configured
             if fanart_available:
-                image_url, image_type = fetch_fanart_image(artist.mbid, fanart_api_key)
+                image_url, image_type = fanart_service.fetch_artist_image(artist.mbid)
 
                 if image_url:
                     log(f"  ✓ Found image ({image_type}): {image_url[:60]}...")
@@ -327,7 +332,7 @@ def main():
                 log(f"  MBID: {artist.mbid}")
 
                 # Fetch image from fanart.tv
-                image_url, image_type = fetch_fanart_image(artist.mbid, fanart_api_key)
+                image_url, image_type = fanart_service.fetch_artist_image(artist.mbid)
 
                 if image_url:
                     log(f"  ✓ Found image ({image_type}): {image_url[:60]}...")
@@ -380,26 +385,26 @@ def main():
             log(f"Will refresh playcounts for {total_to_refresh} artists\n")
 
             # Fetch all user artists in bulk (much more efficient - only 2 API calls!)
-            overall_dict, month12_dict = fetch_all_user_artists(lastfm_api_key, lastfm_user)
+            lastfm_service = LastFMService(api_key=lastfm_api_key)
+            overall_dict, month12_dict = lastfm_service.fetch_all_user_artists(lastfm_user)
             log("")
 
             for idx, artist in enumerate(artists_for_playcount_refresh, 1):
                 log(f"[{idx}/{total_to_refresh}] Refreshing playcounts: {artist.name}")
 
-                # Look up playcounts from pre-fetched data
-                playcount, playcount_12month, _ = lookup_artist_playcounts(
-                    artist.name,
-                    artist.mbid,
-                    overall_dict,
-                    month12_dict
-                )
+                # Update user-specific playcounts using metadata service
+                if args.user_id:
+                    playcount, playcount_12month = metadata_service.update_user_artist_stats(
+                        session, args.user_id, artist, overall_dict, month12_dict
+                    )
 
-                if args.user_id and (playcount > 0 or playcount_12month > 0):
-                    log(f"  ✓ Updated user playcounts: overall={playcount}, 12-month={playcount_12month}")
-                    update_user_artist_stats(session, args.user_id, artist, playcount, playcount_12month)
-                    stats['playcounts_updated'] += 1
+                    if playcount > 0 or playcount_12month > 0:
+                        log(f"  ✓ Updated user playcounts: overall={playcount}, 12-month={playcount_12month}")
+                        stats['playcounts_updated'] += 1
+                    else:
+                        log(f"  ✗ No playcount data found")
                 else:
-                    log(f"  ✗ No playcount data found or no user-id specified")
+                    log(f"  ✗ No user-id specified")
             
             # Commit after each artist to save progress
             try:

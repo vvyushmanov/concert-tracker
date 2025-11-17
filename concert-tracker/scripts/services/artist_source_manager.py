@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from database.models import Artist, UserArtist
 from services.lastfm_service import LastFMService
+from utils.validation import is_musicbrainz_id
 
 
 class ArtistSourceManager:
@@ -129,15 +130,10 @@ class ArtistSourceManager:
             # Filter by playcount threshold
             # Note: overall_dict has both artist names (lowercase) and MBIDs as keys
             # We only want entries keyed by artist name, not MBID duplicates
-            # MBID keys are UUIDs (format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
-            # Check for UUID format: 36 chars with 4 hyphens
-            def is_mbid(key: str) -> bool:
-                return len(key) == 36 and key.count('-') == 4
-
             lastfm_artists_filtered = {
                 key: data for key, data in overall_dict.items()
                 if data.get('playcount', 0) >= self.min_playcount
-                and not is_mbid(key)  # Exclude MBID keys (UUID format)
+                and not is_musicbrainz_id(key)  # Exclude MBID keys (UUID format)
             }
 
             print(f"Loaded {len(lastfm_artists_filtered)} artists from Last.fm (playcount >= {self.min_playcount})")

@@ -3,7 +3,7 @@
 CLI entry point for concert parsing
 
 Parses concerts from concerts-metal.com, filters by artist sources,
-and saves to database or JSON.
+and saves to database.
 
 Artist Sources:
     - UserArtist table (user-specific saved artists)
@@ -22,7 +22,6 @@ Usage:
 
 import sys
 import os
-import json
 import argparse
 import time
 from dotenv import load_dotenv
@@ -30,6 +29,7 @@ from dotenv import load_dotenv
 # Import from library modules
 from parsers import CountryConcertParser, GracefulShutdown
 from services import ProxyManager, ArtistSourceManager, LastFMService
+from services.metadata import fetch_artist_metadata
 from config import ConfigManager
 from utils.validation import validate_artist_sources
 from utils.credentials import load_credentials
@@ -43,7 +43,7 @@ except ImportError:
     ConcertDatabaseWriter = None
 
 
-def finalize_and_cleanup(db_writer, args, data_to_save, all_concerts, lastfm_artists):
+def finalize_and_cleanup(db_writer, args, data_to_save):
     """Finalize database writes and fetch metadata for artists
 
     Args:
@@ -51,14 +51,11 @@ def finalize_and_cleanup(db_writer, args, data_to_save, all_concerts, lastfm_art
         args: Command line arguments
         data_to_save: Concerts to save
         all_concerts: All concerts (for --save-all)
-        lastfm_artists: Last.fm artists set
+        filtering_artists: filtered artists set
     """
-    # Save JSON if needed
-    if args.output in ['json', 'both'] and not args.dry_run:
-        print(f"✅ Final output: {len(data_to_save)} concerts in {args.json}")
 
     # Handle database finalization
-    if args.output in ['db', 'both'] and db_writer and not args.dry_run:
+    if args.output in ['db'] and db_writer and not args.dry_run:
         db_writer.print_stats()
 
         # Auto-fetch metadata for all artists (new and existing without complete metadata)
@@ -71,7 +68,6 @@ def finalize_and_cleanup(db_writer, args, data_to_save, all_concerts, lastfm_art
         print(f"   - Checking all artists for missing MBIDs/images...")
 
         try:
-            from services.metadata import fetch_artist_metadata
             # Note: fetch_artist_metadata reads Last.fm config from ConfigManager
             # It will use MusicBrainz as primary source and Last.fm as fallback if configured
             result = fetch_artist_metadata(args.db_path, silent=False, user_id=args.user_id)
@@ -85,25 +81,12 @@ def finalize_and_cleanup(db_writer, args, data_to_save, all_concerts, lastfm_art
         db_writer.close()
         print(f"✅ Database output: {args.db_path}")
 
-    # Optionally save all concerts (JSON only)
-    if args.save_all and lastfm_artists and args.output in ['json', 'both'] and not args.dry_run:
-        all_filename = args.json.replace('.json', '_all.json')
-        with open(all_filename, 'w', encoding='utf-8') as f:
-            json.dump(all_concerts, f, indent=2, ensure_ascii=False)
-        print(f"Saved all {len(all_concerts)} concerts to {all_filename}")
-
-
 def main():
     # Load environment variables
     load_dotenv()
     
     parser = argparse.ArgumentParser(
         description='Parse concerts from country pages, filtered by Last.fm artists'
-    )
-    parser.add_argument(
-        '--json',
-        help='Output JSON file (default: my_concerts.json)',
-        default='my_concerts.json'
     )
     parser.add_argument(
         '--max-pages',
@@ -128,11 +111,6 @@ def main():
         help='Do not filter by Last.fm artists (get all concerts)'
     )
     parser.add_argument(
-        '--save-all',
-        action='store_true',
-        help='Save all concerts in addition to filtered ones'
-    )
-    parser.add_argument(
         '--save-frequency',
         type=str,
         choices=['page', 'country', 'auto'],
@@ -142,9 +120,9 @@ def main():
     parser.add_argument(
         '--output',
         type=str,
-        choices=['json', 'db', 'both'],
-        default='json',
-        help='Output mode: json (default), db (database), or both'
+        choices=['db'],
+        default='db',
+        help='Output mode: db (default)'
     )
     parser.add_argument(
         '--db-path',
@@ -204,14 +182,14 @@ def main():
         print("="*60 + "\n")
     
     # Check if database module is available
-    if args.output in ['db', 'both'] and not DB_AVAILABLE:
+    if args.output in ['db'] and not DB_AVAILABLE:
         print("ERROR: Database output requested but SQLAlchemy is not installed")
         print("Please install: pip install sqlalchemy")
         return 1
     
     # Initialize database writer if needed (skip in dry run)
     db_writer = None
-    if not args.dry_run and args.output in ['db', 'both']:
+    if not args.dry_run and args.output in ['db']:
         if args.db_path:
             print(f"Local database output mode: SQLite at {args.db_path}")
         else:
@@ -311,7 +289,7 @@ def main():
             print(f"Country codes from config: {', '.join(country_codes)}")
         
         # Fetch artists for concert filtering
-        lastfm_artists = set()
+        filtering_artists = set()
         recent_artists = set()
         artist_playcounts = {}
         artist_playcounts_12month = {}
@@ -365,11 +343,12 @@ def main():
             print(f"Minimum playcount threshold: {min_playcount}")
 
             # Fetch artists from all available sources
-            lastfm_artists, recent_artists, artist_playcounts, artist_playcounts_12month, artist_mbids = \
+            filtering_artists, recent_artists, artist_playcounts, artist_playcounts_12month, artist_mbids = \
                 manager.fetch_filtering_artists()
 
-            if not lastfm_artists:
-                print("WARNING: No artists loaded from any source, proceeding without filtering")
+            if not filtering_artists:
+                print("Error: No artists loaded from any source, exiting")
+                return 1
         else:
             # Validate no-filter mode
             validation_result = validate_artist_sources(
@@ -386,12 +365,6 @@ def main():
         # Collect all concerts from all countries
         all_concerts = []
         all_filtered_concerts = []
-        
-        # Initialize output file with empty array (only for JSON output, skip in dry run)
-        if not args.dry_run and args.output in ['json', 'both']:
-            with open(args.json, 'w', encoding='utf-8') as f:
-                json.dump([], f)
-            print(f"Initialized output file: {args.json}\n")
         
         # Track proxy stats across all countries
         total_proxy_successes = 0
@@ -418,7 +391,7 @@ def main():
                     country_code,
                     max_pages=args.max_pages,
                     delay=args.delay,
-                    lastfm_artists=lastfm_artists,
+                    lastfm_artists=filtering_artists,
                     proxy_manager=proxy_manager,
                     debug=args.debug,
                     shutdown_flag=shutdown
@@ -441,20 +414,11 @@ def main():
                         should_save = (page_num % CountryConcertParser.PAGES_PER_SAVE == 0)
                     
                     if should_save:
-                        # Save to JSON if needed
-                        if args.output in ['json', 'both']:
-                            concert_parser.save_progress(
-                                args.json,
-                                all_concerts,
-                                all_filtered_concerts,
-                                recent_artists,
-                                artist_playcounts,
-                                bool(lastfm_artists)
-                            )
+                        
                         
                         # Save to database if needed
-                        if args.output in ['db', 'both'] and db_writer:
-                            data_to_write = filtered_concerts_so_far if lastfm_artists else all_concerts_so_far
+                        if args.output in ['db'] and db_writer:
+                            data_to_write = filtered_concerts_so_far if filtering_artists else all_concerts_so_far
                             db_writer.write_concerts(data_to_write, artist_playcounts, artist_playcounts_12month, recent_artists, artist_mbids)
                         
                         print(f"  💾 Progress saved (page {page_num})")
@@ -471,28 +435,17 @@ def main():
         
                 # Save after country completion (for 'country' mode or final save for 'auto')
                 if not args.dry_run and args.save_frequency in ['country', 'auto']:
-                    # Save to JSON if needed
-                    if args.output in ['json', 'both']:
-                        concert_parser.save_progress(
-                            args.json,
-                            all_concerts,
-                            all_filtered_concerts,
-                            recent_artists,
-                            artist_playcounts,
-                            bool(lastfm_artists)
-                        )
                     
                     # Save to database if needed
-                    if args.output in ['db', 'both'] and db_writer:
-                        data_to_write = concert_parser.filtered_concerts if lastfm_artists else concert_parser.concerts
+                    if args.output in ['db'] and db_writer:
+                        data_to_write = concert_parser.filtered_concerts if filtering_artists else concert_parser.concerts
                         db_writer.write_concerts(data_to_write, artist_playcounts, artist_playcounts_12month, recent_artists, artist_mbids)
         
-                data_to_save = all_filtered_concerts if lastfm_artists else all_concerts
+                data_to_save = all_filtered_concerts if filtering_artists else all_concerts
                 if args.dry_run:
                     print(f"\n🔍 [DRY RUN] Country complete: {len(data_to_save)} total concerts parsed (not saved)")
                 else:
-                    output_desc = f"{args.json}" if args.output in ['json', 'both'] else "database"
-                    print(f"\n💾 Country complete: {len(data_to_save)} total concerts saved to {output_desc}")
+                    print(f"\n💾 Country complete: {len(data_to_save)} total concerts saved to database")
                 
                 # Accumulate proxy stats
                 total_proxy_successes += concert_parser.proxy_successes
@@ -505,8 +458,8 @@ def main():
         
         finally:
             # Always execute cleanup, even on interruption
-            data_to_save = all_filtered_concerts if lastfm_artists else all_concerts
-            finalize_and_cleanup(db_writer, args, data_to_save, all_concerts, lastfm_artists)
+            data_to_save = all_filtered_concerts if filtering_artists else all_concerts
+            finalize_and_cleanup(db_writer, args, data_to_save)
     
     # Print overall summary
     print(f"\n\n{'='*80}")
@@ -514,8 +467,8 @@ def main():
     print(f"{'='*80}")
     print(f"Countries processed: {len(country_codes)}")
     print(f"Total concerts found: {len(all_concerts)}")
-    if lastfm_artists:
-        print(f"Concerts matching Last.fm artists: {len(all_filtered_concerts)}")
+    if filtering_artists:
+        print(f"Concerts matching filtered artists: {len(all_filtered_concerts)}")
         print(f"Overall match rate: {len(all_filtered_concerts)/len(all_concerts)*100:.1f}%" if all_concerts else "Match rate: 0%")
     
     # Print proxy statistics if proxies were used
@@ -533,7 +486,7 @@ def main():
     # Cleanup is now handled in the finally block above
     # Print dry-run message if applicable
     if args.dry_run:
-        data_to_save = all_filtered_concerts if lastfm_artists else all_concerts
+        data_to_save = all_filtered_concerts if filtering_artists else all_concerts
         print(f"\n🔍 [DRY RUN] Completed: {len(data_to_save)} concerts parsed (nothing saved)")
         print(f"   To save data, run without --dry-run flag")
     

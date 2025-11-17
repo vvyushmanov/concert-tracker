@@ -20,7 +20,7 @@ import urllib3
 import signal
 import sys
 
-from utils import restructure_concerts_by_country_and_band, fetch_lastfm_artists
+from utils.data_transform import restructure_concerts_by_country_and_band
 from services import ProxyManager
 from config import ConfigManager
 from parsers import ConcertParser

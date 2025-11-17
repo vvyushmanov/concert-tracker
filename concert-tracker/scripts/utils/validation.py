@@ -4,6 +4,7 @@ Validation utilities for artist sources and configuration
 Provides centralized validation logic with clear error messages and suggestions.
 """
 
+import re
 from typing import Tuple, Optional
 from enum import Enum
 
@@ -270,3 +271,29 @@ def validate_user_id(user_id: Optional[int]) -> ValidationResult:
         status=ValidationStatus.VALID,
         message=f"User ID valid: {user_id}"
     )
+
+
+def is_musicbrainz_id(value: str) -> bool:
+    """
+    Check if a string is a valid MusicBrainz ID (MBID).
+
+    MBIDs are UUIDs in format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    where x is a hexadecimal digit (0-9, a-f).
+
+    Args:
+        value: String to check
+
+    Returns:
+        True if value matches MBID/UUID format, False otherwise
+
+    Examples:
+        >>> is_musicbrainz_id("5b11f4ce-a62d-471e-81fc-a69a8278c7da")
+        True
+        >>> is_musicbrainz_id("Metallica")
+        False
+        >>> is_musicbrainz_id("5b11f4ce")  # Too short
+        False
+    """
+    # UUID v4 format: 8-4-4-4-12 hexadecimal digits
+    uuid_pattern = r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    return bool(re.match(uuid_pattern, value.lower()))
