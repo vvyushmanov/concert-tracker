@@ -42,7 +42,6 @@ class ProxyManager:
     VALIDATION_WORKERS = 50  # Parallel validation threads
     
     def __init__(self, proxy_file: Optional[str] = None, 
-                 use_free_proxies: bool = False,
                  validate_on_load: bool = True,
                  max_proxies: Optional[int] = None,
                  validation_workers: int = 50,
@@ -52,7 +51,6 @@ class ProxyManager:
         
         Args:
             proxy_file: Path to file with proxy list (one per line)
-            use_free_proxies: Fetch proxies from free proxy lists (deprecated)
             validate_on_load: Validate proxies when loading
             webshare_url: Webshare.io download URL
         """
@@ -67,13 +65,7 @@ class ProxyManager:
         if webshare_url:
             self._load_from_webshare_url(webshare_url, validate_on_load)
         elif proxy_file:
-            self._load_from_file(proxy_file, validate_on_load)
-        elif use_free_proxies:
-            print("⚠️  Free proxies are unreliable and deprecated.")
-            print("   Consider using Webshare.io free tier (10 proxies) instead.")
-            print("   Sign up at: https://webshare.io")
-            self._fetch_free_proxies(validate_on_load)
-        
+            self._load_from_file(proxy_file, validate_on_load)        
         if not self.proxies:
             print("⚠️  No proxies loaded. Will use direct connection.")
     
