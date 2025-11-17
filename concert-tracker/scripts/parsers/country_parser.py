@@ -5,13 +5,13 @@ Parses all concerts from country-specific pages with pagination support
 Filters concerts by Last.fm top artists
 """
 
+import logging
 import requests
 from bs4 import BeautifulSoup
 import json
 from typing import List, Dict, Optional, Set, Tuple
 import argparse
 import time
-from datetime import datetime
 import os
 import random
 from urllib.parse import urljoin
@@ -19,6 +19,8 @@ from dotenv import load_dotenv
 import urllib3
 import signal
 import sys
+
+logger = logging.getLogger(__name__)
 
 from utils.data_transform import restructure_concerts_by_country_and_band
 from services import ProxyManager
@@ -72,9 +74,14 @@ class CountryConcertParser:
         self.concert_parser = ConcertParser(self.lastfm_artists, self.BASE_URL)
         
         # Create HTTP client for requests
+        # WARNING: SSL verification disabled for concerts-metal.com due to certificate issues
+        logger.warning("SSL verification disabled for concerts-metal.com")
+        logger.warning("  Reason: Known certificate validation issues with source site")
+        logger.warning("  Risk: Potential MITM attacks on concert data scraping")
+
         self.http_client = HTTPClient(
             timeout=self.REQUEST_TIMEOUT,
-            verify_ssl=False,  # This specific site has cert issues
+            verify_ssl=False,  # TODO: Investigate cert pinning for concerts-metal.com
             proxy_manager=proxy_manager,
             pool_connections=1,
             pool_maxsize=1
@@ -96,8 +103,7 @@ class CountryConcertParser:
     
     def _log(self, message: str):
         """Log message with timestamp"""
-        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-        print(f"[{timestamp}] {message}")
+        logger.info(message)
     
     def fetch_page(self, url: str, max_retries: int = 3) -> Optional[BeautifulSoup]:
         """Fetch a single page and return BeautifulSoup object
@@ -118,9 +124,9 @@ class CountryConcertParser:
         
         # Check for rate limiting
         if 'limit.html' in response.url or len(response.text) < self.RATE_LIMIT_MIN_RESPONSE_SIZE:
-            print(f"  [ERROR] ⚠️  RATE LIMITED! The website is blocking requests.")
-            print(f"  [ERROR] Please wait 10-15 minutes before trying again.")
-            print(f"  [ERROR] Consider using --use-proxies webshare or --use-proxies custom")
+            logger.error("RATE LIMITED! The website is blocking requests.")
+            logger.error("Please wait 10-15 minutes before trying again.")
+            logger.error("Consider using --use-proxies webshare or --use-proxies custom")
             return None
         
         # Parse HTML
@@ -225,26 +231,26 @@ class CountryConcertParser:
         if detect_total_pages:
             total_pages = self.find_total_pages()
             if total_pages == 0:
-                print("No pages found for this country")
+                logger.warning("No pages found for this country")
                 return self.concerts
-            print(f"\n📊 Total pages to process: {total_pages}\n")
+            logger.info(f"Total pages to process: {total_pages}")
         
         page_num = 1
         
         while True:
             # Check for interruption
             if self.shutdown_flag and self.shutdown_flag.interrupted:
-                print(f"\n⚠️  Stopping page fetching due to interrupt...")
+                logger.warning("Stopping page fetching due to interrupt...")
                 break
-            
+
             # Check if we've reached max pages
             if self.max_pages and page_num > self.max_pages:
-                print(f"Reached maximum page limit ({self.max_pages})")
+                logger.info(f"Reached maximum page limit ({self.max_pages})")
                 break
-            
+
             # Check if we've reached detected total pages
             if total_pages and page_num > total_pages:
-                print(f"Reached end of pages ({total_pages})")
+                logger.info(f"Reached end of pages ({total_pages})")
                 break
             
             url = self.get_page_url(page_num)
@@ -254,7 +260,7 @@ class CountryConcertParser:
             page_start = time.time()
             soup = self.fetch_page(url)
             if not soup:
-                print(f"Failed to fetch page {page_num}, stopping")
+                logger.error(f"Failed to fetch page {page_num}, stopping")
                 break
             
             # Parse concerts from this page
@@ -266,7 +272,7 @@ class CountryConcertParser:
             self._log(f"  Found {len(all_concerts)} concerts on page {page_num} ({len(filtered_concerts)} matched) - took {page_time:.2f}s")
             
             if not all_concerts:
-                print(f"No concerts found on page {page_num}, stopping")
+                logger.warning(f"No concerts found on page {page_num}, stopping")
                 break
             
             self.concerts.extend(all_concerts)
@@ -279,7 +285,7 @@ class CountryConcertParser:
             
             # Check if there's a next page
             if not self.has_next_page(soup, page_num):
-                print(f"No more pages found after page {page_num}")
+                logger.info(f"No more pages found after page {page_num}")
                 break
             
             page_num += 1
@@ -295,7 +301,7 @@ class CountryConcertParser:
         data_to_save = self.filtered_concerts if filtered_only else self.concerts
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(data_to_save, f, indent=2, ensure_ascii=False)
-        print(f"\nSaved {len(data_to_save)} concerts to {filename}")
+        logger.info(f"Saved {len(data_to_save)} concerts to {filename}")
     
     def print_statistics(self, country_code: str, normalizer=None):
         """Print statistics about parsed concerts
@@ -304,39 +310,38 @@ class CountryConcertParser:
             country_code: Country code being processed
             normalizer: Optional CityNormalizer to show normalized city names
         """
-        print(f"Pages processed: {self.pages_processed}")
-        print(f"Total concerts found: {self.total_concerts_found}")
+        logger.info(f"Pages processed: {self.pages_processed}")
+        logger.info(f"Total concerts found: {self.total_concerts_found}")
         if self.lastfm_artists:
-            print(f"Concerts matching Last.fm artists: {self.matched_concerts}")
-            print(f"Match rate: {self.matched_concerts/self.total_concerts_found*100:.1f}%" if self.total_concerts_found > 0 else "Match rate: 0%")
-        print(f"{'='*80}\n")
-        
+            logger.info(f"Concerts matching Last.fm artists: {self.matched_concerts}")
+            logger.info(f"Match rate: {self.matched_concerts/self.total_concerts_found*100:.1f}%" if self.total_concerts_found > 0 else "Match rate: 0%")
+        logger.info("=" * 80)
+
         # Use filtered concerts for summary if filtering is enabled
         concerts_to_show = self.filtered_concerts if self.lastfm_artists else self.concerts
-        
+
         if not concerts_to_show:
-            print("No concerts match your Last.fm artists.")
+            logger.info("No concerts match your Last.fm artists.")
             return
-        
+
         # Group by city
         cities = {}
         for concert in concerts_to_show:
             city = concert.get('city', 'Unknown')
             cities[city] = cities.get(city, 0) + 1
-        
-        print("Concerts by city (matching Last.fm):" if self.lastfm_artists else "Concerts by city:")
+
+        logger.info("Concerts by city (matching Last.fm):" if self.lastfm_artists else "Concerts by city:")
         for city, count in sorted(cities.items(), key=lambda x: x[1], reverse=True)[:10]:
-                print(f"  {city}: {count}")
-        
-        print(f"\nFirst 5 matching concerts:" if self.lastfm_artists else "\nFirst 5 concerts:")
+            logger.info(f"  {city}: {count}")
+
+        logger.info("First 5 matching concerts:" if self.lastfm_artists else "First 5 concerts:")
         for i, concert in enumerate(concerts_to_show[:5], 1):
-            print(f"\n{i}. {concert['event_name']}")
-            print(f"   Date: {concert['date_start']}", end='')
+            logger.info(f"{i}. {concert['event_name']}")
+            date_str = f"   Date: {concert['date_start']}"
             if concert['date_end'] and concert['date_end'] != concert['date_start']:
-                print(f" to {concert['date_end']}")
-            else:
-                print()
-            
+                date_str += f" to {concert['date_end']}"
+            logger.info(date_str)
+
             # Show city with normalization info
             city_display = concert['city']
             # Check if concert has normalizedCity (set by db_writer)
@@ -347,15 +352,15 @@ class CountryConcertParser:
                 normalized = normalizer.normalize(concert['city'], concert['country'])
                 if normalized != concert['city']:
                     city_display = f"{concert['city']} → {normalized}"
-            print(f"   Location: {city_display}, {concert['country']}")
-            
+            logger.info(f"   Location: {city_display}, {concert['country']}")
+
             if concert['performers']:
                 performers_str = ', '.join(concert['performers'][:3])
                 if len(concert['performers']) > 3:
                     performers_str += f" (+{len(concert['performers']) - 3} more)"
-                print(f"   Performers: {performers_str}")
+                logger.info(f"   Performers: {performers_str}")
             if concert.get('matched_artists'):
-                print(f"   ★ Matched: {', '.join(concert['matched_artists'])}")
+                logger.info(f"   Matched: {', '.join(concert['matched_artists'])}")
     
     def save_progress(
         self,
@@ -424,10 +429,10 @@ class GracefulShutdown:
     def _signal_handler(self, signum, frame):
         if not self.interrupted:
             self.interrupted = True
-            print("\n\n⚠️  Interrupt received - initiating graceful shutdown...")
-            print("   Saving progress and fetching metadata for new artists...")
+            logger.warning("Interrupt received - initiating graceful shutdown...")
+            logger.warning("Saving progress and fetching metadata for new artists...")
         else:
-            print("\n⚠️  Second interrupt received - forcing exit!")
+            logger.warning("Second interrupt received - forcing exit!")
             sys.exit(1)
 
 

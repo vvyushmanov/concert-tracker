@@ -91,9 +91,10 @@ class ConfigManager:
         """Auto-migrate ENV vars to DB on first run"""
         if not self._Session:
             return
-        
-        session = self._Session()
+
+        session = None
         try:
+            session = self._Session()
             # Check if Setting table is empty
             count = session.query(Setting).count()
             if count > 0:
@@ -135,10 +136,12 @@ class ConfigManager:
             print(f"✅ Migrated {migrated} settings from .env to database")
             
         except Exception as e:
-            session.rollback()
+            if session:
+                session.rollback()
             print(f"Warning: Settings migration failed: {e}")
         finally:
-            session.close()
+            if session:
+                session.close()
     
     def get(self, key: str, default: Optional[str] = None) -> str:
         """Get setting as string"""

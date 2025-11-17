@@ -6,6 +6,9 @@ import requests
 from typing import List, Dict, Set, Tuple, Optional
 
 from utils.validation import is_musicbrainz_id
+from utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class LastFMService:
@@ -44,10 +47,10 @@ class LastFMService:
             - Dict of artist name -> 12-month playcount
             - Dict of artist name -> MusicBrainz ID
         """
-        print("Fetching top artists from Last.fm...")
+        logger.info("Fetching top artists from Last.fm...")
         
         # Fetch overall top artists
-        print("  - Fetching overall top artists...")
+        logger.info("  - Fetching overall top artists...")
         params_overall = {
             "method": "user.gettopartists",
             "api_key": self.api_key,
@@ -57,7 +60,7 @@ class LastFMService:
         }
         
         # Fetch 12-month top artists
-        print("  - Fetching last 12 months top artists...")
+        logger.info("  - Fetching last 12 months top artists...")
         params_12month = {
             "method": "user.gettopartists",
             "api_key": self.api_key,
@@ -111,13 +114,13 @@ class LastFMService:
                     if name in filtered_artists:  # Only include if meets overall playcount threshold
                         recent_artists.add(name)
             
-            print(f"  ✓ Loaded {len(filtered_artists)} artists (with {min_playcount}+ plays)")
-            print(f"  ✓ {len(recent_artists)} artists listened to in last 12 months")
-            print(f"  ✓ {len(artist_mbids)} artists with MusicBrainz IDs")
+            logger.info(f"Loaded {len(filtered_artists)} artists (with {min_playcount}+ plays)")
+            logger.info(f"Loaded {len(recent_artists)} artists listened to in last 12 months")
+            logger.info(f"Loaded {len(artist_mbids)} artists with MusicBrainz IDs")
             
             return filtered_artists, recent_artists, overall_playcounts, playcounts_12month, artist_mbids
         except Exception as e:
-            print(f"Error fetching Last.fm data: {e}")
+            logger.error(f"Error fetching Last.fm data: {e}")
             return set(), set(), {}, {}, {}
     
     def fetch_all_user_artists(
@@ -141,7 +144,7 @@ class LastFMService:
             
             Artist identifier is MBID if available, otherwise lowercase artist name
         """
-        print("Fetching all user artists from Last.fm...")
+        logger.info("Fetching all user artists from Last.fm...")
         
         try:
             # Fetch overall top artists
@@ -157,7 +160,7 @@ class LastFMService:
                 'User-Agent': 'ConcertTracker/1.0 (https://github.com/vyushmanov/concert-tracker)'
             }
             
-            print("  Fetching overall top artists...")
+            logger.info("Fetching overall top artists...")
             response_overall = requests.get(self.BASE_URL, params=params_overall, timeout=30, headers=headers)
             response_overall.raise_for_status()
             data_overall = response_overall.json()
@@ -172,7 +175,7 @@ class LastFMService:
                 'period': '12month'
             }
             
-            print("  Fetching 12-month top artists...")
+            logger.info("Fetching 12-month top artists...")
             response_12month = requests.get(self.BASE_URL, params=params_12month, timeout=30)
             response_12month.raise_for_status()
             data_12month = response_12month.json()
@@ -188,13 +191,13 @@ class LastFMService:
             overall_count = sum(1 for key in overall_dict.keys() if not is_musicbrainz_id(key))
             month12_count = sum(1 for key in month12_dict.keys() if not is_musicbrainz_id(key))
 
-            print(f"  ✓ Loaded {overall_count} overall artists (from Last.fm API)")
-            print(f"  ✓ Loaded {month12_count} artists with 12-month activity")
+            logger.info(f"Loaded {overall_count} overall artists (from Last.fm API)")
+            logger.info(f"Loaded {month12_count} artists with 12-month activity")
 
             return overall_dict, month12_dict
             
         except Exception as e:
-            print(f"Error fetching Last.fm user artists: {e}")
+            logger.error(f"Error fetching Last.fm user artists: {e}")
             return {}, {}
     
     def get_artist_info(self, artist_name: str) -> Optional[Dict]:

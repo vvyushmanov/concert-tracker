@@ -23,6 +23,7 @@ def add_or_update_country(input_value: str, active: bool = True) -> dict:
     Returns:
         Dict with success status and country info
     """
+    session = None
     try:
         engine = get_engine()
         Session = sessionmaker(bind=engine)
@@ -127,7 +128,7 @@ def add_or_update_country(input_value: str, active: bool = True) -> dict:
             'error': f'Database error: {str(e)}'
         }
     finally:
-        if 'session' in locals():
+        if session:
             session.close()
 
 def main():

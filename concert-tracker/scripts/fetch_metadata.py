@@ -30,8 +30,11 @@ from database.config import get_engine
 from services.lastfm_service import LastFMService
 from services import ArtistMetadataService
 from services.fanart_service import FanartService
-from utils import log
+from utils.logging_config import get_logger, setup_logging
 from utils.credentials import load_credentials
+
+logger = get_logger(__name__)
+setup_logging()
 
 # Load environment variables
 load_dotenv()
@@ -86,7 +89,7 @@ def main():
     )
 
     if validation.is_error():
-        print(validation)
+        logger.error(validation)
         return 1
 
     # Extract credentials (works for both user-specific and global modes)
@@ -96,12 +99,12 @@ def main():
 
     # Display configuration info
     if args.user_id:
-        log(f"User-specific mode: {credentials.username} (ID: {args.user_id})")
-        log(f"Last.fm user: {lastfm_user}")
+        logger.info(f"User-specific mode: {credentials.username} (ID: {args.user_id})")
+        logger.info(f"Last.fm user: {lastfm_user}")
     else:
-        log(f"ℹ️  {validation.message}")  # Global mode for all artists
-        log("Note: Playcounts will not be saved without --user-id (global mode)")
-        log(f"Last.fm user: {lastfm_user}")
+        logger.info(f"ℹ️  {validation.message}")  # Global mode for all artists
+        logger.info("Note: Playcounts will not be saved without --user-id (global mode)")
+        logger.info(f"Last.fm user: {lastfm_user}")
     
     # Check what services are available (all optional now)
     lastfm_available = bool(lastfm_api_key and lastfm_user)
@@ -115,36 +118,36 @@ def main():
         lastfm_user=lastfm_user
     )
 
-    log("\n" + "="*60)
-    log("METADATA SOURCES STATUS")
-    log("="*60)
-    log(f"Last.fm: {'✓ Configured' if lastfm_available else '✗ Not configured'}")
-    log(f"Fanart.tv: {'✓ Configured' if fanart_available else '✗ Not configured'}")
-    log(f"MusicBrainz: ✓ Available (no auth required)")
-    log("="*60 + "\n")
+    logger.info("="*60)
+    logger.info("METADATA SOURCES STATUS")
+    logger.info("="*60)
+    logger.info(f"Last.fm: {'✓ Configured' if lastfm_available else '✗ Not configured'}")
+    logger.info(f"Fanart.tv: {'✓ Configured' if fanart_available else '✗ Not configured'}")
+    logger.info(f"MusicBrainz: ✓ Available (no auth required)")
+    logger.info("="*60 + "\n")
 
     if not lastfm_available:
-        log("WARNING: Last.fm not configured - playcount updates will be skipped")
-        log("         To enable: Configure LASTFM_API_KEY and LASTFM_USER in settings")
+        logger.warning("Last.fm not configured - playcount updates will be skipped")
+        logger.info("To enable: Configure LASTFM_API_KEY and LASTFM_USER in settings")
 
     if not fanart_available:
-        log("WARNING: Fanart.tv not configured - image fetching will be skipped")
-        log("         To enable: Configure FANART_API_KEY in settings")
-        log("         Get your free API key from: https://fanart.tv/get-an-api-key/")
+        logger.warning("Fanart.tv not configured - image fetching will be skipped")
+        logger.info("To enable: Configure FANART_API_KEY in settings")
+        logger.info("Get your free API key from: https://fanart.tv/get-an-api-key/")
 
     if not lastfm_available and not fanart_available:
-        log("\nWARNING: Limited functionality - only MusicBrainz MBID lookups available")
-        log("         Configure at least one service for full metadata enrichment\n")
+        logger.warning("Limited functionality - only MusicBrainz MBID lookups available")
+        logger.info("Configure at least one service for full metadata enrichment\n")
     
     # Connect to database
     try:
         if args.db_path:
-            log(f"Connecting to database: {args.db_path}")
+            logger.info(f"Connecting to database: {args.db_path}")
         else:
-            log(f"Connecting to database via DB_TYPE configuration")
+            logger.info(f"Connecting to database via DB_TYPE configuration")
         engine = get_engine(args.db_path)
     except ValueError as e:
-        print(f"Error: {e}")
+        logger.error(f"Error: {e}")
         return 1
     
     # Schema check removed - playcounts are now in UserArtist table
@@ -159,15 +162,15 @@ def main():
         user_artist_ids = [id[0] for id in user_artist_ids]
         
         if not user_artist_ids:
-            log(f"No artists found for user ID {args.user_id}")
+            logger.info(f"No artists found for user ID {args.user_id}")
             return 0
         
         all_artists = session.query(Artist).filter(Artist.id.in_(user_artist_ids)).all()
-        log(f"Processing {len(all_artists)} artists for user ID {args.user_id}")
+        logger.info(f"Processing {len(all_artists)} artists for user ID {args.user_id}")
     else:
         # Global mode: all artists
         all_artists = session.query(Artist).all()
-        log(f"Processing all {len(all_artists)} artists (no user filter)")
+        logger.info(f"Processing all {len(all_artists)} artists (no user filter)")
     
     # PHASE 0: Automatic MBID repair (runs always, regardless of flags)
     # Strategy: MusicBrainz first, then Last.fm if configured
@@ -175,9 +178,9 @@ def main():
 
     mbid_repair_count = 0
     if artists_missing_mbid:
-        log("=" * 60)
-        log(f"PHASE 0: MBID Auto-Repair ({len(artists_missing_mbid)} artists without MBID)")
-        log("=" * 60 + "\n")
+        logger.info("=" * 60)
+        logger.info(f"PHASE 0: MBID Auto-Repair ({len(artists_missing_mbid)} artists without MBID)")
+        logger.info("=" * 60 + "\n")
 
         # Use ArtistMetadataService for MBID repair
         metadata_service = ArtistMetadataService(
@@ -190,29 +193,29 @@ def main():
         try:
             mbid_repair_count = metadata_service.bulk_repair_mbids(session, artists_missing_mbid)
             session.commit()
-            log(f"\n✓ Auto-repaired {mbid_repair_count}/{len(artists_missing_mbid)} MBIDs\n")
+            logger.info(f"\n✓ Auto-repaired {mbid_repair_count}/{len(artists_missing_mbid)} MBIDs\n")
         except Exception as e:
-            log(f"Error during MBID repair: {e}")
+            logger.error(f"Error during MBID repair: {e}")
             session.rollback()
 
         # Re-evaluate artists needing images after MBID repair
         # Artists that just got MBIDs should now be eligible for image fetching
         if fanart_available and mbid_repair_count > 0:
-            log("Re-evaluating artists needing images after MBID repair...")
+            logger.info("Re-evaluating artists needing images after MBID repair...")
 
     # Determine which phases to run
     # Re-evaluate after Phase 0 MBID repairs to ensure artists with new MBIDs get images
     if args.refresh_playcounts and not args.force:
-        log(f"Refresh playcounts mode: Will update playcounts for all {len(all_artists)} artists")
+        logger.info(f"Refresh playcounts mode: Will update playcounts for all {len(all_artists)} artists")
         # Skip Phase 1, but still run Phase 2 if images are needed
         artists_without_mbid = [a for a in all_artists if not a.mbid]
         artists_with_mbid = [a for a in all_artists if a.mbid and not a.imageUrl]
         if artists_with_mbid:
-            log(f"  Also found {len(artists_with_mbid)} artists with MBID but missing images")
+            logger.info(f"  Also found {len(artists_with_mbid)} artists with MBID but missing images")
     else:
         # Normal mode: separate into groups for processing
         if args.force:
-            log("Force mode: Will re-fetch metadata for all artists")
+            logger.info("Force mode: Will re-fetch metadata for all artists")
 
         # Re-evaluate lists after Phase 0 (MBID repair may have moved artists between lists)
         artists_without_mbid = [a for a in all_artists if not a.mbid]
@@ -224,19 +227,19 @@ def main():
             artists_without_mbid = [a for a in total_artists if not a.mbid][:args.limit]
             remaining = args.limit - len(artists_without_mbid)
             artists_with_mbid = [a for a in total_artists if a.mbid][:remaining] if remaining > 0 else []
-            log(f"Limiting to {args.limit} artists total")
+            logger.info(f"Limiting to {args.limit} artists total")
     
     total_count = len(artists_without_mbid) + len(artists_with_mbid)
     
     if total_count == 0 and not args.refresh_playcounts:
-        log("No artists need processing!")
+        logger.info("No artists need processing!")
         if not args.refresh_playcounts:
             return 0
     
     if total_count > 0:
-        log(f"Found {len(artists_without_mbid)} artists without MBID (will fetch MBID + playcounts + images)")
-        log(f"Found {len(artists_with_mbid)} artists with MBID needing images (will fetch images only)")
-        log(f"Total: {total_count} artists to process\n")
+        logger.info(f"Found {len(artists_without_mbid)} artists without MBID (will fetch MBID + playcounts + images)")
+        logger.info(f"Found {len(artists_with_mbid)} artists with MBID needing images (will fetch images only)")
+        logger.info(f"Total: {total_count} artists to process\n")
     
     # Process each artist
     stats = {
@@ -254,14 +257,14 @@ def main():
     # Phase 1: Process artists without MBID (handled by Phase 0 now)
     # This phase now only handles playcount updates if Last.fm is available
     if artists_without_mbid and lastfm_available:
-        log("=" * 60)
-        log("PHASE 1: Fetching playcounts and images for artists with new MBIDs")
-        log("=" * 60 + "\n")
+        logger.info("=" * 60)
+        logger.info("PHASE 1: Fetching playcounts and images for artists with new MBIDs")
+        logger.info("=" * 60 + "\n")
 
         # Fetch all user artists in bulk for efficient lookup
         lastfm_service = LastFMService(api_key=lastfm_api_key)
         overall_dict, month12_dict = lastfm_service.fetch_all_user_artists(lastfm_user)
-        log("")
+        logger.info("")
 
         for artist in artists_without_mbid:
             # Skip if MBID wasn't repaired in Phase 0
@@ -269,8 +272,8 @@ def main():
                 continue
 
             current_index += 1
-            log(f"[{current_index}/{total_count}] Processing: {artist.name}")
-            log(f"  MBID: {artist.mbid}")
+            logger.info(f"[{current_index}/{total_count}] Processing: {artist.name}")
+            logger.info(f"  MBID: {artist.mbid}")
 
             # Update user-specific playcounts using metadata service
             if args.user_id:
@@ -279,7 +282,7 @@ def main():
                 )
 
                 if playcount > 0 or playcount_12month > 0:
-                    log(f"  ✓ Updated user playcounts: overall={playcount}, 12-month={playcount_12month}")
+                    logger.info(f"  ✓ Updated user playcounts: overall={playcount}, 12-month={playcount_12month}")
                     stats['playcounts_updated'] += 1
 
             # Try to fetch image from fanart.tv if configured
@@ -287,11 +290,11 @@ def main():
                 image_url, image_type = fanart_service.fetch_artist_image(artist.mbid)
 
                 if image_url:
-                    log(f"  ✓ Found image ({image_type}): {image_url[:60]}...")
+                    logger.info(f"  ✓ Found image ({image_type}): {image_url[:60]}...")
                     artist.imageUrl = image_url
                     stats['images_found'] += 1
                 else:
-                    log(f"  ✗ No image found on fanart.tv")
+                    logger.info(f"  ✗ No image found on fanart.tv")
                     stats['images_not_found'] += 1
 
                 # Rate limit fanart.tv API calls
@@ -303,40 +306,40 @@ def main():
             try:
                 session.commit()
             except Exception as e:
-                log(f"  Error saving to database: {e}")
+                logger.info(f"  Error saving to database: {e}")
                 session.rollback()
                 stats['errors'] += 1
 
-        log("\n")
+        logger.info("\n")
     
     # Phase 2: Process artists with MBID but no images (if Fanart.tv configured)
     if artists_with_mbid:
         if not fanart_available:
-            log("=" * 60)
-            log("PHASE 2: Image Fetch SKIPPED")
-            log("=" * 60)
-            log(f"⚠️  Fanart.tv not configured - skipping {len(artists_with_mbid)} artists")
-            log("   Configure FANART_API_KEY to enable image fetching")
-            log("   Get your free API key from: https://fanart.tv/get-an-api-key/\n")
+            logger.info("=" * 60)
+            logger.info("PHASE 2: Image Fetch SKIPPED")
+            logger.info("=" * 60)
+            logger.info(f"⚠️  Fanart.tv not configured - skipping {len(artists_with_mbid)} artists")
+            logger.info("   Configure FANART_API_KEY to enable image fetching")
+            logger.info("   Get your free API key from: https://fanart.tv/get-an-api-key/\n")
         else:
-            log("=" * 60)
-            log("PHASE 2: Fetching images for artists with MBID")
-            log("=" * 60 + "\n")
+            logger.info("=" * 60)
+            logger.info("PHASE 2: Fetching images for artists with MBID")
+            logger.info("=" * 60 + "\n")
 
             for artist in artists_with_mbid:
                 current_index += 1
-                log(f"[{current_index}/{total_count}] Processing: {artist.name}")
-                log(f"  MBID: {artist.mbid}")
+                logger.info(f"[{current_index}/{total_count}] Processing: {artist.name}")
+                logger.info(f"  MBID: {artist.mbid}")
 
                 # Fetch image from fanart.tv
                 image_url, image_type = fanart_service.fetch_artist_image(artist.mbid)
 
                 if image_url:
-                    log(f"  ✓ Found image ({image_type}): {image_url[:60]}...")
+                    logger.info(f"  ✓ Found image ({image_type}): {image_url[:60]}...")
                     artist.imageUrl = image_url
                     stats['images_found'] += 1
                 else:
-                    log(f"  ✗ No image found")
+                    logger.info(f"  ✗ No image found")
                     stats['images_not_found'] += 1
 
                 stats['processed'] += 1
@@ -345,7 +348,7 @@ def main():
                 try:
                     session.commit()
                 except Exception as e:
-                    log(f"  Error saving to database: {e}")
+                    logger.info(f"  Error saving to database: {e}")
                     session.rollback()
                     stats['errors'] += 1
 
@@ -356,16 +359,16 @@ def main():
     # Phase 3: Refresh playcounts for all artists (if requested and Last.fm configured)
     if args.refresh_playcounts:
         if not lastfm_available:
-            log("=" * 60)
-            log("PHASE 3: Playcount Refresh SKIPPED")
-            log("=" * 60)
-            log("⚠️  Last.fm not configured - cannot refresh playcounts")
-            log("   Configure LASTFM_API_KEY and LASTFM_USER to enable playcount tracking\n")
+            logger.info("=" * 60)
+            logger.info("PHASE 3: Playcount Refresh SKIPPED")
+            logger.info("=" * 60)
+            logger.info("⚠️  Last.fm not configured - cannot refresh playcounts")
+            logger.info("   Configure LASTFM_API_KEY and LASTFM_USER to enable playcount tracking\n")
         else:
-            log("=" * 60)
+            logger.info("=" * 60)
             phase_name = "PHASE 3" if total_count > 0 else "Refreshing playcounts for all artists"
-            log(f"{phase_name}: Refreshing playcounts for all artists")
-            log("=" * 60 + "\n")
+            logger.info(f"{phase_name}: Refreshing playcounts for all artists")
+            logger.info("=" * 60 + "\n")
 
             # Get all artists that weren't already processed in Phase 1
             artists_for_playcount_refresh = [a for a in all_artists if a not in artists_without_mbid]
@@ -379,15 +382,15 @@ def main():
                     artists_for_playcount_refresh = []
 
             total_to_refresh = len(artists_for_playcount_refresh)
-            log(f"Will refresh playcounts for {total_to_refresh} artists\n")
+            logger.info(f"Will refresh playcounts for {total_to_refresh} artists\n")
 
             # Fetch all user artists in bulk (much more efficient - only 2 API calls!)
             lastfm_service = LastFMService(api_key=lastfm_api_key)
             overall_dict, month12_dict = lastfm_service.fetch_all_user_artists(lastfm_user)
-            log("")
+            logger.info("")
 
             for idx, artist in enumerate(artists_for_playcount_refresh, 1):
-                log(f"[{idx}/{total_to_refresh}] Refreshing playcounts: {artist.name}")
+                logger.info(f"[{idx}/{total_to_refresh}] Refreshing playcounts: {artist.name}")
 
                 # Update user-specific playcounts using metadata service
                 if args.user_id:
@@ -396,37 +399,37 @@ def main():
                     )
 
                     if playcount > 0 or playcount_12month > 0:
-                        log(f"  ✓ Updated user playcounts: overall={playcount}, 12-month={playcount_12month}")
+                        logger.info(f"  ✓ Updated user playcounts: overall={playcount}, 12-month={playcount_12month}")
                         stats['playcounts_updated'] += 1
                     else:
-                        log(f"  ✗ No playcount data found")
+                        logger.info(f"  ✗ No playcount data found")
                 else:
-                    log(f"  ✗ No user-id specified")
+                    logger.info(f"  ✗ No user-id specified")
             
             # Commit after each artist to save progress
             try:
                 session.commit()
             except Exception as e:
-                log(f"  Error saving to database: {e}")
+                logger.info(f"  Error saving to database: {e}")
                 session.rollback()
                 stats['errors'] += 1
         
-        log("\n")
+        logger.info("\n")
     
     session.close()
     
     # Print summary
-    log("\n" + "="*60)
-    log("SUMMARY")
-    log("="*60)
-    log(f"Artists processed: {stats['processed']}")
-    log(f"MBIDs fetched: {stats['mbid_fetched']}")
-    log(f"MBIDs not found: {stats['mbid_not_found']}")
-    log(f"Playcounts updated: {stats['playcounts_updated']}")
-    log(f"Images found: {stats['images_found']}")
-    log(f"Images not found: {stats['images_not_found']}")
-    log(f"Errors: {stats['errors']}")
-    log("="*60)
+    logger.info("="*60)
+    logger.info("SUMMARY")
+    logger.info("="*60)
+    logger.info(f"Artists processed: {stats['processed']}")
+    logger.info(f"MBIDs fetched: {stats['mbid_fetched']}")
+    logger.info(f"MBIDs not found: {stats['mbid_not_found']}")
+    logger.info(f"Playcounts updated: {stats['playcounts_updated']}")
+    logger.info(f"Images found: {stats['images_found']}")
+    logger.info(f"Images not found: {stats['images_not_found']}")
+    logger.info(f"Errors: {stats['errors']}")
+    logger.info("="*60)
     
     return 0
 

@@ -51,6 +51,8 @@ class HTTPClient:
         # Disable SSL warnings if not verifying
         if not verify_ssl:
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            # Note: SSL verification disabled - this is a security risk
+            # Only disable for specific domains with known certificate issues
     
     def _create_session(self, pool_connections: int, pool_maxsize: int) -> requests.Session:
         """Create and configure requests session

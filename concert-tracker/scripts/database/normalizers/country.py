@@ -5,10 +5,13 @@ Used during migration and by parser to handle country lookups and creation
 Includes REST Countries API fallback for automatic country code resolution
 """
 
+import logging
 import requests
 from datetime import datetime, timezone
 from typing import Optional, Tuple
 from database.models import Country
+
+logger = logging.getLogger(__name__)
 
 # Country name to ISO code mapping
 COUNTRY_NAME_TO_CODE = {
@@ -83,9 +86,8 @@ def lookup_country_by_name(country_name: str) -> Optional[Tuple[str, str]]:
                 if code:
                     return (name, code)
     except Exception as e:
-        # Silently fail - we'll use fallback
-        pass
-    
+        logger.debug(f"REST Countries API lookup failed for name '{country_name}': {e}")
+
     return None
 
 
@@ -113,9 +115,8 @@ def lookup_country_by_code(country_code: str) -> Optional[Tuple[str, str]]:
                 if name and code:
                     return (name, code)
     except Exception as e:
-        # Silently fail - we'll use fallback
-        pass
-    
+        logger.debug(f"REST Countries API lookup failed for code '{country_code}': {e}")
+
     return None
 
 

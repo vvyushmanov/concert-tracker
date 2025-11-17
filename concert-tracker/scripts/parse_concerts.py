@@ -26,8 +26,14 @@ import argparse
 import time
 from dotenv import load_dotenv
 
+# Import logging infrastructure
+from utils.logging_config import setup_logging, get_logger
+
 # Import from library modules
 from parsers import CountryConcertParser, GracefulShutdown
+
+# Setup module logger
+logger = get_logger(__name__)
 from services import ProxyManager, ArtistSourceManager, LastFMService
 from services.metadata_service import fetch_artist_metadata
 from config import ConfigManager
@@ -62,29 +68,30 @@ def finalize_and_cleanup(db_writer, args, data_to_save):
         # This includes MBID repair and image fetching
         # Strategy: MusicBrainz (primary) → Last.fm (fallback if configured)
         # Always run to ensure no artists are missing MBIDs or images
-        print(f"\n🔄 Fetching metadata for artists...")
+        logger.info("Fetching metadata for artists...")
         if db_writer.stats['artists_created'] > 0:
-            print(f"   - New artists created: {db_writer.stats['artists_created']}")
-        print(f"   - Checking all artists for missing MBIDs/images...")
+            logger.info(f"  New artists created: {db_writer.stats['artists_created']}")
+        logger.info("  Checking all artists for missing MBIDs/images...")
 
         try:
             # Note: fetch_artist_metadata reads Last.fm config from ConfigManager
             # It will use MusicBrainz as primary source and Last.fm as fallback if configured
             result = fetch_artist_metadata(args.db_path, silent=False, user_id=args.user_id)
             if result == 0:
-                print("✅ Metadata fetch completed")
+                logger.info("Metadata fetch completed")
             else:
-                print(f"⚠️  Metadata fetch had issues (exit code: {result})")
+                logger.warning(f"Metadata fetch had issues (exit code: {result})")
         except Exception as e:
-            print(f"⚠️  Could not auto-fetch metadata: {e}")
+            logger.warning(f"Could not auto-fetch metadata: {e}")
 
         db_writer.close()
-        print(f"✅ Database output: {args.db_path}")
+        logger.info(f"Database output: {args.db_path}")
 
 def main():
     # Load environment variables
     load_dotenv()
-    
+
+    # Parse arguments first to get debug flag
     parser = argparse.ArgumentParser(
         description='Parse concerts from country pages, filtered by Last.fm artists'
     )
@@ -171,31 +178,34 @@ def main():
     )
     
     args = parser.parse_args()
-    
+
+    # Setup logging based on debug flag
+    setup_logging(verbose=args.debug)
+
     # Dry run mode overrides output settings
     if args.dry_run:
-        print("\n" + "="*60)
-        print("DRY RUN MODE - NO DATA WILL BE SAVED")
-        print("="*60)
-        print("This mode will fetch and parse data but skip all writes.")
-        print("Useful for testing proxies, delays, and parsing logic.")
-        print("="*60 + "\n")
+        logger.info("=" * 60)
+        logger.info("DRY RUN MODE - NO DATA WILL BE SAVED")
+        logger.info("=" * 60)
+        logger.info("This mode will fetch and parse data but skip all writes.")
+        logger.info("Useful for testing proxies, delays, and parsing logic.")
+        logger.info("=" * 60)
     
     # Check if database module is available
     if args.output in ['db'] and not DB_AVAILABLE:
-        print("ERROR: Database output requested but SQLAlchemy is not installed")
-        print("Please install: pip install sqlalchemy")
+        logger.error("Database output requested but SQLAlchemy is not installed")
+        logger.error("Please install: pip install sqlalchemy")
         return 1
     
     # Initialize database writer if needed (skip in dry run)
     db_writer = None
     if not args.dry_run and args.output in ['db']:
         if args.db_path:
-            print(f"Local database output mode: SQLite at {args.db_path}")
+            logger.info(f"Local database output mode: SQLite at {args.db_path}")
         else:
-            print(f"Using configured database")
+            logger.info("Using configured database")
         if args.user_id:
-            print(f"User-specific mode: Writing to UserArtist and UserConcert for user ID {args.user_id}")
+            logger.info(f"User-specific mode: Writing to UserArtist and UserConcert for user ID {args.user_id}")
         db_writer = ConcertDatabaseWriter(args.db_path, user_id=args.user_id, debug=args.debug)
     
     # Get normalizer for display purposes
@@ -214,9 +224,9 @@ def main():
         # Initialize proxy manager if needed
         proxy_manager = None
         if args.use_proxies:
-            print("\n" + "="*60)
-            print("PROXY CONFIGURATION")
-            print("="*60)
+            logger.info("=" * 60)
+            logger.info("PROXY CONFIGURATION")
+            logger.info("=" * 60)
             
             validate = not args.no_proxy_validation
             
@@ -224,12 +234,12 @@ def main():
                 config = ConfigManager()
                 webshare_url = config.get('WEBSHARE_PROXY_URL')
                 if not webshare_url:
-                    print("❌ ERROR: WEBSHARE_PROXY_URL not found in settings")
-                    print("   Add your Webshare download URL to .env or settings:")
-                    print("   WEBSHARE_PROXY_URL=https://proxy.webshare.io/api/v2/...")
+                    logger.error("WEBSHARE_PROXY_URL not found in settings")
+                    logger.error("Add your Webshare download URL to .env or settings:")
+                    logger.error("WEBSHARE_PROXY_URL=https://proxy.webshare.io/api/v2/...")
                     return 1
-                
-                print(f"Using Webshare.io proxies")
+
+                logger.info("Using Webshare.io proxies")
                 proxy_manager = ProxyManager(
                     webshare_url=webshare_url,
                     validate_on_load=validate,
@@ -238,11 +248,11 @@ def main():
             elif args.use_proxies == 'custom':
                 proxy_file = 'proxies.txt'
                 if not os.path.exists(proxy_file):
-                    print(f"❌ ERROR: {proxy_file} not found")
-                    print(f"   Create it with: python proxy_manager.py create-template")
+                    logger.error(f"{proxy_file} not found")
+                    logger.error("Create it with: python proxy_manager.py create-template")
                     return 1
-                
-                print(f"Loading custom proxies from: {proxy_file}")
+
+                logger.info(f"Loading custom proxies from: {proxy_file}")
                 proxy_manager = ProxyManager(
                     proxy_file=proxy_file,
                     validate_on_load=validate,
@@ -252,15 +262,15 @@ def main():
             if proxy_manager and proxy_manager.proxies:
                 proxy_manager.print_stats()
             else:
-                print("⚠️  No working proxies available. Continuing without proxies.")
+                logger.warning("No working proxies available. Continuing without proxies.")
                 proxy_manager = None
-            
-            print("="*60 + "\n")
+
+            logger.info("=" * 60)
         else:
-            print("\n⚠️  No proxies configured. Using direct connection.")
-            print("   To avoid IP bans, use:")
-            print("   --use-proxies webshare  (add WEBSHARE_PROXY_URL to .env)")
-            print("   --use-proxies custom    (create proxies.txt)\n")
+            logger.warning("No proxies configured. Using direct connection.")
+            logger.info("To avoid IP bans, use:")
+            logger.info("  --use-proxies webshare  (add WEBSHARE_PROXY_URL to .env)")
+            logger.info("  --use-proxies custom    (create proxies.txt)")
         
         # Load credentials using centralized loader
         # Supports both user-specific mode (with --user-id) and global mode (without --user-id)

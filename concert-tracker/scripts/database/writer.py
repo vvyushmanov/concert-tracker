@@ -4,10 +4,13 @@ Handles upserts and data conversion from parser format to database format
 """
 
 import json
+import logging
 import traceback
 from datetime import datetime, timezone
 from typing import List, Dict, Set
 from sqlalchemy.exc import IntegrityError
+
+logger = logging.getLogger(__name__)
 
 from database.models import Artist, Concert, ArtistConcert, UserArtist, UserConcert, get_session
 from database.normalizers.city import CityNormalizer, get_or_create_city_mapping
@@ -78,9 +81,8 @@ class ConcertDatabaseWriter:
         for original, country, normalized in mappings:
             try:
                 self.normalizer.add_manual_mapping(original, country, normalized)
-            except Exception:
-                # Silently skip if mapping already exists
-                pass
+            except Exception as e:
+                logger.debug(f"Skipping manual mapping '{original}' -> '{normalized}': {e}")
     
     def close(self):
         """Close database session"""
