@@ -19,12 +19,9 @@ Usage:
     python cli/fetch_metadata.py [options]
 """
 
-import sys
-import os
 import argparse
 import time
 from dotenv import load_dotenv
-from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 # Import from library modules
