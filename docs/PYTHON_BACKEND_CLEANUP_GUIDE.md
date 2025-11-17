@@ -5,6 +5,9 @@
 **Total Issues Found**: 13 (1 Critical, 5 Medium, 7 Low)
 **Scripts Analyzed**: 30+ files, ~11,825 lines of Python
 
+**Implementation Status**: ✅ Phase 1 Complete | ✅ Phase 2 Complete | 🔲 Phase 3 Pending
+**Last Updated**: 2025-11-17 (Commit: `6f34c9b`)
+
 **Note**: Issues #2 and #3 from initial analysis were found to be already implemented correctly. Last.fm optionality is fully functional.
 
 ---
@@ -12,12 +15,13 @@
 ## Table of Contents
 
 1. [Executive Summary](#executive-summary)
-2. [Complete Issue Inventory](#complete-issue-inventory)
-3. [Phase 1: Critical Fixes](#phase-1-critical-fixes-do-first)
-4. [Phase 2: Refactoring](#phase-2-refactoring-technical-debt)
-5. [Phase 3: Polish](#phase-3-polish-cleanup)
-6. [Testing Procedures](#testing-procedures)
-7. [Verification Checklist](#verification-checklist)
+2. [Implementation Progress](#implementation-progress)
+3. [Complete Issue Inventory](#complete-issue-inventory)
+4. [Phase 1: Critical Fixes](#phase-1-critical-fixes-do-first)
+5. [Phase 2: Refactoring](#phase-2-refactoring-technical-debt)
+6. [Phase 3: Polish](#phase-3-polish-cleanup)
+7. [Testing Procedures](#testing-procedures)
+8. [Verification Checklist](#verification-checklist)
 
 ---
 
@@ -44,6 +48,142 @@ This guide documents all legacy, redundant, deprecated, and dead code found in t
 - **Complexity Reduction**: Remove 1 entire deprecated module
 - **API Clarity**: Remove confusing unused parameters
 - **Code Quality**: Standardize patterns, reduce duplication
+
+---
+
+## Implementation Progress
+
+### ✅ Phase 1: Critical Fixes - **COMPLETED**
+**Commit**: `6f34c9b` - "refactor(scripts): migrate to service-based architecture and remove JSON output support"
+**Date**: 2025-11-17
+**Status**: All critical issues resolved
+
+#### Fix 1.1: Remove Dead Parameters from `database/writer.py` ✅
+**Changes Made**:
+- Removed 3 unused parameters from `upsert_concert()` method:
+  - `artist: Artist` (never used in function body)
+  - `artist_playcounts: Dict[str, int]` (never used)
+  - `recent_artists: Set[str]` (never used)
+- Simplified method signature from 4 parameters to 1 (`concert_data` only)
+- Updated caller in `write_concerts()` method (line 502)
+- Removed redundant debug block with `is_recent` and `mbid` variables (lines 498-499)
+
+**Impact**:
+- ✅ Clearer API - no misleading parameters
+- ✅ Reduced memory overhead
+- ✅ Improved code maintainability
+
+---
+
+### ✅ Phase 2: Refactoring (Technical Debt) - **COMPLETED**
+**Commit**: Same as above (`6f34c9b`)
+**Status**: All medium-priority refactoring issues resolved
+
+#### Fix 2.1: Delete Deprecated Module `utils/concert.py` ✅
+**Changes Made**:
+- **Deleted entire file**: `concert-tracker/scripts/utils/concert.py` (84 lines removed)
+- Updated imports in `parsers/country_parser.py`:
+  - Changed from `from utils import restructure_concerts_by_country_and_band`
+  - Changed to `from utils.data_transform import restructure_concerts_by_country_and_band`
+- Removed deprecated exports from `utils/__init__.py`:
+  - Removed `fetch_lastfm_artists`
+  - Removed `fetch_fanart_image`
+  - Removed `fetch_all_user_artists`
+  - Removed `update_user_artist_stats`
+
+**Impact**:
+- ✅ Removed 84 lines of deprecated wrapper code
+- ✅ Eliminated code duplication
+- ✅ Clearer module organization
+
+#### Fix 2.2: Replace Deprecated Wrappers in `services/metadata.py` ✅
+**Changes Made in `fetch_metadata.py`**:
+- Created service instances for proper service layer pattern:
+  - `FanartService(api_key=fanart_api_key)`
+  - `LastFMService(api_key=lastfm_api_key)`
+  - `ArtistMetadataService(lastfm_api_key, fanart_api_key, lastfm_user)`
+- Replaced deprecated `update_user_artist_stats()` wrapper with:
+  - Proper service call: `metadata_service.update_user_artist_stats(session, user_id, artist, overall_dict, month12_dict)`
+  - Applied at 2 locations (lines 280-287, 397-408)
+- Replaced deprecated `fetch_fanart_image()` with:
+  - `fanart_service.fetch_artist_image(artist.mbid)`
+  - Applied at 2 locations (lines 290-291, 335)
+- Replaced deprecated `fetch_all_user_artists()` with:
+  - `lastfm_service.fetch_all_user_artists(username, limit, period)`
+- Removed now-unused imports:
+  - `from datetime import datetime, timezone` (no longer needed)
+
+**Impact**:
+- ✅ Migrated to proper service-based architecture
+- ✅ Removed dependency on deprecated wrapper functions
+- ✅ Better separation of concerns
+- ✅ Service methods handle MBID discovery automatically
+
+#### Fix 2.3: Extract MBID UUID Detection to Shared Utility ✅
+**Changes Made**:
+- **Added to `utils/validation.py`** (27 new lines):
+  - Created `is_musicbrainz_id(value: str) -> bool` function
+  - Uses regex pattern: `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`
+  - Comprehensive docstring with examples
+- **Updated `services/artist_source_manager.py`**:
+  - Replaced local `is_mbid()` function (lines ~10) with shared utility
+  - Added import: `from utils.validation import is_musicbrainz_id`
+  - Simplified filtering logic in `get_artists()` method
+- **Updated `services/lastfm_service.py`**:
+  - Replaced local `is_mbid()` function with shared utility
+  - Added import: `from utils.validation import is_musicbrainz_id`
+  - Applied in artist count calculations (lines 188-189)
+
+**Impact**:
+- ✅ Eliminated duplicate MBID detection logic (2 instances)
+- ✅ Single source of truth for UUID validation
+- ✅ Consistent validation across codebase
+- ✅ Better code maintainability
+
+#### Fix 2.4: Move Dynamic Import to Module Level ✅
+**Changes Made in `parse_concerts.py`**:
+- Moved import from function body to module level:
+  - **Added at line 33**: `from services.metadata import fetch_artist_metadata`
+  - **Removed from line 74**: Dynamic import inside `finalize_and_cleanup()` function
+- Import now follows PEP 8 guidelines
+
+**Impact**:
+- ✅ PEP 8 compliant code structure
+- ✅ Clearer dependencies at module level
+- ✅ Faster execution (no runtime import overhead)
+
+---
+
+### Additional Changes
+**Removed JSON Output Support**:
+- The commit also removed JSON output functionality from `parse_concerts.py`
+- Simplified output handling to database-only mode
+- Removed 103 lines of code related to JSON serialization
+
+**Overall Statistics**:
+- **Files Modified**: 9 files
+- **Lines Added**: 102
+- **Lines Removed**: 217
+- **Net Reduction**: 115 lines of code
+- **Files Deleted**: 1 (`utils/concert.py`)
+
+---
+
+### 🔲 Phase 3: Polish (Cleanup) - **PENDING**
+**Status**: Not yet started
+**Issues Remaining**: 8 low-priority cleanup tasks
+
+Low-priority issues that can be addressed in future iterations:
+- Fix 3.1: Remove unused `lastfm_user` parameter
+- Fix 3.2: Remove unused `user_artists` return value
+- Fix 3.3: Extract timestamp logic to SQLAlchemy mixin
+- Fix 3.4: Move comment to docstring
+- Fix 3.5: Verify `get_active_country_codes()` method
+- Fix 3.6: Verify `auditLogs` relationship usage
+- Fix 3.7: Standardize Last.fm optionality enforcement
+- Fix 3.8: Remove deprecated free proxy functionality
+
+**Recommendation**: Address Phase 3 issues as needed during normal development or schedule dedicated cleanup session.
 
 ---
 

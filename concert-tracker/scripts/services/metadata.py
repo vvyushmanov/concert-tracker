@@ -13,75 +13,19 @@ Usage:
     python fetch_artist_metadata.py --db-path data/concerts.db --force     # Re-fetch all data
 """
 
-import argparse
-import os
 import time
 import requests
-from datetime import datetime, timezone
 from dotenv import load_dotenv
-from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from database.models import Artist, UserArtist
 from database.config import get_engine
 from config import ConfigManager
-from services import ArtistMetadataService
 from utils import log
 from services import FanartService
 from utils.credentials import load_credentials
 # Load environment variables
 load_dotenv()
-
-
-def update_user_artist_stats(session, user_id: int, artist: Artist, playcount: int, playcount12month: int):
-    """Update or create UserArtist stats for a specific user
-    
-    DEPRECATED: This is a backward-compatible wrapper.
-    Use ArtistMetadataService.update_user_artist_stats() instead.
-    
-    Args:
-        session: Database session
-        user_id: User ID
-        artist: Artist object
-        playcount: Overall playcount
-        playcount12month: 12-month playcount
-    """
-    user_artist = session.query(UserArtist).filter_by(
-        userId=user_id,
-        artistId=artist.id
-    ).first()
-    
-    if user_artist:
-        # Update existing
-        user_artist.playcount = playcount
-        user_artist.playcount12month = playcount12month
-        user_artist.updatedAt = int(datetime.now(timezone.utc).timestamp())
-    else:
-        # Create new
-        user_artist = UserArtist(
-            userId=user_id,
-            artistId=artist.id,
-            playcount=playcount,
-            playcount12month=playcount12month,
-            recent=False  # Will be updated by parser
-        )
-        session.add(user_artist)
-
-
-def fetch_fanart_image(mbid: str, api_key: str) -> tuple:
-    """Fetch artist image from fanart.tv with fallback options
-    
-    DEPRECATED: Use FanartService.fetch_artist_image() instead
-    
-    Args:
-        mbid: MusicBrainz ID
-        api_key: fanart.tv API key
-        
-    Returns:
-        Tuple of (image_url, image_type) or (None, None) if not found
-    """
-    service = FanartService(api_key)
-    return service.fetch_artist_image(mbid)
 
 def fetch_artist_metadata(db_path: str = None, silent: bool = False, user_id: int = None, batch_size: int = 5) -> int:
     """Fetch metadata (MBID + images) for artists without complete metadata

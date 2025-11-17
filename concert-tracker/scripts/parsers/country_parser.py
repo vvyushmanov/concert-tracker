@@ -135,16 +135,6 @@ class CountryConcertParser:
         
         return soup
     
-    def parse_page(self, soup: BeautifulSoup) -> Tuple[List[Dict], List[Dict]]:
-        """Parse a single page and return all concerts and filtered concerts
-        
-        DEPRECATED: Uses new ConcertParser internally
-        
-        Returns:
-            Tuple of (all_concerts, filtered_concerts)
-        """
-        return self.concert_parser.parse_and_filter_page(soup)
-    
     def has_next_page(self, soup: BeautifulSoup, current_page: int) -> bool:
         """Check if there's a next page"""
         # Look for pagination links
@@ -268,7 +258,7 @@ class CountryConcertParser:
                 break
             
             # Parse concerts from this page
-            all_concerts, filtered_concerts = self.parse_page(soup)
+            all_concerts, filtered_concerts = self.concert_parser.parse_and_filter_page(soup)
             self.total_concerts_found += len(all_concerts)
             self.matched_concerts += len(filtered_concerts)
             
