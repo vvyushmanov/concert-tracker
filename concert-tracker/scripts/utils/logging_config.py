@@ -67,7 +67,8 @@ def setup_logging(
         level = logging.DEBUG
 
     # Default format strings
-    console_format = format_string or '%(levelname)s: %(message)s'
+    # %(name)s shows the logger name (module path like "database.writer")
+    console_format = format_string or '%(levelname)s [%(module)s]: %(message)s'
     file_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 
     # Create formatters
