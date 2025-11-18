@@ -88,7 +88,7 @@ def load_credentials(
     Example (user-specific mode):
         credentials, validation = load_credentials(user_id=1, db_path="data/db.sqlite")
         if validation.is_error():
-            print(validation)
+            logger.error(validation)
             return 1
 
     Example (global mode):

@@ -67,20 +67,6 @@ def fetch_bandsintown_data(artist_name, app_id=BANDSINTOWN_API_KEY):
         # Return None if artist not found or error occurs
         return None
 
-def print_csv(data):
-    """Print artists data as CSV"""
-    artists = data.get("topartists", {}).get("artist", [])
-    
-    # Print header
-    print("Rank,Name,Playcount")
-    
-    # Print rows
-    for artist in artists:
-        rank = artist.get("@attr", {}).get("rank", "")
-        name = artist.get("name", "")
-        playcount = artist.get("playcount", "")
-        print(f"{rank},{name},{playcount}")
-
 def fetch_concerts_for_artists(artists, output_file="concerts.txt", recent_artists_names=None, overall_playcounts=None):
     """Fetch concert information for a list of artists and write to file in real-time"""
     results = []
