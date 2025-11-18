@@ -2,7 +2,7 @@
 Centralized logging configuration for concert tracker scripts.
 
 Usage:
-    from utils.logging_config import get_logger, setup_logging
+    from utils import get_logger, setup_logging
 
     # Setup logging (call once at script start)
     setup_logging(verbose=args.verbose)

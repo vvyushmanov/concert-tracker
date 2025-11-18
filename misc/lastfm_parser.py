@@ -21,7 +21,7 @@ RATE_LIMIT_DELAY = 0.5  # seconds between API requests
 
 def fetch_lastfm_data(method=METHOD, api_key=LASTFM_API_KEY, user=USER, limit=LIMIT, format=FORMAT, period=None):
     """Fetch data from Last.fm API"""
-    url = "http://ws.audioscrobbler.com/2.0/"
+    url = "https://ws.audioscrobbler.com/2.0/"
     
     params = {
         "method": method,

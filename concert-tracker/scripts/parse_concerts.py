@@ -27,7 +27,7 @@ import time
 from dotenv import load_dotenv
 
 # Import logging infrastructure
-from utils.logging_config import setup_logging, get_logger
+from utils import setup_logging, get_logger
 
 # Import from library modules
 from parsers import CountryConcertParser, GracefulShutdown

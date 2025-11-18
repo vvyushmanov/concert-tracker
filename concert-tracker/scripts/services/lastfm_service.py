@@ -6,7 +6,7 @@ import requests
 from typing import List, Dict, Set, Tuple, Optional
 
 from utils.validation import is_musicbrainz_id
-from utils.logging_config import get_logger
+from utils import get_logger
 
 logger = get_logger(__name__)
 
@@ -14,7 +14,7 @@ logger = get_logger(__name__)
 class LastFMService:
     """Client for Last.fm API interactions"""
     
-    BASE_URL = "http://ws.audioscrobbler.com/2.0/"
+    BASE_URL = "https://ws.audioscrobbler.com/2.0/"
     
     def __init__(self, api_key: str, timeout: int = 10):
         """Initialize Last.fm service
@@ -126,7 +126,7 @@ class LastFMService:
     def fetch_all_user_artists(
         self,
         user: str,
-        limit: int = 1000
+        limit: int = 500
     ) -> Tuple[Dict[str, Dict], Dict[str, Dict]]:
         """Fetch all user's artists from Last.fm (overall and 12-month periods)
         
@@ -135,7 +135,7 @@ class LastFMService:
         
         Args:
             user: Last.fm username
-            limit: Max artists to fetch (default 1000, API max)
+            limit: Max artists to fetch (default 500, API max)
             
         Returns:
             Tuple of:

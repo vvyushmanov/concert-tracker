@@ -74,14 +74,10 @@ class CountryConcertParser:
         self.concert_parser = ConcertParser(self.lastfm_artists, self.BASE_URL)
         
         # Create HTTP client for requests
-        # WARNING: SSL verification disabled for concerts-metal.com due to certificate issues
-        logger.warning("SSL verification disabled for concerts-metal.com")
-        logger.warning("  Reason: Known certificate validation issues with source site")
-        logger.warning("  Risk: Potential MITM attacks on concert data scraping")
-
+        # Use system CA bundle instead of certifi (fixes Cloudflare certificate chain issues)
         self.http_client = HTTPClient(
             timeout=self.REQUEST_TIMEOUT,
-            verify_ssl=False,  # TODO: Investigate cert pinning for concerts-metal.com
+            use_system_ca=True,  # System CA bundle has complete Cloudflare chain
             proxy_manager=proxy_manager,
             pool_connections=1,
             pool_maxsize=1

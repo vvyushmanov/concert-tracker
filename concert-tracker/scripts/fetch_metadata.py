@@ -30,7 +30,7 @@ from database.config import get_engine
 from services.lastfm_service import LastFMService
 from services import ArtistMetadataService
 from services.fanart_service import FanartService
-from utils.logging_config import get_logger, setup_logging
+from utils import get_logger, setup_logging
 from utils.credentials import load_credentials
 
 logger = get_logger(__name__)

@@ -2,12 +2,32 @@
 Centralized HTTP client with session management, retries, and proxy support
 """
 
+import os
 import random
 import time
 import urllib3
 import requests
-from typing import Optional, List
+from typing import Optional, List, Union
 from requests.adapters import HTTPAdapter
+
+# System CA bundle paths (in order of preference)
+SYSTEM_CA_BUNDLES = [
+    '/etc/ssl/certs/ca-certificates.crt',  # Debian/Ubuntu
+    '/etc/pki/tls/certs/ca-bundle.crt',    # RHEL/CentOS
+    '/etc/ssl/ca-bundle.pem',               # OpenSUSE
+    '/etc/ssl/cert.pem',                    # Alpine/macOS
+]
+
+def get_system_ca_bundle() -> Optional[str]:
+    """Find the system CA certificate bundle
+
+    Returns:
+        Path to system CA bundle, or None if not found
+    """
+    for path in SYSTEM_CA_BUNDLES:
+        if os.path.exists(path):
+            return path
+    return None
 
 
 class HTTPClient:
@@ -25,34 +45,50 @@ class HTTPClient:
     def __init__(
         self,
         timeout: int = 15,
-        verify_ssl: bool = True,
+        verify_ssl: Union[bool, str] = True,
+        use_system_ca: bool = False,
         user_agents: Optional[List[str]] = None,
         proxy_manager = None,
         pool_connections: int = 1,
         pool_maxsize: int = 1
     ):
         """Initialize HTTP client
-        
+
         Args:
             timeout: Request timeout in seconds
-            verify_ssl: Whether to verify SSL certificates
+            verify_ssl: Whether to verify SSL certificates (bool or path to CA bundle)
+            use_system_ca: Use system CA bundle instead of certifi (fixes some cert issues)
             user_agents: List of user agents to rotate (uses defaults if None)
             proxy_manager: Optional ProxyManager instance for proxy rotation
             pool_connections: Number of connection pools
             pool_maxsize: Max connections per pool
         """
         self.timeout = timeout
-        self.verify_ssl = verify_ssl
         self.user_agents = user_agents or self.DEFAULT_USER_AGENTS
         self.proxy_manager = proxy_manager
         self.session = self._create_session(pool_connections, pool_maxsize)
         self._last_url = None
-        
-        # Disable SSL warnings if not verifying
-        if not verify_ssl:
+
+        # Determine SSL verification setting
+        if verify_ssl is False:
+            self.verify_ssl = False
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
             # Note: SSL verification disabled - this is a security risk
             # Only disable for specific domains with known certificate issues
+        elif use_system_ca:
+            # Use system CA bundle instead of certifi
+            system_ca = get_system_ca_bundle()
+            if system_ca:
+                self.verify_ssl = system_ca
+            else:
+                # Fall back to certifi if no system bundle found
+                self.verify_ssl = True
+        elif isinstance(verify_ssl, str):
+            # Custom CA bundle path provided
+            self.verify_ssl = verify_ssl
+        else:
+            # Default: use certifi
+            self.verify_ssl = True
     
     def _create_session(self, pool_connections: int, pool_maxsize: int) -> requests.Session:
         """Create and configure requests session

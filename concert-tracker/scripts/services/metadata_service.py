@@ -13,7 +13,9 @@ from datetime import datetime, timezone
 from database.models import Artist, UserArtist
 from services.lastfm_service import LastFMService
 from services.fanart_service import FanartService
+from utils import get_logger
 
+logger = get_logger(__name__)
 
 class ArtistMetadataService:
     """Service for fetching and updating artist metadata"""
@@ -71,7 +73,7 @@ class ArtistMetadataService:
             if mbid:
                 source = "MusicBrainz"
         except Exception as e:
-            print(f"  Warning: MusicBrainz lookup failed for {artist.name}: {e}")
+            logger.warning(f"MusicBrainz lookup failed for {artist.name}: {e}")
 
         # Fallback to Last.fm if configured and MusicBrainz failed
         if not mbid and self.has_lastfm():
@@ -95,7 +97,7 @@ class ArtistMetadataService:
                         source = "Last.fm (API)"
 
         if mbid and source:
-            print(f"  Found MBID for {artist.name} via {source}: {mbid}")
+            logger.info(f"Found MBID for {artist.name} via {source}: {mbid}")
 
         return mbid
     
@@ -320,12 +322,6 @@ def fetch_artist_metadata(
     from database.models import Artist, UserArtist
     from database.config import get_engine
     from utils.credentials import load_credentials
-    from utils import log
-
-    def log_internal(message: str):
-        """Internal logger that respects silent flag"""
-        if not silent:
-            log(message)
 
     def query_artists():
         """Helper to query artists (with or without user filter)"""
@@ -355,22 +351,22 @@ def fetch_artist_metadata(
         lastfm_user = credentials.lastfm_user
         fanart_api_key = credentials.fanart_api_key
     except Exception as e:
-        log_internal(f"Warning: Could not load credentials: {e}")
-        log_internal("Proceeding with MusicBrainz only (no Last.fm/Fanart)")
+        logger.warning(f"Could not load credentials: {e}")
+        logger.warning("Proceeding with MusicBrainz only (no Last.fm/Fanart)")
         lastfm_api_key = lastfm_user = fanart_api_key = None
 
     # Check what services are available
     fanart_available = bool(fanart_api_key)
     lastfm_available = bool(lastfm_api_key and lastfm_user)
 
-    log_internal("Metadata sources:")
-    log_internal(f"  MusicBrainz: ✓ Available (no auth required)")
-    log_internal(f"  Last.fm: {'✓ Configured' if lastfm_available else '✗ Not configured'}")
-    log_internal(f"  Fanart.tv: {'✓ Configured' if fanart_available else '✗ Not configured'}")
+    logger.info("Metadata sources:")
+    logger.info(f"  MusicBrainz: ✓ Available (no auth required)")
+    logger.info(f"  Last.fm: {'✓ Configured' if lastfm_available else '✗ Not configured'}")
+    logger.info(f"  Fanart.tv: {'✓ Configured' if fanart_available else '✗ Not configured'}")
 
     if not fanart_available and not lastfm_available:
-        log_internal("Warning: No metadata services configured")
-        log_internal("Will use MusicBrainz for MBID lookups only")
+        logger.warning("No metadata services configured")
+        logger.warning("Will use MusicBrainz for MBID lookups only")
 
     # Create metadata service
     metadata_service = ArtistMetadataService(
@@ -393,10 +389,10 @@ def fetch_artist_metadata(
         user_artist_ids, all_artists = query_artists()
 
         if user_artist_ids is not None and not all_artists:
-            log_internal(f"  No artists found for user ID {user_id}")
+            logger.warning(f"No artists found for user ID {user_id}")
             return 0
 
-        log_internal(f"  Processing {len(all_artists)} artists" +
+        logger.info(f"Processing {len(all_artists)} artists" +
                     (f" for user ID {user_id}" if user_id else ""))
 
         # =====================================================================
@@ -405,15 +401,15 @@ def fetch_artist_metadata(
         artists_missing_mbid = [a for a in all_artists if not a.mbid]
 
         if artists_missing_mbid:
-            log_internal(f"  Repairing MBIDs for {len(artists_missing_mbid)} artists...")
+            logger.info(f"Repairing MBIDs for {len(artists_missing_mbid)} artists...")
             mbid_repair_count = metadata_service.bulk_repair_mbids(session, artists_missing_mbid)
 
             try:
                 session.commit()
-                log_internal(f"  ✓ Repaired {mbid_repair_count}/{len(artists_missing_mbid)} MBIDs")
+                logger.info(f"✓ Repaired {mbid_repair_count}/{len(artists_missing_mbid)} MBIDs")
             except Exception as e:
                 session.rollback()
-                log_internal(f"  ⚠️  Commit failed: {e}")
+                logger.error(f"Commit failed: {e}")
 
         # =====================================================================
         # Phase 2: Image Fetching
@@ -425,41 +421,41 @@ def fetch_artist_metadata(
 
         if artists_needing_images:
             if not fanart_available:
-                log_internal(f"  ⚠️  Skipping image fetch for {len(artists_needing_images)} artists (Fanart.tv not configured)")
+                logger.warning(f"Skipping image fetch for {len(artists_needing_images)} artists (Fanart.tv not configured)")
             else:
-                log_internal(f"  Fetching images for {len(artists_needing_images)} artists...")
+                logger.info(f"Fetching images for {len(artists_needing_images)} artists...")
                 images_found = 0
 
                 for idx, artist in enumerate(artists_needing_images, 1):
-                    log_internal(f"    [{idx}/{len(artists_needing_images)}] {artist.name}")
+                    logger.info(f"[{idx}/{len(artists_needing_images)}] {artist.name}")
 
                     image_url, image_type = metadata_service.fetch_artist_image(artist)
 
                     if image_url:
                         artist.imageUrl = image_url
                         images_found += 1
-                        log_internal(f"      ✓ Found {image_type}: {image_url[:60]}...")
+                        logger.info(f"Found {image_type}: {image_url[:60]}...")
                     else:
-                        log_internal(f"      ✗ No image found")
+                        logger.warning("✗ No image found")
 
                     # Commit after each artist to prevent data loss on errors
                     try:
                         session.commit()
                     except Exception as e:
                         session.rollback()
-                        log_internal(f"      ⚠️  Commit failed for {artist.name}: {e}")
+                        logger.error(f"Commit failed for {artist.name}: {e}")
 
                     time.sleep(0.5)  # Rate limiting for Fanart.tv
 
                     if idx % batch_size == 0:
-                        log_internal(f"    💾 Progress: {idx}/{len(artists_needing_images)} artists processed")
+                        logger.info(f"Progress: {idx}/{len(artists_needing_images)} artists processed")
 
-                log_internal(f"  ✓ Found {images_found}/{len(artists_needing_images)} images")
+                logger.info(f"✓ Found {images_found}/{len(artists_needing_images)} images")
 
         return 0
 
     except Exception as e:
-        log_internal(f"Error fetching metadata: {e}")
+        logger.error(f"Error fetching metadata: {e}")
         return 1
     finally:
         session.close()
