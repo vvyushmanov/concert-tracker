@@ -23,11 +23,10 @@ Usage:
 import sys
 import os
 import argparse
-import time
 from dotenv import load_dotenv
 
 # Import logging infrastructure
-from utils import setup_logging, get_logger
+from utils import setup_logging, get_logger, interruptible_sleep
 
 # Import from library modules
 from parsers import CountryConcertParser, GracefulShutdown
@@ -388,7 +387,9 @@ def main():
                 if idx > 0:
                     delay_time = args.delay * CountryConcertParser.COUNTRY_DELAY_MULTIPLIER
                     logger.info(f"Waiting {delay_time} seconds before next country...")
-                    time.sleep(delay_time)
+                    if not interruptible_sleep(delay_time, shutdown):
+                        logger.warning("Interrupted during country delay...")
+                        break
 
                 logger.info("=" * 80)
                 logger.info(f"Processing country: {country_code.upper()}")

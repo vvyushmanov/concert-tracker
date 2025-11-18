@@ -83,10 +83,11 @@ class CountryConcertParser:
             pool_maxsize=1
         )
         
-        # Create rate limiter
+        # Create rate limiter with shutdown flag for interruptible waits
         self.rate_limiter = RateLimiter(
             base_delay=self.delay,
-            randomness=self.DELAY_RANDOMNESS
+            randomness=self.DELAY_RANDOMNESS,
+            shutdown_flag=self.shutdown_flag
         )
     
         
