@@ -318,7 +318,7 @@ def main():
             logger.info("=" * 60)
             logger.info("PHASE 2: Image Fetch SKIPPED")
             logger.info("=" * 60)
-            logger.info(f"⚠️  Fanart.tv not configured - skipping {len(artists_with_mbid)} artists")
+            logger.warning(f"Fanart.tv not configured - skipping {len(artists_with_mbid)} artists")
             logger.info("   Configure FANART_API_KEY to enable image fetching")
             logger.info("   Get your free API key from: https://fanart.tv/get-an-api-key/\n")
         else:
@@ -362,7 +362,7 @@ def main():
             logger.info("=" * 60)
             logger.info("PHASE 3: Playcount Refresh SKIPPED")
             logger.info("=" * 60)
-            logger.info("⚠️  Last.fm not configured - cannot refresh playcounts")
+            logger.warning("Last.fm not configured - cannot refresh playcounts")
             logger.info("   Configure LASTFM_API_KEY and LASTFM_USER to enable playcount tracking\n")
         else:
             logger.info("=" * 60)

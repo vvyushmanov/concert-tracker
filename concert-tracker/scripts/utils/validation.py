@@ -7,6 +7,7 @@ Provides centralized validation logic with clear error messages and suggestions.
 import re
 from typing import Tuple, Optional
 from enum import Enum
+import logging
 
 
 class ValidationStatus(Enum):
@@ -42,12 +43,7 @@ class ValidationResult:
         output = []
 
         if self.message:
-            prefix = {
-                ValidationStatus.VALID: "✓",
-                ValidationStatus.WARNING: "⚠️",
-                ValidationStatus.ERROR: "ERROR"
-            }.get(self.status, "")
-            output.append(f"{prefix} {self.message}")
+            output.append(f"{self.message}")
 
         if self.suggestions:
             output.append("\nSuggestions:")
@@ -55,6 +51,23 @@ class ValidationResult:
                 output.append(f"  {i}. {suggestion}")
 
         return "\n".join(output)
+
+    def log(self, logger: logging.Logger) -> None:
+        """Log validation result at appropriate level based on status.
+
+        Args:
+            logger: Logger instance to use for output
+
+        Example:
+            >>> validation_result.log(logger)
+        """
+        message = str(self)
+        if self.status == ValidationStatus.ERROR:
+            logger.error(message)
+        elif self.status == ValidationStatus.WARNING:
+            logger.warning(message)
+        else:
+            logger.info(message)
 
 
 def validate_artist_sources(

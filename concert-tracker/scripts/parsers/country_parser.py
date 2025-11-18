@@ -96,10 +96,7 @@ class CountryConcertParser:
             return f"{self.base_url}/next_{self.country_code}_p1.html"
         else:
             return f"{self.base_url}/next_{self.country_code}_p{page_num}.html"
-    
-    def _log(self, message: str):
-        """Log message with timestamp"""
-        logger.info(message)
+
     
     def fetch_page(self, url: str, max_retries: int = 3) -> Optional[BeautifulSoup]:
         """Fetch a single page and return BeautifulSoup object
@@ -133,7 +130,7 @@ class CountryConcertParser:
         total_time = time.time() - start_time
         if self.debug:
             fetch_time = total_time - parse_time
-            self._log(f"  Timing: fetch={fetch_time:.2f}s, parse={parse_time:.2f}s, total={total_time:.2f}s")
+            logger.info(f"Timing: fetch={fetch_time:.2f}s, parse={parse_time:.2f}s, total={total_time:.2f}s")
         
         return soup
     
@@ -177,7 +174,7 @@ class CountryConcertParser:
         Returns:
             Total number of pages, or 0 if no pages exist
         """
-        self._log(f"🔍 Determining total page count (binary search 1-{self.MAX_PAGE_BOUND})...")
+        logger.info(f"🔍 Determining total page count (binary search 1-{self.MAX_PAGE_BOUND})...")
         start_time = time.time()
         
         left = 1
@@ -188,29 +185,29 @@ class CountryConcertParser:
         while left <= right:
             # Check for interruption
             if self.shutdown_flag and self.shutdown_flag.interrupted:
-                self._log("  ⚠️  Interrupted during page count detection")
+                logger.warning("Interrupted during page count detection")
                 return last_valid if last_valid > 0 else 1
             
             mid = (left + right + 1) // 2
-            self._log(f"  Checking page {mid}...")
+            logger.info(f"Checking page {mid}...")
             requests_made += 1
             
             if self.page_exists(mid):
                 last_valid = mid
                 left = mid + 1
-                self._log(f"    ✓ Page {mid} exists")
+                logger.info(f"✓ Page {mid} exists")
             else:
                 right = mid - 1
-                self._log(f"    ✗ Page {mid} doesn't exist")
+                logger.info(f"✗ Page {mid} doesn't exist")
             
             # Add small delay between checks
             self.rate_limiter.wait(multiplier=0.5)
         
         elapsed = time.time() - start_time
         if last_valid > 0:
-            self._log(f"  ✅ Total pages: {last_valid} (found in {elapsed:.2f}s, {requests_made} requests)")
+            logger.info(f"Total pages: {last_valid} (found in {elapsed:.2f}s, {requests_made} requests)")
         else:
-            self._log(f"  ⚠️  No pages found (checked in {elapsed:.2f}s)")
+            logger.warning(f"No pages found (checked in {elapsed:.2f}s)")
         
         return last_valid
     
@@ -251,7 +248,7 @@ class CountryConcertParser:
             
             url = self.get_page_url(page_num)
             progress_str = f" [{page_num}/{total_pages}]" if total_pages else ""
-            self._log(f"Fetching page {page_num}{progress_str}: {url}")
+            logger.info(f"Fetching page {page_num}{progress_str}: {url}")
             
             page_start = time.time()
             soup = self.fetch_page(url)
@@ -265,7 +262,7 @@ class CountryConcertParser:
             self.matched_concerts += len(filtered_concerts)
             
             page_time = time.time() - page_start
-            self._log(f"  Found {len(all_concerts)} concerts on page {page_num} ({len(filtered_concerts)} matched) - took {page_time:.2f}s")
+            logger.info(f"Found {len(all_concerts)} concerts on page {page_num} ({len(filtered_concerts)} matched) - took {page_time:.2f}s")
             
             if not all_concerts:
                 logger.warning(f"No concerts found on page {page_num}, stopping")
@@ -291,13 +288,6 @@ class CountryConcertParser:
                 self.rate_limiter.wait()
         
         return self.concerts
-    
-    def save_to_json(self, filename: str, filtered_only: bool = False):
-        """Save concerts to JSON file"""
-        data_to_save = self.filtered_concerts if filtered_only else self.concerts
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(data_to_save, f, indent=2, ensure_ascii=False)
-        logger.info(f"Saved {len(data_to_save)} concerts to {filename}")
     
     def print_statistics(self, country_code: str, normalizer=None):
         """Print statistics about parsed concerts

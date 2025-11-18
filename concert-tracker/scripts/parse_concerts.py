@@ -339,8 +339,8 @@ def main():
                 no_filter=False  # We're in filter mode here
             )
 
-            # Log validation result
-            logger.info(str(validation_result))
+            # Log validation result at appropriate level
+            validation_result.log(logger)
 
             # Exit if validation failed
             if validation_result.is_error():
@@ -367,7 +367,7 @@ def main():
                 userartist_count=0,  # Doesn't matter in no-filter mode
                 no_filter=True
             )
-            logger.info(str(validation_result))
+            validation_result.log(logger)
         
         # Collect all concerts from all countries
         all_concerts = []
