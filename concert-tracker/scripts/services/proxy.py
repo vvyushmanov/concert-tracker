@@ -13,6 +13,9 @@ from datetime import datetime, timedelta
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import urllib3
+from utils import get_logger
+
+logger = get_logger(__name__)
 
 # Disable SSL warnings for proxy validation
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -65,31 +68,31 @@ class ProxyManager:
         if webshare_url:
             self._load_from_webshare_url(webshare_url, validate_on_load)
         elif proxy_file:
-            self._load_from_file(proxy_file, validate_on_load)        
+            self._load_from_file(proxy_file, validate_on_load)
         if not self.proxies:
-            print("⚠️  No proxies loaded. Will use direct connection.")
+            logger.warning("No proxies loaded. Will use direct connection.")
     
     def _load_from_webshare_url(self, url: str, validate: bool = True):
         """Load proxies from Webshare.io download URL"""
         try:
-            print(f"📥 Downloading proxies from Webshare.io...")
+            logger.info("Downloading proxies from Webshare.io...")
             response = requests.get(url, timeout=30)
             response.raise_for_status()
-            
+
             lines = [line.strip() for line in response.text.strip().split('\n') if line.strip()]
-            print(f"📋 Downloaded {len(lines)} proxies from Webshare")
-            
+            logger.info(f"Downloaded {len(lines)} proxies from Webshare")
+
             for line in lines:
                 proxy_info = self._parse_proxy_line(line)
                 if proxy_info:
                     self.proxies.append(proxy_info)
-            
+
             if validate and self.proxies:
-                print("🔍 Validating proxies...")
+                logger.info("Validating proxies...")
                 self._validate_all_proxies()
-                
+
         except Exception as e:
-            print(f"❌ Error downloading from Webshare: {e}")
+            logger.error(f"Error downloading from Webshare: {e}")
     
     def _load_from_file(self, filepath: str, validate: bool = True):
         """Load proxies from file
@@ -102,22 +105,22 @@ class ProxyManager:
         try:
             with open(filepath, 'r') as f:
                 lines = [line.strip() for line in f if line.strip() and not line.startswith('#')]
-            
-            print(f"📋 Loaded {len(lines)} proxies from {filepath}")
-            
+
+            logger.info(f"Loaded {len(lines)} proxies from {filepath}")
+
             for line in lines:
                 proxy_info = self._parse_proxy_line(line)
                 if proxy_info:
                     self.proxies.append(proxy_info)
-            
+
             if validate and self.proxies:
-                print("🔍 Validating proxies...")
+                logger.info("Validating proxies...")
                 self._validate_all_proxies()
-                
+
         except FileNotFoundError:
-            print(f"❌ Proxy file not found: {filepath}")
+            logger.error(f"Proxy file not found: {filepath}")
         except Exception as e:
-            print(f"❌ Error loading proxies: {e}")
+            logger.error(f"Error loading proxies: {e}")
     
     def _parse_proxy_line(self, line: str) -> Optional[ProxyInfo]:
         """Parse a proxy line into ProxyInfo
@@ -148,7 +151,7 @@ class ProxyManager:
             
             return ProxyInfo(url=url, protocol=protocol)
         except Exception as e:
-            print(f"⚠️  Failed to parse proxy line '{line}': {e}")
+            logger.warning(f"Failed to parse proxy line '{line}': {e}")
             return None
     
     
@@ -183,31 +186,31 @@ class ProxyManager:
     
     def _validate_all_proxies(self):
         """Validate all proxies in parallel and remove dead ones"""
-        print(f"  Testing {len(self.proxies)} proxies with {self.validation_workers} workers...")
+        logger.info(f"Testing {len(self.proxies)} proxies with {self.validation_workers} workers...")
         working = []
         tested = 0
-        
+
         with ThreadPoolExecutor(max_workers=self.validation_workers) as executor:
             # Submit all validation tasks
             future_to_proxy = {executor.submit(self._validate_proxy, proxy): proxy for proxy in self.proxies}
-            
+
             # Process results as they complete
             for future in as_completed(future_to_proxy):
                 proxy = future_to_proxy[future]
                 tested += 1
-                
+
                 try:
                     if future.result():
                         working.append(proxy)
-                        print(f"  ✓ {tested}/{len(self.proxies)}: {proxy.url} ({proxy.response_time:.2f}s)")
+                        logger.debug(f"Working proxy {tested}/{len(self.proxies)}: {proxy.url} ({proxy.response_time:.2f}s)")
                     else:
-                        if tested % 100 == 0:  # Only print progress every 100 dead proxies
-                            print(f"  ⏳ Tested {tested}/{len(self.proxies)}, found {len(working)} working...")
+                        if tested % 100 == 0:  # Only log progress every 100 dead proxies
+                            logger.info(f"Tested {tested}/{len(self.proxies)}, found {len(working)} working...")
                 except Exception:
                     pass
-        
+
         self.proxies = working
-        print(f"\n✅ {len(self.proxies)} working proxies found out of {tested} tested")
+        logger.info(f"{len(self.proxies)} working proxies found out of {tested} tested")
     
     def get_next_proxy(self) -> Optional[Dict[str, str]]:
         """Get next proxy in rotation
@@ -286,7 +289,7 @@ class ProxyManager:
                     if proxy_info.failures >= self.MAX_FAILURES:
                         proxy_info.is_working = False
                         self.dead_proxies.add(proxy_url)
-                        print(f"  ☠️  Proxy marked as dead: {proxy_url}")
+                        logger.warning(f"Proxy marked as dead: {proxy_url}")
                     break
     
     def mark_proxy_success(self, proxy_dict: Dict[str, str]):
@@ -317,15 +320,12 @@ class ProxyManager:
     def print_stats(self):
         """Print proxy statistics"""
         stats = self.get_stats()
-        print(f"\n{'='*60}")
-        print("PROXY STATISTICS")
-        print(f"{'='*60}")
-        print(f"Total proxies: {stats['total']}")
-        print(f"Working proxies: {stats['working']}")
-        print(f"Dead proxies: {stats['dead']}")
+        logger.info("PROXY STATISTICS")
+        logger.info(f"Total proxies: {stats['total']}")
+        logger.info(f"Working proxies: {stats['working']}")
+        logger.info(f"Dead proxies: {stats['dead']}")
         if stats['avg_response_time'] > 0:
-            print(f"Average response time: {stats['avg_response_time']:.2f}s")
-        print(f"{'='*60}\n")
+            logger.info(f"Average response time: {stats['avg_response_time']:.2f}s")
 
 
 def create_proxy_list_template(filename: str = "proxies.txt"):
@@ -348,16 +348,19 @@ def create_proxy_list_template(filename: str = "proxies.txt"):
     
     with open(filename, 'w') as f:
         f.write(template)
-    
-    print(f"✅ Created proxy list template: {filename}")
-    print("   Add your proxies to this file and run with --proxy-file proxies.txt")
+
+    logger.info(f"Created proxy list template: {filename}")
+    logger.info("Add your proxies to this file and run with --proxy-file proxies.txt")
 
 
 if __name__ == '__main__':
     import sys
-    
+    from utils.logging_config import setup_logging
+
+    setup_logging()
+
     if len(sys.argv) > 1 and sys.argv[1] == 'create-template':
         create_proxy_list_template()
     else:
-        print("Proxy Manager - use with country_concert_parser.py")
-        print("Run: python proxy_manager.py create-template")
+        logger.info("Proxy Manager - use with country_concert_parser.py")
+        logger.info("Run: python proxy_manager.py create-template")

@@ -5,6 +5,9 @@ MusicBrainz service for fetching artist data
 import requests
 import time
 from typing import List, Dict, Set, Tuple, Optional
+from utils import get_logger
+
+logger = get_logger(__name__)
 
 class MusicBrainzService:
     """Client for MusicBrainz API interactions"""
@@ -82,9 +85,8 @@ class MusicBrainzService:
                 return best
 
             except requests.exceptions.Timeout:
-                if verbose and attempt < self.MAX_RETRIES - 1:
-                    print(f"      ⚠️  Timeout, retrying... (attempt {attempt + 2}/{self.MAX_RETRIES})")
                 if attempt < self.MAX_RETRIES - 1:
+                    logger.warning(f"Timeout, retrying... (attempt {attempt + 2}/{self.MAX_RETRIES})")
                     wait_time = self.RETRY_BACKOFF ** attempt
                     time.sleep(wait_time)
                     continue
@@ -94,17 +96,15 @@ class MusicBrainzService:
                 if e.response is not None and 400 <= e.response.status_code < 500:
                     return None
                 # Retry on 5xx errors (server errors)
-                if verbose and attempt < self.MAX_RETRIES - 1:
-                    print(f"      ⚠️  HTTP {e.response.status_code if e.response else 'error'}, retrying... (attempt {attempt + 2}/{self.MAX_RETRIES})")
                 if attempt < self.MAX_RETRIES - 1:
+                    logger.warning(f"HTTP {e.response.status_code if e.response else 'error'}, retrying... (attempt {attempt + 2}/{self.MAX_RETRIES})")
                     wait_time = self.RETRY_BACKOFF ** attempt
                     time.sleep(wait_time)
                     continue
                 return None
             except Exception as e:
-                if verbose and attempt < self.MAX_RETRIES - 1:
-                    print(f"      ⚠️  Error: {e}, retrying... (attempt {attempt + 2}/{self.MAX_RETRIES})")
                 if attempt < self.MAX_RETRIES - 1:
+                    logger.warning(f"Error: {e}, retrying... (attempt {attempt + 2}/{self.MAX_RETRIES})")
                     wait_time = self.RETRY_BACKOFF ** attempt
                     time.sleep(wait_time)
                     continue
@@ -142,7 +142,7 @@ class MusicBrainzService:
         for idx, artist_name in enumerate(artist_names, 1):
             mbid = self.get_artist_mbid(artist_name)
             result[artist_name] = mbid
-            print(f"  MusicBrainz: Fetched {idx}/{total} MBIDs...")
-            print(f"    {artist_name} -> {mbid}")
+            logger.info(f"MusicBrainz: Fetched {idx}/{total} MBIDs...")
+            logger.debug(f"  {artist_name} -> {mbid}")
 
         return result
