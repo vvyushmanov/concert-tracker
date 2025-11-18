@@ -88,11 +88,13 @@ def load_credentials(
     Example (user-specific mode):
         credentials, validation = load_credentials(user_id=1, db_path="data/db.sqlite")
         if validation.is_error():
-            logger.error(validation)
+            validation.log(logger)  # Logs at ERROR level
             return 1
+        validation.log(logger)  # Logs at INFO level
 
     Example (global mode):
         credentials, validation = load_credentials(db_path="data/db.sqlite")
+        validation.log(logger)  # Automatically uses appropriate log level
         # Returns global configuration for admin/maintenance tasks
     """
 
