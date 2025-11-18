@@ -13,6 +13,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from database.models import CityMapping, CityNormalized
 from database.normalizers.country import get_or_create_country
+from utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class CityNormalizer:
@@ -65,37 +68,30 @@ class CityNormalizer:
         if not city:
             return city
         
-        if self.verbose:
-            print(f"\n[NORMALIZE] Starting normalization for: '{city}', {country}")
-        
+        logger.debug(f"Starting normalization for: '{city}', {country}")
+
         # Step 1: Check if we already have a mapping for this EXACT original city (preserving diacritics)
         existing_mapping = self._check_manual_mapping(city, country)
         if existing_mapping:
             normalized_city = existing_mapping.city_normalized.normalizedCity if existing_mapping.city_normalized else None
-            if self.verbose:
-                print(f"[NORMALIZE] Found {existing_mapping.source} mapping: '{city}' -> '{normalized_city}'")
+            logger.debug(f"Found {existing_mapping.source} mapping: '{city}' -> '{normalized_city}'")
             return normalized_city
         
-        if self.verbose:
-            print(f"[NORMALIZE] No existing mapping found for original city")
-        
+        logger.debug("No existing mapping found for original city")
+
         # Step 2: Apply text normalization (for API requests and normalizedCity field)
         normalized = self._normalize_text(city)
-        if self.verbose:
-            print(f"[NORMALIZE] Text normalized: '{city}' -> '{normalized}'")
-        
+        logger.debug(f"Text normalized: '{city}' -> '{normalized}'")
+
         # Step 3: Try geocoding and clustering
-        if self.verbose:
-            print(f"[NORMALIZE] Attempting geocoding and clustering...")
+        logger.debug("Attempting geocoding and clustering...")
         geocoded_result = self._geocode_and_cluster(city, country, normalized)
         if geocoded_result:
-            if self.verbose:
-                print(f"[NORMALIZE] Geocoding result: '{normalized}' -> '{geocoded_result}'")
+            logger.debug(f"Geocoding result: '{normalized}' -> '{geocoded_result}'")
             return geocoded_result
-        
+
         # Step 4: No geocoding result, return text normalized version
-        if self.verbose:
-            print(f"[NORMALIZE] No geocoding result, returning text normalized: '{normalized}'")
+        logger.debug(f"No geocoding result, returning text normalized: '{normalized}'")
         return normalized
     
     def _check_manual_mapping(self, city: str, country: str) -> Optional[CityMapping]:
@@ -171,37 +167,32 @@ class CityNormalizer:
         # Get coordinates and metadata for the city
         metadata = self._geocode_city(normalized_text, country)
         if not metadata:
-            if self.verbose:
-                print(f"[CLUSTER] Could not geocode '{normalized_text}', skipping clustering")
+            logger.debug(f"Could not geocode '{normalized_text}', skipping clustering")
             return None
-        
+
         lat, lon = metadata['lat'], metadata['lon']
         municipality = metadata.get('municipality')
         current_population = metadata.get('population', 0)
-        
-        if self.verbose:
-            print(f"[CLUSTER] City coordinates: ({lat}, {lon})")
-            if current_population > 0:
-                print(f"[CLUSTER] City population: {current_population:,}")
+
+        logger.debug(f"City coordinates: ({lat}, {lon})")
+        if current_population > 0:
+            logger.debug(f"City population: {current_population:,}")
         
         # Check if this is a major city (should not be clustered to distant cities)
         if current_population >= self.MIN_MAJOR_CITY_POPULATION:
-            if self.verbose:
-                print(f"[CLUSTER] City is major (pop >= {self.MIN_MAJOR_CITY_POPULATION:,}), checking for exact match in DB")
-            
+            logger.debug(f"City is major (pop >= {self.MIN_MAJOR_CITY_POPULATION:,}), checking for exact match in DB")
+
             # For major cities, still check if there's an existing city at the SAME location
             # This handles alternative names (e.g., "Athina" vs "Athens")
             exact_match = self._find_exact_location_match(lat, lon, country)
             if exact_match:
-                if self.verbose:
-                    print(f"[CLUSTER] Found existing city at same location: '{exact_match}'")
+                logger.debug(f"Found existing city at same location: '{exact_match}'")
                 self._store_mapping(original_city, country, exact_match, lat, lon, 'geocoded')
                 self._geocode_cache[cache_key] = {'normalized': exact_match, 'lat': lat, 'lon': lon}
                 return exact_match
-            
+
             # No exact match, use normalized text
-            if self.verbose:
-                print(f"[CLUSTER] No existing city at this location, using: '{normalized_text}'")
+            logger.debug(f"No existing city at this location, using: '{normalized_text}'")
             self._store_mapping(original_city, country, normalized_text, lat, lon, 'geocoded')
             self._geocode_cache[cache_key] = {'normalized': normalized_text, 'lat': lat, 'lon': lon}
             return normalized_text
@@ -210,56 +201,51 @@ class CityNormalizer:
         # 1. Check if there's a nearby city in database (prioritize existing knowledge)
         cluster_center = self._find_cluster_center(lat, lon, country, metadata)
         if cluster_center:
-            if self.verbose:
-                print(f"[CLUSTER] Found cluster center in database: '{cluster_center}'")
+            logger.debug(f"Found cluster center in database: '{cluster_center}'")
             self._store_mapping(original_city, country, cluster_center, lat, lon, 'geocoded')
             # Cache the result
             self._geocode_cache[cache_key] = {'normalized': cluster_center, 'lat': lat, 'lon': lon}
             return cluster_center
-        
+
         # 2. Use Overpass API to find largest nearby city
         largest_nearby = self._find_largest_nearby_city_overpass(lat, lon, country)
         if largest_nearby:
             # Text-normalize the Overpass result
             nearby_normalized = self._normalize_text(largest_nearby['name'])
-            
+
             # If it's the same city (distance <= 1 km), use it directly
             # This prevents falling through to municipality fallback
             if largest_nearby['distance'] <= 1.0:
-                if self.verbose:
-                    print(f"[CLUSTER] Overpass confirmed same city: '{nearby_normalized}'")
-                self._store_mapping(original_city, country, nearby_normalized, 
+                logger.debug(f"Overpass confirmed same city: '{nearby_normalized}'")
+                self._store_mapping(original_city, country, nearby_normalized,
                                   largest_nearby['lat'], largest_nearby['lon'], 'geocoded')
-                self._geocode_cache[cache_key] = {'normalized': nearby_normalized, 
+                self._geocode_cache[cache_key] = {'normalized': nearby_normalized,
                                                  'lat': largest_nearby['lat'], 'lon': largest_nearby['lon']}
                 return nearby_normalized
-            
+
             # Only cluster to a different city if distance > 1 km
             if nearby_normalized != normalized_text:
-                if self.verbose:
-                    print(f"[CLUSTER] Using Overpass result: '{normalized_text}' → '{nearby_normalized}'")
-                self._store_mapping(original_city, country, nearby_normalized, 
+                logger.debug(f"Using Overpass result: '{normalized_text}' → '{nearby_normalized}'")
+                self._store_mapping(original_city, country, nearby_normalized,
                                   largest_nearby['lat'], largest_nearby['lon'], 'geocoded')
                 # Cache the result
-                self._geocode_cache[cache_key] = {'normalized': nearby_normalized, 
+                self._geocode_cache[cache_key] = {'normalized': nearby_normalized,
                                                  'lat': largest_nearby['lat'], 'lon': largest_nearby['lon']}
                 return nearby_normalized
-        
+
         # 3. Use municipality field as fallback if available and different from current city
         if municipality:
             # Text-normalize the municipality name
             municipality_normalized = self._normalize_text(municipality)
             if municipality_normalized != normalized_text:
-                if self.verbose:
-                    print(f"[CLUSTER] Using municipality (no nearby cities found): '{normalized_text}' → '{municipality_normalized}'")
+                logger.debug(f"Using municipality (no nearby cities found): '{normalized_text}' → '{municipality_normalized}'")
                 self._store_mapping(original_city, country, municipality_normalized, lat, lon, 'geocoded')
                 # Cache the result
                 self._geocode_cache[cache_key] = {'normalized': municipality_normalized, 'lat': lat, 'lon': lon}
                 return municipality_normalized
-        
+
         # 4. No clustering needed - this is a standalone city
-        if self.verbose:
-            print(f"[CLUSTER] No nearby city found within {self.CLUSTER_RADIUS_KM} km, '{normalized_text}' is standalone")
+        logger.debug(f"No nearby city found within {self.CLUSTER_RADIUS_KM} km, '{normalized_text}' is standalone")
         self._store_mapping(original_city, country, normalized_text, lat, lon, 'geocoded')
         # Cache the result
         self._geocode_cache[cache_key] = {'normalized': normalized_text, 'lat': lat, 'lon': lon}
@@ -278,8 +264,7 @@ class CityNormalizer:
         # Rate limiting
         elapsed = time.time() - self.last_geocode_time
         if elapsed < self.RATE_LIMIT:
-            if self.verbose:
-                print(f"[GEOCODE] Rate limiting: waiting {self.RATE_LIMIT - elapsed:.2f}s")
+            logger.debug(f"Rate limiting: waiting {self.RATE_LIMIT - elapsed:.2f}s")
             time.sleep(self.RATE_LIMIT - elapsed)
         
         try:
@@ -294,9 +279,8 @@ class CityNormalizer:
             headers = {
                 'User-Agent': self.USER_AGENT
             }
-            
-            if self.verbose:
-                print(f"[GEOCODE] Querying Nominatim: '{city}, {country}'")
+
+            logger.debug(f"Querying Nominatim: '{city}, {country}'")
             
             response = requests.get(url, params=params, headers=headers, timeout=self.TIMEOUT)
             self.last_geocode_time = time.time()
@@ -327,28 +311,25 @@ class CityNormalizer:
                         'population': population,
                         'importance': importance
                     }
-                    
-                    if self.verbose:
-                        print(f"[GEOCODE] Found coordinates: {lat}, {lon}")
-                        print(f"[GEOCODE] Display name: {result.get('display_name', 'N/A')}")
-                        if municipality and municipality != city:
-                            print(f"[GEOCODE] Municipality: {municipality}")
-                        if population > 0:
-                            print(f"[GEOCODE] Population: {population:,}")
-                        print(f"[GEOCODE] Importance: {importance:.3f}")
-                    
+
+                    logger.debug(f"Found coordinates: {lat}, {lon}")
+                    logger.debug(f"Display name: {result.get('display_name', 'N/A')}")
+                    if municipality and municipality != city:
+                        logger.debug(f"Municipality: {municipality}")
+                    if population > 0:
+                        logger.debug(f"Population: {population:,}")
+                    logger.debug(f"Importance: {importance:.3f}")
+
                     return metadata
                 else:
-                    if self.verbose:
-                        print(f"[GEOCODE] No results found")
+                    logger.debug("No results found")
             else:
-                if self.verbose:
-                    print(f"[GEOCODE] API error: status {response.status_code}")
-            
+                logger.debug(f"API error: status {response.status_code}")
+
             return None
-            
+
         except Exception as e:
-            print(f"Geocoding error for {city}, {country}: {e}")
+            logger.error(f"Geocoding error for {city}, {country}: {e}")
             return None
     
     def _find_exact_location_match(self, lat: float, lon: float, country: str, threshold_km: float = 1.0) -> Optional[str]:
@@ -376,10 +357,9 @@ class CityNormalizer:
             CityMapping.latitude.isnot(None),
             CityMapping.longitude.isnot(None)
         ).all()
-        
-        if self.verbose:
-            print(f"[EXACT_MATCH] Checking {len(existing_cities)} existing cities in {country}")
-        
+
+        logger.debug(f"Checking {len(existing_cities)} existing cities in {country}")
+
         # Find cities at the same location (within threshold)
         for existing in existing_cities:
             existing_coords = (existing.latitude, existing.longitude)
@@ -387,15 +367,13 @@ class CityNormalizer:
                 lat, lon,
                 existing_coords[0], existing_coords[1]
             )
-            
+
             if distance <= threshold_km:
                 normalized = existing.city_normalized.normalizedCity if existing.city_normalized else None
-                if self.verbose:
-                    print(f"[EXACT_MATCH] Found existing city at same location: '{normalized}' ({distance:.3f} km away)")
+                logger.debug(f"Found existing city at same location: '{normalized}' ({distance:.3f} km away)")
                 return normalized
-        
-        if self.verbose:
-            print(f"[EXACT_MATCH] No existing city found within {threshold_km} km")
+
+        logger.debug(f"No existing city found within {threshold_km} km")
         return None
     
     def _find_cluster_center(self, lat: float, lon: float, country: str, current_metadata: Dict) -> Optional[str]:
@@ -421,13 +399,12 @@ class CityNormalizer:
             CityMapping.latitude.isnot(None),
             CityMapping.longitude.isnot(None)
         ).all()
-        
-        if self.verbose:
-            print(f"[CLUSTER] Found {len(nearby_cities)} cities in {country} with coordinates")
-        
+
+        logger.debug(f"Found {len(nearby_cities)} cities in {country} with coordinates")
+
         current_importance = current_metadata.get('importance', 0)
         current_population = current_metadata.get('population', 0)
-        
+
         # Find nearby cities within cluster radius
         candidates = []
         for nearby in nearby_cities:
@@ -436,7 +413,7 @@ class CityNormalizer:
                 lat, lon,
                 nearby_coords[0], nearby_coords[1]
             )
-            
+
             if distance <= self.CLUSTER_RADIUS_KM:
                 # Get stored metadata for comparison (if available from extratags)
                 # For now, we'll cluster to ANY nearby city that was seen first
@@ -447,16 +424,14 @@ class CityNormalizer:
                         'name': normalized,
                         'distance': distance
                     })
-                    
-                    if self.verbose:
-                        print(f"[CLUSTER] Found nearby city: '{normalized}' at {distance:.2f} km")
-        
+
+                    logger.debug(f"Found nearby city: '{normalized}' at {distance:.2f} km")
+
         if candidates:
             # Cluster to the closest city
             # (In future: could prioritize by importance/population if stored in DB)
             closest = min(candidates, key=lambda x: x['distance'])
-            if self.verbose:
-                print(f"[CLUSTER] Clustering to nearest city: '{closest['name']}' ({closest['distance']:.2f} km)")
+            logger.debug(f"Clustering to nearest city: '{closest['name']}' ({closest['distance']:.2f} km)")
             return closest['name']
         
         return None
@@ -495,41 +470,36 @@ class CityNormalizer:
             if attempt == 0:
                 elapsed = time.time() - self.last_overpass_time
                 if elapsed < self.RATE_LIMIT:
-                    if self.verbose:
-                        print(f"[OVERPASS] Rate limiting: waiting {self.RATE_LIMIT - elapsed:.2f}s")
+                    logger.debug(f"Rate limiting: waiting {self.RATE_LIMIT - elapsed:.2f}s")
                     time.sleep(self.RATE_LIMIT - elapsed)
-            
+
             try:
-                if self.verbose:
-                    if attempt == 0:
-                        print(f"[OVERPASS] Querying for cities within {self.CLUSTER_RADIUS_KM} km...")
-                    else:
-                        print(f"[OVERPASS] Retry attempt {attempt + 1}/{max_retries}...")
-                
+                if attempt == 0:
+                    logger.debug(f"Querying for cities within {self.CLUSTER_RADIUS_KM} km...")
+                else:
+                    logger.debug(f"Retry attempt {attempt + 1}/{max_retries}...")
+
                 url = 'https://overpass-api.de/api/interpreter'
                 response = requests.post(url, data={'data': query}, timeout=30)
                 self.last_overpass_time = time.time()
-                
+
                 if response.status_code != 200:
-                    if self.verbose:
-                        print(f"[OVERPASS] API error: status {response.status_code}")
-                    
+                    logger.debug(f"API error: status {response.status_code}")
+
                     # Retry on server errors (5xx) or rate limiting (429)
                     if response.status_code >= 500 or response.status_code == 429:
                         if attempt < max_retries - 1:
                             wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
-                            if self.verbose:
-                                print(f"[OVERPASS] Retrying in {wait_time}s...")
+                            logger.debug(f"Retrying in {wait_time}s...")
                             time.sleep(wait_time)
                             continue
                     return None
-                
+
                 data = response.json()
                 elements = data.get('elements', [])
-                
+
                 if not elements:
-                    if self.verbose:
-                        print(f"[OVERPASS] No cities/towns found within radius")
+                    logger.debug("No cities/towns found within radius")
                     return None
                 
                 # Extract cities with population data
@@ -571,41 +541,37 @@ class CityNormalizer:
                         })
                 
                 if not cities:
-                    if self.verbose:
-                        print(f"[OVERPASS] No valid cities found")
+                    logger.debug("No valid cities found")
                     return None
-                
+
                 # Sort by: 1) place_type (city > town), 2) population (desc), 3) distance (asc)
                 cities.sort(key=lambda x: (
                     0 if x['place_type'] == 'city' else 1,  # Cities first
                     -x['population'],  # Larger population first
                     x['distance']  # Closer first
                 ))
-                
+
                 largest = cities[0]
-                
-                if self.verbose:
-                    print(f"[OVERPASS] Found {len(cities)} cities/towns within {self.CLUSTER_RADIUS_KM} km")
-                    print(f"[OVERPASS] Largest: {largest['name']} (pop: {largest['population']:,}, type: {largest['place_type']}, {largest['distance']:.2f} km)")
-                    if len(cities) > 1:
-                        print(f"[OVERPASS] Runner-up: {cities[1]['name']} (pop: {cities[1]['population']:,}, {cities[1]['distance']:.2f} km)")
-                
+
+                logger.debug(f"Found {len(cities)} cities/towns within {self.CLUSTER_RADIUS_KM} km")
+                logger.debug(f"Largest: {largest['name']} (pop: {largest['population']:,}, type: {largest['place_type']}, {largest['distance']:.2f} km)")
+                if len(cities) > 1:
+                    logger.debug(f"Runner-up: {cities[1]['name']} (pop: {cities[1]['population']:,}, {cities[1]['distance']:.2f} km)")
+
                 return largest
-                
+
             except Exception as e:
-                if self.verbose:
-                    print(f"[OVERPASS] Error on attempt {attempt + 1}: {e}")
-                
+                logger.debug(f"Error on attempt {attempt + 1}: {e}")
+
                 # Retry on exceptions
                 if attempt < max_retries - 1:
                     wait_time = retry_delay * (2 ** attempt)
-                    if self.verbose:
-                        print(f"[OVERPASS] Retrying in {wait_time}s...")
+                    logger.debug(f"Retrying in {wait_time}s...")
                     time.sleep(wait_time)
                     continue
-                
+
                 return None
-        
+
         return None  # All retries failed
     
     def _haversine_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -697,11 +663,10 @@ class CityNormalizer:
             # Duplicate entry - another process/thread already inserted this mapping
             # This is expected in concurrent scenarios, just rollback silently
             self.db.rollback()
-            if self.verbose:
-                print(f"[INFO] Mapping for {original_city}, {country} already exists (concurrent insert)")
+            logger.debug(f"Mapping for {original_city}, {country} already exists (concurrent insert)")
         except Exception as e:
             self.db.rollback()
-            print(f"Error storing mapping for {original_city}: {e}")
+            logger.error(f"Error storing mapping for {original_city}: {e}")
     
     def add_manual_mapping(self, original_city: str, country: str, normalized_city: str,
                           latitude: Optional[float] = None, longitude: Optional[float] = None):
