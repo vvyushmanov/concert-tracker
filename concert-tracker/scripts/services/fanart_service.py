@@ -5,6 +5,9 @@ Fanart.tv API service for fetching artist images
 import requests
 import time
 from typing import Optional, Tuple
+from utils import get_logger
+
+logger = get_logger(__name__)
 
 
 class FanartService:
@@ -81,9 +84,8 @@ class FanartService:
                 return None, None
 
             except requests.exceptions.Timeout:
-                if verbose and attempt < self.MAX_RETRIES - 1:
-                    print(f"      ⚠️  Timeout, retrying... (attempt {attempt + 2}/{self.MAX_RETRIES})")
                 if attempt < self.MAX_RETRIES - 1:
+                    logger.warning(f"Timeout, retrying... (attempt {attempt + 2}/{self.MAX_RETRIES})")
                     wait_time = self.RETRY_BACKOFF ** attempt
                     time.sleep(wait_time)
                     continue
@@ -93,17 +95,15 @@ class FanartService:
                 if e.response is not None and 400 <= e.response.status_code < 500:
                     return None, None
                 # Retry on 5xx errors (server errors)
-                if verbose and attempt < self.MAX_RETRIES - 1:
-                    print(f"      ⚠️  HTTP {e.response.status_code if e.response else 'error'}, retrying... (attempt {attempt + 2}/{self.MAX_RETRIES})")
                 if attempt < self.MAX_RETRIES - 1:
+                    logger.warning(f"HTTP {e.response.status_code if e.response else 'error'}, retrying... (attempt {attempt + 2}/{self.MAX_RETRIES})")
                     wait_time = self.RETRY_BACKOFF ** attempt
                     time.sleep(wait_time)
                     continue
                 return None, None
             except requests.RequestException as e:
-                if verbose and attempt < self.MAX_RETRIES - 1:
-                    print(f"      ⚠️  Error: {e}, retrying... (attempt {attempt + 2}/{self.MAX_RETRIES})")
                 if attempt < self.MAX_RETRIES - 1:
+                    logger.warning(f"Error: {e}, retrying... (attempt {attempt + 2}/{self.MAX_RETRIES})")
                     wait_time = self.RETRY_BACKOFF ** attempt
                     time.sleep(wait_time)
                     continue

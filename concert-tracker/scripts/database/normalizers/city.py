@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from database.models import CityMapping, CityNormalized
 from database.normalizers.country import get_or_create_country
-from utils.logging_config import get_logger
+from utils import get_logger
 
 logger = get_logger(__name__)
 

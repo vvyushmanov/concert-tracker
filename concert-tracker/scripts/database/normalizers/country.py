@@ -5,13 +5,14 @@ Used during migration and by parser to handle country lookups and creation
 Includes REST Countries API fallback for automatic country code resolution
 """
 
-import logging
 import requests
 from datetime import datetime, timezone
 from typing import Optional, Tuple
 from database.models import Country
+from utils import get_logger
+from sqlalchemy.orm import Session
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Country name to ISO code mapping
 COUNTRY_NAME_TO_CODE = {
@@ -146,7 +147,7 @@ def resolve_country_info(country_name: str) -> Tuple[str, str]:
     return (country_name, 'xx')
 
 
-def get_or_create_country(session, country_name: str, verbose: bool = False) -> Country:
+def get_or_create_country(session: Session, country_name: str, verbose: bool = False) -> Country:
     """
     Get existing country or create new one with automatic code resolution
     
@@ -171,18 +172,16 @@ def get_or_create_country(session, country_name: str, verbose: bool = False) -> 
     country = session.query(Country).filter_by(name=country_name).first()
     
     if country:
-        if verbose:
-            print(f"[Country] Found existing: {country.name} ({country.code})")
+        logger.debug(f"Found existing: {country.name} ({country.code})")
         return country
-    
+
     # Resolve country name and code using multiple strategies
     resolved_name, country_code = resolve_country_info(country_name)
-    
-    if verbose:
-        if country_code != 'xx':
-            print(f"[Country] Resolved '{country_name}' -> {resolved_name} ({country_code})")
-        else:
-            print(f"[Country] Unknown country '{country_name}', using code 'xx'")
+
+    if country_code != 'xx':
+        logger.debug(f"Resolved '{country_name}' -> {resolved_name} ({country_code})")
+    else:
+        logger.debug(f"Unknown country '{country_name}', using code 'xx'")
     
     now = int(datetime.now(timezone.utc).timestamp())
     
@@ -195,8 +194,7 @@ def get_or_create_country(session, country_name: str, verbose: bool = False) -> 
             counter += 1
         original_code = country_code
         country_code = f"{country_code}_{counter}"
-        if verbose:
-            print(f"[Country] Code '{original_code}' already exists, using '{country_code}'")
+        logger.debug(f"Code '{original_code}' already exists, using '{country_code}'")
     
     # Create new country
     country = Country(
@@ -208,8 +206,7 @@ def get_or_create_country(session, country_name: str, verbose: bool = False) -> 
     
     session.add(country)
     session.flush()  # Get the ID immediately
-    
-    if verbose:
-        print(f"[Country] Created: {country.name} ({country.code}) with ID {country.id}")
-    
+
+    logger.debug(f"Created: {country.name} ({country.code}) with ID {country.id}")
+
     return country

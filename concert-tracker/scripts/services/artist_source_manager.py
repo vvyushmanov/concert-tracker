@@ -34,6 +34,9 @@ from sqlalchemy.orm import Session
 from database.models import Artist, UserArtist
 from services.lastfm_service import LastFMService
 from utils.validation import is_musicbrainz_id
+from utils import get_logger
+
+logger = get_logger(__name__)
 
 
 class ArtistSourceManager:
@@ -129,7 +132,7 @@ class ArtistSourceManager:
                 .all()
             )
 
-            print(f"Loaded {len(user_artists)} artists from UserArtist table")
+            logger.info(f"Loaded {len(user_artists)} artists from UserArtist table")
 
             for user_artist, artist in user_artists:
                 all_artists.add(artist.name)
@@ -146,7 +149,7 @@ class ArtistSourceManager:
 
         # Source 2: Last.fm API (optional)
         if self.has_lastfm():
-            print(f"Fetching artists from Last.fm for user: {self.lastfm_user}")
+            logger.info(f"Fetching artists from Last.fm for user: {self.lastfm_user}")
 
             # Fetch all user artists from Last.fm
             overall_dict, month12_dict = self.lastfm_service.fetch_all_user_artists(self.lastfm_user)
@@ -160,7 +163,7 @@ class ArtistSourceManager:
                 and not is_musicbrainz_id(key)  # Exclude MBID keys (UUID format)
             }
 
-            print(f"Loaded {len(lastfm_artists_filtered)} artists from Last.fm (playcount >= {self.min_playcount})")
+            logger.info(f"Loaded {len(lastfm_artists_filtered)} artists from Last.fm (playcount >= {self.min_playcount})")
 
             for _, artist_data in lastfm_artists_filtered.items():
                 # Get the actual artist name from the data

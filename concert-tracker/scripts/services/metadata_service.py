@@ -177,7 +177,7 @@ class ArtistMetadataService:
         """
         # Return zeros if Last.fm not configured
         if not self.has_lastfm():
-            print(f"  Skipping playcount update for {artist.name} (Last.fm not configured)")
+            logger.warning(f"Skipping playcount update for {artist.name} (Last.fm not configured)")
             return 0, 0
 
         # Lookup playcounts
@@ -242,7 +242,7 @@ class ArtistMetadataService:
             artist_names = [a.name for a in artists if not a.mbid]
 
             if artist_names:
-                print(f"  Fetching {len(artist_names)} MBIDs from MusicBrainz...")
+                logger.info(f"Fetching {len(artist_names)} MBIDs from MusicBrainz...")
                 mb_results = mb_service.bulk_fetch_mbids(artist_names)
 
                 for artist in artists:
@@ -256,14 +256,14 @@ class ArtistMetadataService:
                         repaired_count += 1
 
         except Exception as e:
-            print(f"  Warning: MusicBrainz bulk fetch failed: {e}")
+            logger.error(f"MusicBrainz bulk fetch failed: {e}")
 
         # Fall back to Last.fm for artists still missing MBIDs
         if self.has_lastfm():
             artists_still_missing = [a for a in artists if not a.mbid]
 
             if artists_still_missing:
-                print(f"  Fetching remaining {len(artists_still_missing)} MBIDs from Last.fm...")
+                logger.info(f"Fetching remaining {len(artists_still_missing)} MBIDs from Last.fm...")
                 overall_dict, month12_dict = self.lastfm_service.fetch_all_user_artists(self.lastfm_user)
 
                 for artist in artists_still_missing:
