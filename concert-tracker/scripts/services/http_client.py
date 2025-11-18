@@ -9,6 +9,10 @@ import urllib3
 import requests
 from typing import Optional, List, Union
 from requests.adapters import HTTPAdapter
+from utils import get_logger
+from services.proxy import ProxyManager
+
+logger = get_logger(__name__)
 
 # System CA bundle paths (in order of preference)
 SYSTEM_CA_BUNDLES = [
@@ -48,7 +52,7 @@ class HTTPClient:
         verify_ssl: Union[bool, str] = True,
         use_system_ca: bool = False,
         user_agents: Optional[List[str]] = None,
-        proxy_manager = None,
+        proxy_manager: Optional[ProxyManager] = None,
         pool_connections: int = 1,
         pool_maxsize: int = 1
     ):
@@ -158,12 +162,12 @@ class HTTPClient:
                 proxy = None
                 if self.proxy_manager:
                     proxy = self.proxy_manager.get_next_proxy()
-                
+
                 # Merge headers
                 request_headers = self._get_headers(base_url)
                 if headers:
                     request_headers.update(headers)
-                
+
                 # Make request
                 response = self.session.get(
                     url,
@@ -175,29 +179,55 @@ class HTTPClient:
                     **kwargs
                 )
                 response.raise_for_status()
-                
+
                 # Success - mark proxy as working
                 if self.proxy_manager and proxy:
                     self.proxy_manager.mark_proxy_success(proxy)
-                
+
                 # Store URL for next request's Referer
                 self._last_url = url
-                
+
                 return response
-                
+
             except requests.RequestException as e:
                 # Mark proxy as failed
                 if self.proxy_manager and proxy:
                     self.proxy_manager.mark_proxy_failed(proxy)
-                
+
+                # Determine error details for logging
+                error_detail = str(e)
+                if hasattr(e, 'response') and e.response is not None:
+                    status_code = e.response.status_code
+                    error_detail = f"HTTP {status_code}"
+                    if status_code >= 500:
+                        error_detail += " (server error)"
+                    elif status_code == 429:
+                        error_detail += " (rate limited)"
+                    elif status_code == 403:
+                        error_detail += " (forbidden)"
+                    elif status_code == 404:
+                        error_detail += " (not found)"
+                elif isinstance(e, requests.Timeout):
+                    error_detail = f"Timeout after {self.timeout}s"
+                elif isinstance(e, requests.ConnectionError):
+                    error_detail = "Connection error"
+
                 # Retry if we have attempts left
                 if attempt < max_retries - 1:
-                    time.sleep(1)  # Brief delay before retry
+                    retry_delay = 1 + attempt  # Increasing delay: 1s, 2s, 3s...
+                    logger.warning(
+                        f"Request failed (attempt {attempt + 1}/{max_retries}): {error_detail} - "
+                        f"retrying in {retry_delay}s..."
+                    )
+                    time.sleep(retry_delay)
                     continue
-                
+
                 # All retries exhausted
+                logger.error(
+                    f"Request failed after {max_retries} attempts: {error_detail}"
+                )
                 return None
-        
+
         return None
     
     def head(self, url: str, **kwargs) -> Optional[requests.Response]:
