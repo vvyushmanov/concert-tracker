@@ -11,6 +11,10 @@ from sqlalchemy.orm import sessionmaker
 from database.config import get_engine
 from database.models import Country
 from database.normalizers.country import get_or_create_country, lookup_country_by_code
+from utils import get_logger, setup_logging
+
+logger = get_logger(__name__)
+setup_logging()
 
 def add_or_update_country(input_value: str, active: bool = True) -> dict:
     """
@@ -134,7 +138,7 @@ def add_or_update_country(input_value: str, active: bool = True) -> dict:
 def main():
     """Main function for command line usage"""
     if len(sys.argv) < 2:
-        print(json.dumps({
+        logger.error(json.dumps({
             'success': False,
             'error': 'Usage: python add_country.py <country_name_or_code> [active]'
         }))
@@ -149,7 +153,7 @@ def main():
         active = active_str in ('true', '1', 'yes', 'on')
 
     result = add_or_update_country(input_value, active)
-    print(json.dumps(result))
+    logger.info(json.dumps(result))
 
     sys.exit(0 if result['success'] else 1)
 

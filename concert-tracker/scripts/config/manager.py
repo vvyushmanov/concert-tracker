@@ -26,6 +26,9 @@ from sqlalchemy import text
 
 from database.config import get_engine
 from database.models import Setting, Base, Country
+from utils import get_logger, setup_logging
+
+logger = get_logger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -77,15 +80,15 @@ class ConfigManager:
             self._ensure_settings_table()
             self._migrate_from_env()
         except Exception as e:
-            print(f"Warning: ConfigManager DB initialization failed: {e}")
-            print("Falling back to environment variables only")
+            logger.warning(f"ConfigManager DB initialization failed: {e}")
+            logger.warning("Falling back to environment variables only")
     
     def _ensure_settings_table(self):
         """Create Setting table if it doesn't exist"""
         try:
             Base.metadata.create_all(self._engine, tables=[Setting.__table__])
         except Exception as e:
-            print(f"Warning: Could not create Setting table: {e}")
+            logger.warning(f"Could not create Setting table: {e}")
     
     def _migrate_from_env(self):
         """Auto-migrate ENV vars to DB on first run"""
@@ -101,7 +104,7 @@ class ConfigManager:
                 # Already migrated
                 return
             
-            print("🔄 First run detected - migrating settings from .env to database...")
+            logger.info("🔄 First run detected - migrating settings from .env to database...")
             
             # Migrate all default settings
             migrated = 0
@@ -133,12 +136,12 @@ class ConfigManager:
                 migrated += 1
             
             session.commit()
-            print(f"✅ Migrated {migrated} settings from .env to database")
+            logger.info(f"✅ Migrated {migrated} settings from .env to database")
             
         except Exception as e:
             if session:
                 session.rollback()
-            print(f"Warning: Settings migration failed: {e}")
+            logger.warning(f"Settings migration failed: {e}")
         finally:
             if session:
                 session.close()
@@ -325,7 +328,7 @@ class ConfigManager:
                 return setting.value, setting.valueType
             return None, None
         except Exception as e:
-            print(f"Warning: DB query failed for key '{key}': {e}")
+            logger.error(f"DB query failed for key '{key}': {e}")
             return None, None
         finally:
             session.close()
@@ -367,7 +370,7 @@ class ConfigManager:
                 return self.get_list('COUNTRY_CODES', ['tr', 'fr', 'de'])
                 
         except Exception as e:
-            print(f"Warning: Failed to query active countries: {e}")
+            logger.error(f"Failed to query active countries: {e}")
             # Fallback to COUNTRY_CODES setting
             return self.get_list('COUNTRY_CODES', ['tr', 'fr', 'de'])
         finally:
@@ -384,16 +387,16 @@ if __name__ == '__main__':
     # Test the config manager
     config = ConfigManager()
     
-    print("\n=== ConfigManager Test ===\n")
+    logger.info("=== ConfigManager Test ===")
     
-    print("All settings:")
+    logger.info("All settings:")
     all_settings = config.get_all()
     for key, value in all_settings.items():
-        print(f"  {key}: {value}")
+        logger.info(f"  {key}: {value}")
     
-    print("\n--- Type-safe getters ---")
-    print(f"LASTFM_API_KEY (string): {config.get('LASTFM_API_KEY')}")
-    print(f"MIN_PLAYCOUNT (int): {config.get_int('MIN_PLAYCOUNT')}")
-    print(f"COUNTRY_CODES (list): {config.get_list('COUNTRY_CODES')}")
+    logger.info("--- Type-safe getters ---")
+    logger.info(f"LASTFM_API_KEY (string): {config.get('LASTFM_API_KEY')}")
+    logger.info(f"MIN_PLAYCOUNT (int): {config.get_int('MIN_PLAYCOUNT')}")
+    logger.info(f"COUNTRY_CODES (list): {config.get_list('COUNTRY_CODES')}")
     
-    print("\n✅ ConfigManager test complete")
+    logger.info("✅ ConfigManager test complete")

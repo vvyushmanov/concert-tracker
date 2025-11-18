@@ -8,6 +8,9 @@ import os
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
+from utils import get_logger
+
+logger = get_logger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -50,7 +53,7 @@ def get_engine(db_path: str = None, echo: bool = False) -> Engine:
                 "Please set SQLITE_DB_PATH in your .env file (e.g., SQLITE_DB_PATH=file:/app/data/concerts.db)"
             )
         sqlite_path = sqlite_path.replace('file:', 'sqlite:///')
-        print(f"Using SQLite database at {sqlite_path}")
+        logger.info(f"Using SQLite database at {sqlite_path}")
         return create_engine(sqlite_path, echo=echo)
     
     elif db_type == 'mysql':
@@ -89,9 +92,9 @@ def is_sqlite() -> bool:
 
 if __name__ == '__main__':
     # Print configuration when run directly
-    print(f"DB_TYPE: {get_db_type()}")
+    logger.info(f"DB_TYPE: {get_db_type()}")
     try:
         engine = get_engine()
-        print(f"Engine created successfully: {engine.url}")
+        logger.info(f"Engine created successfully: {engine.url}")
     except ValueError as e:
-        print(f"Error: {e}")
+        logger.error(f"Error: {e}")

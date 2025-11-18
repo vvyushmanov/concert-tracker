@@ -4,13 +4,14 @@ Handles upserts and data conversion from parser format to database format
 """
 
 import json
-import logging
+
 import traceback
 from datetime import datetime, timezone
 from typing import List, Dict, Set
 from sqlalchemy.exc import IntegrityError
+from utils import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 from database.models import Artist, Concert, ArtistConcert, UserArtist, UserConcert, get_session
 from database.normalizers.city import CityNormalizer, get_or_create_city_mapping
@@ -194,7 +195,7 @@ class ConcertDatabaseWriter:
             self.session.add(user_concert)
             self.stats['user_concerts_created'] += 1
             if self.debug:
-                print(f"[DB] Created UserConcert link for concert ID {concert.id}")
+                logger.debug(f"Created UserConcert link for concert ID {concert.id}")
     
     def link_artists_to_concert(
         self, 
@@ -228,17 +229,17 @@ class ConcertDatabaseWriter:
         recent_artists = recent_artists or set()
         
         if self.debug:
-            print(f"     Creating ArtistConcert links for {len(matched_artists)} matched artist(s)...")
-        
+            logger.debug(f"Creating ArtistConcert links for {len(matched_artists)} matched artist(s)...")
+
         # Check if a primary artist already exists for this concert
         existing_primary = self.session.query(ArtistConcert).filter_by(
             concertId=concert.id,
             isPrimary=True
         ).first()
-        
+
         if self.debug and existing_primary:
             primary_artist = self.session.query(Artist).filter_by(id=existing_primary.artistId).first()
-            print(f"     ℹ️  Concert already has primary artist: {primary_artist.name if primary_artist else 'Unknown'}")
+            logger.debug(f"Concert already has primary artist: {primary_artist.name if primary_artist else 'Unknown'}")
         
         for idx, artist_name in enumerate(matched_artists):
             # Determine if this should be primary
@@ -252,14 +253,14 @@ class ConcertDatabaseWriter:
                     role = "PRIMARY"
                 else:
                     role = "ADDITIONAL"
-                print(f"       [{idx+1}/{len(matched_artists)}] {role}: {artist_name}")
-            
+                logger.debug(f"[{idx+1}/{len(matched_artists)}] {role}: {artist_name}")
+
             # Get or create artist (will create if doesn't exist)
             mbid = artist_mbids.get(artist_name)
             artist = self.get_or_create_artist(name=artist_name, mbid=mbid)
-            
+
             if self.debug:
-                print(f"           Artist ID: {artist.id} (MBID: {artist.mbid or 'none'})")
+                logger.debug(f"Artist ID: {artist.id} (MBID: {artist.mbid or 'none'})")
             
             # Create/update UserArtist with user-specific stats for ALL matched artists
             if self.user_id:
@@ -273,9 +274,9 @@ class ConcertDatabaseWriter:
                     playcount12month=playcount12month,
                     recent=is_recent
                 )
-                
+
                 if self.debug:
-                    print(f"           UserArtist: playcount={playcount}, 12mo={playcount12month}, recent={is_recent}")
+                    logger.debug(f"UserArtist: playcount={playcount}, 12mo={playcount12month}, recent={is_recent}")
             
             # Check if link already exists
             existing_link = self.session.query(ArtistConcert).filter_by(
@@ -287,9 +288,9 @@ class ConcertDatabaseWriter:
                 self.stats['artist_concert_links_skipped'] += 1
                 if self.debug:
                     existing_primary_str = "PRIMARY" if existing_link.isPrimary else "ADDITIONAL"
-                    print(f"           ⚠️  Link already exists (was {existing_primary_str})")
+                    logger.debug(f"Link already exists (was {existing_primary_str})")
                 continue
-            
+
             # Create new link
             artist_concert = ArtistConcert(
                 artistId=artist.id,
@@ -299,9 +300,9 @@ class ConcertDatabaseWriter:
             )
             self.session.add(artist_concert)
             self.stats['artist_concert_links_created'] += 1
-            
+
             if self.debug:
-                print(f"           ✅ Created link (isPrimary={is_primary})")
+                logger.debug(f"Created link (isPrimary={is_primary})")
     
     def parse_date(self, date_str: str) -> int:
         """Parse date string to Unix timestamp
@@ -360,7 +361,7 @@ class ConcertDatabaseWriter:
             # Fallback if city mapping creation failed
             # We cannot insert a concert without a valid cityMappingId (NOT NULL constraint)
             if self.debug:
-                print(f"     ⚠️  Skipping concert - failed to create city mapping for '{original_city}' in '{country_name}'")
+                logger.debug(f"Skipping concert - failed to create city mapping for '{original_city}' in '{country_name}'")
             raise ValueError(f"Failed to create city mapping for '{original_city}' in '{country_name}'")
         
         if concert:
@@ -396,12 +397,12 @@ class ConcertDatabaseWriter:
                 concert.updatedAt = int(datetime.now(timezone.utc).timestamp())
                 self.stats['concerts_updated'] += 1
                 if self.debug:
-                    print(f"[DB] Updated concert: {concert_data.get('event_name', 'Unknown')}")
+                    logger.debug(f"Updated concert: {concert_data.get('event_name', 'Unknown')}")
                     for change in changed_fields:
-                        print(f"     - {change}")
+                        logger.debug(f"  - {change}")
             else:
                 if self.debug:
-                    print(f"[DB] No changes for concert: {concert_data.get('event_name', 'Unknown')} (skipped update)")
+                    logger.debug(f"No changes for concert: {concert_data.get('event_name', 'Unknown')} (skipped update)")
         else:
             # Create new concert (without interested/notes - those are in UserConcert now)
             concert = Concert(
@@ -423,11 +424,11 @@ class ConcertDatabaseWriter:
             self.stats['concerts_created'] += 1
             if self.debug:
                 normalized = city_mapping.city_normalized.normalizedCity if city_mapping and city_mapping.city_normalized else 'Unknown'
-                print(f"[DB] Created new concert: {concert_data.get('event_name', 'Unknown')}")
-                print(f"     - Date: {concert_data.get('date_start')}")
-                print(f"     - Venue: {concert_data.get('venue', 'Unknown')}")
-                print(f"     - City: {original_city} → {normalized}")
-                print(f"     - Country: {country_name}")
+                logger.debug(f"Created new concert: {concert_data.get('event_name', 'Unknown')}")
+                logger.debug(f"  - Date: {concert_data.get('date_start')}")
+                logger.debug(f"  - Venue: {concert_data.get('venue', 'Unknown')}")
+                logger.debug(f"  - City: {original_city} → {normalized}")
+                logger.debug(f"  - Country: {country_name}")
         
         return
     
@@ -463,10 +464,10 @@ class ConcertDatabaseWriter:
             has_playcounts = bool(artist_playcounts or artist_playcounts_12month)
             has_mbids = bool(artist_mbids)
             has_recent = bool(recent_artists)
-            print(f"[DB] Writing {len(concerts)} concerts with metadata:")
-            print(f"     - Playcounts available: {'Yes' if has_playcounts else 'No'}")
-            print(f"     - MBIDs available: {'Yes' if has_mbids else 'No'}")
-            print(f"     - Recent artists marked: {'Yes' if has_recent else 'No'}")
+            logger.debug(f"Writing {len(concerts)} concerts with metadata:")
+            logger.debug(f"  - Playcounts available: {'Yes' if has_playcounts else 'No'}")
+            logger.debug(f"  - MBIDs available: {'Yes' if has_mbids else 'No'}")
+            logger.debug(f"  - Recent artists marked: {'Yes' if has_recent else 'No'}")
         
         for concert_data in concerts:
             try:
@@ -481,17 +482,17 @@ class ConcertDatabaseWriter:
                     matched_artists = all_performers
 
                 if self.debug:
-                    print(f"\n[DB] Processing concert: {concert_data.get('event_name', 'Unknown')}")
-                    print(f"     All performers: {', '.join(all_performers)}")
+                    logger.debug(f"Processing concert: {concert_data.get('event_name', 'Unknown')}")
+                    logger.debug(f"  All performers: {', '.join(all_performers)}")
                     has_filter = 'matched_artists' in concert_data
                     mode = "FILTERED" if has_filter else "NO-FILTER"
-                    print(f"     Mode: {mode}")
-                    print(f"     Matched artists: {', '.join(matched_artists) if matched_artists else 'NONE'}")
+                    logger.debug(f"  Mode: {mode}")
+                    logger.debug(f"  Matched artists: {', '.join(matched_artists) if matched_artists else 'NONE'}")
 
                 if not matched_artists:
                     # Skip concerts without any artists at all
                     if self.debug:
-                        print(f"     ⚠️  SKIPPED: No artists (no performers)")
+                        logger.debug("SKIPPED: No artists (no performers)")
                     continue
                 
                 # Upsert concert
@@ -521,40 +522,40 @@ class ConcertDatabaseWriter:
                 self.session.commit()
                 
             except Exception as e:
-                print(f"Error writing concert {concert_data.get('event_name', 'Unknown')}: {e}")
+                logger.error(f"Error writing concert {concert_data.get('event_name', 'Unknown')}: {e}")
                 # Only show full traceback in debug mode
                 if self.debug:
-                    print(traceback.format_exc())
+                    logger.debug(traceback.format_exc())
                 # Critical: Rollback the session to clear the dirty state
                 # This prevents PendingRollbackError on subsequent operations
                 self.session.rollback()
                 self.stats['errors'] += 1
                 continue
-        
+
         # Commit all changes
         try:
             self.session.commit()
         except IntegrityError as e:
-            print(f"Database integrity error: {e}")
+            logger.error(f"Database integrity error: {e}")
             self.session.rollback()
             self.stats['errors'] += 1
     
     def print_stats(self):
         """Print statistics about database operations"""
-        print(f"\n{'='*80}")
-        print("DATABASE WRITE STATISTICS")
-        print(f"{'='*80}")
-        print(f"Artists created: {self.stats['artists_created']}")
-        print(f"Artists updated: {self.stats['artists_updated']}")
-        print(f"Concerts created: {self.stats['concerts_created']}")
-        print(f"Concerts updated: {self.stats['concerts_updated']}")
-        print(f"Artist-Concert links created: {self.stats['artist_concert_links_created']}")
-        print(f"Artist-Concert links skipped: {self.stats['artist_concert_links_skipped']}")
+        logger.info("=" * 80)
+        logger.info("DATABASE WRITE STATISTICS")
+        logger.info("=" * 80)
+        logger.info(f"Artists created: {self.stats['artists_created']}")
+        logger.info(f"Artists updated: {self.stats['artists_updated']}")
+        logger.info(f"Concerts created: {self.stats['concerts_created']}")
+        logger.info(f"Concerts updated: {self.stats['concerts_updated']}")
+        logger.info(f"Artist-Concert links created: {self.stats['artist_concert_links_created']}")
+        logger.info(f"Artist-Concert links skipped: {self.stats['artist_concert_links_skipped']}")
         if self.user_id:
-            print(f"User-Artist links created: {self.stats['user_artists_created']}")
-            print(f"User-Artist links updated: {self.stats['user_artists_updated']}")
-            print(f"User-Concert links created: {self.stats['user_concerts_created']}")
-        print(f"Cities normalized: {self.stats['cities_normalized']}")
+            logger.info(f"User-Artist links created: {self.stats['user_artists_created']}")
+            logger.info(f"User-Artist links updated: {self.stats['user_artists_updated']}")
+            logger.info(f"User-Concert links created: {self.stats['user_concerts_created']}")
+        logger.info(f"Cities normalized: {self.stats['cities_normalized']}")
         if self.stats['errors'] > 0:
-            print(f"Errors: {self.stats['errors']}")
-        print(f"{'='*80}\n")
+            logger.info(f"Errors: {self.stats['errors']}")
+        logger.info("=" * 80)

@@ -281,7 +281,7 @@ def main():
         )
 
         if validation.is_error():
-            print(validation)
+            logger.error(str(validation))
             return 1
 
         # Extract credentials (works for both user-specific and global modes)
@@ -292,11 +292,11 @@ def main():
 
         # Display configuration info
         if args.user_id:
-            print(f"User: {credentials.username} (ID: {args.user_id})")
-            print(f"Active countries for user: {', '.join(country_codes) if country_codes else 'None'}")
+            logger.info(f"User: {credentials.username} (ID: {args.user_id})")
+            logger.info(f"Active countries for user: {', '.join(country_codes) if country_codes else 'None'}")
         else:
-            print(f"ℹ️  {validation.message}")  # Global mode for all concerts/artists
-            print(f"Country codes from config: {', '.join(country_codes)}")
+            logger.info(f"Global mode: {validation.message}")
+            logger.info(f"Country codes from config: {', '.join(country_codes)}")
         
         # Fetch artists for concert filtering
         filtering_artists = set()
@@ -339,25 +339,25 @@ def main():
                 no_filter=False  # We're in filter mode here
             )
 
-            # Print validation result
-            print(validation_result)
+            # Log validation result
+            logger.info(str(validation_result))
 
             # Exit if validation failed
             if validation_result.is_error():
                 return 1
 
             # Show which sources are being used
-            print(f"\nArtist sources: {manager.get_source_summary()}")
+            logger.info(f"Artist sources: {manager.get_source_summary()}")
             if lastfm_user:
-                print(f"Last.fm user: {lastfm_user}")
-            print(f"Minimum playcount threshold: {min_playcount}")
+                logger.info(f"Last.fm user: {lastfm_user}")
+            logger.info(f"Minimum playcount threshold: {min_playcount}")
 
             # Fetch artists from all available sources
             filtering_artists, recent_artists, artist_playcounts, artist_playcounts_12month, artist_mbids = \
                 manager.fetch_filtering_artists()
 
             if not filtering_artists:
-                print("Error: No artists loaded from any source, exiting")
+                logger.error("No artists loaded from any source, exiting")
                 return 1
         else:
             # Validate no-filter mode
@@ -367,10 +367,7 @@ def main():
                 userartist_count=0,  # Doesn't matter in no-filter mode
                 no_filter=True
             )
-            print(validation_result)
-            print()
-        
-        print()
+            logger.info(str(validation_result))
         
         # Collect all concerts from all countries
         all_concerts = []
@@ -384,18 +381,18 @@ def main():
             for idx, country_code in enumerate(country_codes):
                 # Check for interruption
                 if shutdown.interrupted:
-                    print(f"\n⚠️  Stopping after completing current country...")
+                    logger.warning("Stopping after completing current country...")
                     break
-                
+
                 # Add delay between countries to avoid rate limiting
                 if idx > 0:
                     delay_time = args.delay * CountryConcertParser.COUNTRY_DELAY_MULTIPLIER
-                    print(f"\nWaiting {delay_time} seconds before next country...")
+                    logger.info(f"Waiting {delay_time} seconds before next country...")
                     time.sleep(delay_time)
-                
-                print(f"\n{'='*80}")
-                print(f"Processing country: {country_code.upper()}")
-                print(f"{'='*80}")
+
+                logger.info("=" * 80)
+                logger.info(f"Processing country: {country_code.upper()}")
+                logger.info("=" * 80)
         
                 concert_parser = CountryConcertParser(
                     country_code,
@@ -411,27 +408,25 @@ def main():
                 def save_callback(all_concerts_so_far, filtered_concerts_so_far, page_num):
                     # Skip all saves in dry run mode
                     if args.dry_run:
-                        print(f"  🔍 [DRY RUN] Would save progress here (page {page_num})")
+                        logger.info(f"[DRY RUN] Would save progress here (page {page_num})")
                         return
-                    
+
                     # Save based on frequency setting
                     should_save = False
-                    
+
                     if args.save_frequency == 'page':
                         should_save = True
                     elif args.save_frequency == 'auto':
                         # Save every PAGES_PER_SAVE pages
                         should_save = (page_num % CountryConcertParser.PAGES_PER_SAVE == 0)
-                    
+
                     if should_save:
-                        
-                        
                         # Save to database if needed
                         if args.output in ['db'] and db_writer:
                             data_to_write = filtered_concerts_so_far if filtering_artists else all_concerts_so_far
                             db_writer.write_concerts(data_to_write, artist_playcounts, artist_playcounts_12month, recent_artists, artist_mbids)
-                        
-                        print(f"  💾 Progress saved (page {page_num})")
+
+                        logger.info(f"Progress saved (page {page_num})")
         
                 # Parse all pages for this country
                 # Use callback for 'page' and 'auto' modes
@@ -453,9 +448,9 @@ def main():
         
                 data_to_save = all_filtered_concerts if filtering_artists else all_concerts
                 if args.dry_run:
-                    print(f"\n🔍 [DRY RUN] Country complete: {len(data_to_save)} total concerts parsed (not saved)")
+                    logger.info(f"[DRY RUN] Country complete: {len(data_to_save)} total concerts parsed (not saved)")
                 else:
-                    print(f"\n💾 Country complete: {len(data_to_save)} total concerts saved to database")
+                    logger.info(f"Country complete: {len(data_to_save)} total concerts saved to database")
                 
                 # Accumulate proxy stats
                 total_proxy_successes += concert_parser.proxy_successes
@@ -472,33 +467,32 @@ def main():
             finalize_and_cleanup(db_writer, args, data_to_save)
     
     # Print overall summary
-    print(f"\n\n{'='*80}")
-    print("OVERALL SUMMARY")
-    print(f"{'='*80}")
-    print(f"Countries processed: {len(country_codes)}")
-    print(f"Total concerts found: {len(all_concerts)}")
+    logger.info("=" * 80)
+    logger.info("OVERALL SUMMARY")
+    logger.info("=" * 80)
+    logger.info(f"Countries processed: {len(country_codes)}")
+    logger.info(f"Total concerts found: {len(all_concerts)}")
     if filtering_artists:
-        print(f"Concerts matching filtered artists: {len(all_filtered_concerts)}")
-        print(f"Overall match rate: {len(all_filtered_concerts)/len(all_concerts)*100:.1f}%" if all_concerts else "Match rate: 0%")
-    
+        logger.info(f"Concerts matching filtered artists: {len(all_filtered_concerts)}")
+        match_rate = f"{len(all_filtered_concerts)/len(all_concerts)*100:.1f}%" if all_concerts else "0%"
+        logger.info(f"Overall match rate: {match_rate}")
+
     # Print proxy statistics if proxies were used
     if proxy_manager:
-        print(f"\nProxy usage:")
+        logger.info("Proxy usage:")
         total_proxy_requests = total_proxy_successes + total_proxy_failures
-        print(f"  Successful requests: {total_proxy_successes}")
-        print(f"  Failed requests: {total_proxy_failures}")
+        logger.info(f"  Successful requests: {total_proxy_successes}")
+        logger.info(f"  Failed requests: {total_proxy_failures}")
         if total_proxy_requests > 0:
-            print(f"  Success rate: {total_proxy_successes/total_proxy_requests*100:.1f}%")
+            logger.info(f"  Success rate: {total_proxy_successes/total_proxy_requests*100:.1f}%")
         proxy_manager.print_stats()
-    
-    print(f"{'='*80}\n")
-    
+
     # Cleanup is now handled in the finally block above
     # Print dry-run message if applicable
     if args.dry_run:
         data_to_save = all_filtered_concerts if filtering_artists else all_concerts
-        print(f"\n🔍 [DRY RUN] Completed: {len(data_to_save)} concerts parsed (nothing saved)")
-        print(f"   To save data, run without --dry-run flag")
+        logger.info(f"[DRY RUN] Completed: {len(data_to_save)} concerts parsed (nothing saved)")
+        logger.info("To save data, run without --dry-run flag")
     
     return 0
 
