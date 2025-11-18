@@ -135,6 +135,14 @@ class ArtistSourceManager:
             logger.info(f"Loaded {len(user_artists)} artists from UserArtist table")
 
             for user_artist, artist in user_artists:
+                # Null check: artist could theoretically be None if FK constraint violated
+                if not artist or not artist.name:
+                    logger.warning(
+                        f"Skipping UserArtist entry with missing Artist object "
+                        f"(user_id={self.user_id}, user_artist_id={user_artist.id if user_artist else 'unknown'})"
+                    )
+                    continue
+
                 all_artists.add(artist.name)
 
                 # Use UserArtist playcounts if available (may be 0 if not from Last.fm)

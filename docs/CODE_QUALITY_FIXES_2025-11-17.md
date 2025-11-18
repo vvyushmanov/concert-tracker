@@ -43,7 +43,12 @@ This document provides a phase-based, AI-friendly, testable guide to fix 21+ cod
 - ✅ country_parser.py - Fully converted to logging (all prints replaced)
 - ✅ utils/logging.py - Updated as deprecated wrapper for backward compatibility
 
-### Phases 3-8: NOT STARTED
+### Phase 3: Database & Concurrency Fixes ✅ COMPLETE
+- ✅ Task 3.1: Race condition fix in city mapping - DONE (retry with backoff)
+- ✅ Task 3.2: N+1 query optimization in artist concert linking - DONE (batch query)
+- ✅ Task 3.3: Null checks added in artist_source_manager.py - DONE
+
+### Phases 4-8: NOT STARTED
 
 ---
 
@@ -2011,11 +2016,11 @@ Use `2>&1 | tee log.txt` to save output.
 - [x] All print() statements replaced
 - [x] country_parser.py fully converted (additional task)
 
-### Phase 3: Database (NOT STARTED)
-- [ ] Task 3.1: Race condition fixed
-- [ ] Task 3.2: N+1 query optimized
-- [ ] Task 3.3: Null checks added
-- [ ] Concurrent tests pass
+### Phase 3: Database ✅ COMPLETE
+- [x] Task 3.1: Race condition fixed
+- [x] Task 3.2: N+1 query optimized
+- [x] Task 3.3: Null checks added
+- [x] Syntax checks pass
 
 ### Phase 4: Architecture (NOT STARTED)
 - [ ] Task 4.1: Metadata phases extracted
@@ -2125,7 +2130,7 @@ Issues deferred for future work:
 
 ---
 
-**Document Version:** 1.2
+**Document Version:** 1.3
 **Last Updated:** November 18, 2025
-**Status:** Phases 1-2 Complete, Ready for Phase 3
-**Estimated Remaining Time:** 12-16 days (2-3 sprints)
+**Status:** Phases 1-3 Complete, Ready for Phase 4
+**Estimated Remaining Time:** 10-14 days (2-3 sprints)

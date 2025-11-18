@@ -597,10 +597,73 @@ class CityNormalizer:
         
         return R * c
     
+    def _get_or_create_city_normalized(self, normalized_city: str, country_id: int) -> CityNormalized:
+        """Get or create CityNormalized with retry logic for race conditions.
+
+        Args:
+            normalized_city: Normalized city name
+            country_id: Country ID
+
+        Returns:
+            CityNormalized object
+
+        Raises:
+            RuntimeError: If unable to create or retrieve after max retries
+        """
+        max_retries = 3
+        now = int(datetime.now(timezone.utc).timestamp())
+
+        for attempt in range(max_retries):
+            # Try to get existing
+            city_normalized = self.db.query(CityNormalized).filter(
+                CityNormalized.normalizedCity == normalized_city,
+                CityNormalized.countryId == country_id
+            ).first()
+
+            if city_normalized:
+                return city_normalized
+
+            # Try to create new
+            city_normalized = CityNormalized(
+                normalizedCity=normalized_city,
+                countryId=country_id,
+                createdAt=now,
+                updatedAt=now
+            )
+
+            try:
+                self.db.add(city_normalized)
+                self.db.flush()
+                return city_normalized
+            except IntegrityError:
+                self.db.rollback()
+                logger.debug(f"Concurrent creation of normalized city '{normalized_city}', attempt {attempt + 1}/{max_retries}")
+
+                if attempt < max_retries - 1:
+                    # Small delay before retry to reduce contention
+                    time.sleep(0.01 * (attempt + 1))  # 10ms, 20ms, 30ms
+                else:
+                    # Final attempt - just query
+                    city_normalized = self.db.query(CityNormalized).filter(
+                        CityNormalized.normalizedCity == normalized_city,
+                        CityNormalized.countryId == country_id
+                    ).first()
+
+                    if not city_normalized:
+                        raise RuntimeError(
+                            f"Failed to create or retrieve normalized city '{normalized_city}' "
+                            f"after {max_retries} attempts"
+                        )
+
+                    return city_normalized
+
+        # Should not reach here, but just in case
+        raise RuntimeError(f"Failed to get or create normalized city '{normalized_city}'")
+
     def _store_mapping(self, original_city: str, country: str, normalized_city: str,
                       latitude: Optional[float], longitude: Optional[float], source: str):
         """Store city mapping in database
-        
+
         Args:
             original_city: Original city name
             country: Country name
@@ -613,36 +676,15 @@ class CityNormalizer:
         existing = self._check_manual_mapping(original_city, country)
         if existing:
             return  # Don't overwrite existing mappings
-        
+
         # Get or create country
         country_obj = get_or_create_country(self.db, country, verbose=self.verbose)
         country_id = country_obj.id if country_obj else None
-        
+
         now = int(datetime.now(timezone.utc).timestamp())
-        
-        # Step 1: Get or create CityNormalized record
-        city_normalized = self.db.query(CityNormalized).filter(
-            CityNormalized.normalizedCity == normalized_city,
-            CityNormalized.countryId == country_id
-        ).first()
-        
-        if not city_normalized:
-            city_normalized = CityNormalized(
-                normalizedCity=normalized_city,
-                countryId=country_id,
-                createdAt=now,
-                updatedAt=now
-            )
-            try:
-                self.db.add(city_normalized)
-                self.db.flush()  # Get the ID without committing
-            except IntegrityError:
-                # Another process created it, query again
-                self.db.rollback()
-                city_normalized = self.db.query(CityNormalized).filter(
-                    CityNormalized.normalizedCity == normalized_city,
-                    CityNormalized.countryId == country_id
-                ).first()
+
+        # Step 1: Get or create CityNormalized record with retry logic
+        city_normalized = self._get_or_create_city_normalized(normalized_city, country_id)
         
         # Step 2: Create CityMapping linked to CityNormalized
         mapping = CityMapping(

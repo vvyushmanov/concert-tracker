@@ -18,11 +18,15 @@ from datetime import datetime, timezone
 from sqlalchemy import func
 
 # Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database import get_session
 from database.models import Artist, Concert, ArtistConcert, UserArtist, UserConcert, User, Country
 from database.writer import ConcertDatabaseWriter
+from utils import get_logger, setup_logging
+
+logger = get_logger(__name__)
+setup_logging(verbose=True)
 
 
 class TestArtistConcertLinks:

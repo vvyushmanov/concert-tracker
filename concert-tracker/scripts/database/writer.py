@@ -117,8 +117,9 @@ class ConcertDatabaseWriter:
             # Create new artist (shared data only)
             artist = Artist(name=name, mbid=mbid)
             self.session.add(artist)
+            self.session.flush()  # Flush to populate artist.id
             self.stats['artists_created'] += 1
-        
+
         return artist
     
     def get_or_create_user_artist(self, artist: Artist, playcount: int = 0, playcount12month: int = 0, recent: bool = False) -> UserArtist:
@@ -198,20 +199,20 @@ class ConcertDatabaseWriter:
                 logger.debug(f"Created UserConcert link for concert ID {concert.id}")
     
     def link_artists_to_concert(
-        self, 
-        concert: Concert, 
-        matched_artists: List[str], 
+        self,
+        concert: Concert,
+        matched_artists: List[str],
         artist_mbids: Dict[str, str] = None,
         artist_playcounts: Dict[str, int] = None,
         artist_playcounts_12month: Dict[str, int] = None,
         recent_artists: Set[str] = None
     ):
         """Create ArtistConcert links for all matched artists
-        
+
         Creates Artist records if they don't exist (for additional artists beyond primary).
         Also creates/updates UserArtist records for all matched artists.
         Only creates ONE primary artist link per concert (first scan wins).
-        
+
         Args:
             concert: Concert object to link artists to
             matched_artists: List of artist names that matched Last.fm artists
@@ -222,12 +223,12 @@ class ConcertDatabaseWriter:
         """
         if not matched_artists:
             return
-        
+
         artist_mbids = artist_mbids or {}
         artist_playcounts = artist_playcounts or {}
         artist_playcounts_12month = artist_playcounts_12month or {}
         recent_artists = recent_artists or set()
-        
+
         if self.debug:
             logger.debug(f"Creating ArtistConcert links for {len(matched_artists)} matched artist(s)...")
 
@@ -240,34 +241,23 @@ class ConcertDatabaseWriter:
         if self.debug and existing_primary:
             primary_artist = self.session.query(Artist).filter_by(id=existing_primary.artistId).first()
             logger.debug(f"Concert already has primary artist: {primary_artist.name if primary_artist else 'Unknown'}")
-        
-        for idx, artist_name in enumerate(matched_artists):
-            # Determine if this should be primary
-            # Only mark as primary if: it's first in list AND no primary exists yet
-            is_primary = (idx == 0) and (existing_primary is None)
-            
-            if self.debug:
-                if idx == 0 and existing_primary:
-                    role = "ADDITIONAL (would be primary, but one exists)"
-                elif is_primary:
-                    role = "PRIMARY"
-                else:
-                    role = "ADDITIONAL"
-                logger.debug(f"[{idx+1}/{len(matched_artists)}] {role}: {artist_name}")
 
-            # Get or create artist (will create if doesn't exist)
+        # Phase 1: Create all artist objects and collect them
+        artist_objects = []
+        for idx, artist_name in enumerate(matched_artists):
             mbid = artist_mbids.get(artist_name)
             artist = self.get_or_create_artist(name=artist_name, mbid=mbid)
+            artist_objects.append((idx, artist_name, artist))
 
             if self.debug:
-                logger.debug(f"Artist ID: {artist.id} (MBID: {artist.mbid or 'none'})")
-            
+                logger.debug(f"Artist ID: {artist.id} (Name: {artist.name}, MBID: {artist.mbid or 'none'})")
+
             # Create/update UserArtist with user-specific stats for ALL matched artists
             if self.user_id:
                 playcount = artist_playcounts.get(artist_name, 0)
                 playcount12month = artist_playcounts_12month.get(artist_name, 0)
                 is_recent = artist_name in recent_artists
-                
+
                 self.get_or_create_user_artist(
                     artist=artist,
                     playcount=playcount,
@@ -277,13 +267,35 @@ class ConcertDatabaseWriter:
 
                 if self.debug:
                     logger.debug(f"UserArtist: playcount={playcount}, 12mo={playcount12month}, recent={is_recent}")
-            
-            # Check if link already exists
-            existing_link = self.session.query(ArtistConcert).filter_by(
-                artistId=artist.id,
-                concertId=concert.id
-            ).first()
-            
+
+        # Phase 2: Batch query all existing links for this concert (N+1 optimization)
+        artist_ids = [artist.id for _, _, artist in artist_objects]
+        existing_links = self.session.query(ArtistConcert).filter(
+            ArtistConcert.artistId.in_(artist_ids),
+            ArtistConcert.concertId == concert.id
+        ).all()
+
+        # Create lookup dict for O(1) access
+        existing_links_dict = {link.artistId: link for link in existing_links}
+
+        # Phase 3: Create links using batch results
+        for idx, artist_name, artist in artist_objects:
+            # Determine if this should be primary
+            # Only mark as primary if: it's first in list AND no primary exists yet
+            is_primary = (idx == 0) and (existing_primary is None)
+
+            if self.debug:
+                if idx == 0 and existing_primary:
+                    role = "ADDITIONAL (would be primary, but one exists)"
+                elif is_primary:
+                    role = "PRIMARY"
+                else:
+                    role = "ADDITIONAL"
+                logger.debug(f"[{idx+1}/{len(matched_artists)}] {role}: {artist_name}")
+
+            # Check if link already exists (O(1) lookup instead of query)
+            existing_link = existing_links_dict.get(artist.id)
+
             if existing_link:
                 self.stats['artist_concert_links_skipped'] += 1
                 if self.debug:
