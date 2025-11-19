@@ -89,7 +89,7 @@ def main():
     )
 
     if validation.is_error():
-        logger.error(validation)
+        validation.log(logger)
         return 1
 
     # Extract credentials (works for both user-specific and global modes)

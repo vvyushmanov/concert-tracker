@@ -92,7 +92,9 @@ lastfm-parser/
 │   │   │   └── http_client.py      # Rate-limited HTTP
 │   │   ├── utils/                  # Shared utilities
 │   │   │   ├── credentials.py      # Centralized credential loading
-│   │   │   └── validation.py       # Validation utilities
+│   │   │   ├── validation.py       # Validation utilities
+│   │   │   ├── logging_config.py   # Structured logging setup
+│   │   │   └── rate_limiter.py     # Rate limiting with graceful shutdown
 │   │   ├── tests/                  # Integration tests
 │   │   ├── requirements.txt        # Python dependencies
 │   │   ├── startup.sh              # Docker initialization
@@ -283,10 +285,17 @@ UserActiveCountry
        ├── Links artists via ArtistConcert junction
        ├── Creates/updates Concert, Artist, UserConcert records
        ├── Handles missing playcounts gracefully (defaults to 0)
-       └── Outputs: JSON file or database
+       ├── Auto-triggers metadata fetch after parsing completion
+       └── Outputs: database (SQLite or MySQL)
 
 2. METADATA ENRICHMENT PHASE
    fetch_metadata.py
+   ├── Phase 0: MBID Auto-Repair (ALWAYS RUNS)
+   │   ├── Finds artists without MBID
+   │   ├── MusicBrainz first, Last.fm fallback if configured
+   │   ├── Bulk repair before other phases
+   │   └── Re-evaluates artists for image fetching after repair
+   │
    ├── MusicBrainz lookups (PRIMARY)
    │   ├── Queries for artist MBIDs (rate-limited: 1.1s/request)
    │   ├── Updates Artist.mbid
@@ -425,13 +434,27 @@ ConfigManager (Singleton)
 ├── Auto-migrates ENV → DB on first run
 └── Used for global settings
 
+Available Settings (DEFAULTS):
+├── LASTFM_API_KEY (string) - Last.fm API key for metadata
+├── LASTFM_USER (string) - Last.fm username for playcounts
+├── COUNTRY_CODES (json) - Active country codes ["tr","fr","de"]
+├── MIN_PLAYCOUNT (int) - Minimum playcount threshold (default: 40)
+├── FANART_API_KEY (string) - Fanart.tv API key for images
+└── WEBSHARE_PROXY_URL (string) - Webshare.io proxy download URL
+
 Credential Loading (utils/credentials.py)
 ├── load_credentials(user_id=None, db_path, require_lastfm, require_countries)
 ├── Returns: (UserCredentials, ValidationResult)
 ├── Supports both user-specific and global modes
 │   ├── With user_id: Per-user credentials (for user-specific filtering)
 │   └── Without user_id: Global credentials (for all concerts/artists, admin tasks)
+├── Configuration Hierarchy:
+│   ├── LASTFM_USER: ALWAYS user-specific (never global)
+│   ├── MIN_PLAYCOUNT: ONLY user-specific
+│   ├── LASTFM_API_KEY: Can be user-specific (overrides global if set)
+│   └── FANART_API_KEY: ALWAYS global (shared resource)
 ├── Validates credentials with helpful error messages
+├── Use validation.log(logger) to auto-log at appropriate level
 └── Used by: parse_concerts.py, fetch_metadata.py, services/metadata.py
 ```
 
@@ -477,6 +500,146 @@ After: ArtistConcert junction table
 └── Replaced by: Concert.artists[] with full metadata
 ```
 
+### 7. Structured Logging (Python)
+```
+All Python scripts use centralized logging via utils/logging_config.py:
+
+Setup:
+from utils import get_logger, setup_logging
+setup_logging(verbose=args.verbose)    # Call at script startup
+logger = get_logger(__name__)          # Get logger for module
+
+Features:
+├── Color-coded terminal output (red=error, yellow=warning, blue=info)
+├── Module name display for context
+├── Configurable log levels (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+├── Optional file logging support
+└── Thread-safe
+
+Usage:
+logger.info("Processing started")
+logger.warning("No artists found")
+logger.error("Database connection failed", exc_info=True)
+logger.debug("Detailed debug info")
+```
+
+### 8. Graceful Shutdown with Interruptible Waits
+```
+GracefulShutdown context manager enables clean termination:
+
+from parsers.country_parser import GracefulShutdown
+
+with GracefulShutdown() as shutdown:
+    for page in pages:
+        if shutdown.interrupted:
+            logger.info("Shutdown requested - saving progress...")
+            break
+        # Process page...
+
+RateLimiter supports interruptible waits:
+from utils import RateLimiter
+
+rate_limiter = RateLimiter(
+    base_delay=1.0,
+    randomness=0.5,
+    shutdown_flag=shutdown  # Enables interruptible waits
+)
+completed = rate_limiter.wait()  # Returns False if interrupted
+
+Also available:
+from utils import interruptible_sleep
+completed = interruptible_sleep(duration=10, shutdown_flag=shutdown)
+```
+
+### 9. Validation Result Logging
+```
+ValidationResult.log() auto-selects appropriate log level:
+
+from utils.credentials import load_credentials
+
+credentials, validation = load_credentials(user_id=1, db_path=db)
+if validation.is_error():
+    validation.log(logger)  # Logs at ERROR level
+    return 1
+validation.log(logger)      # Logs at INFO level for success
+
+Log levels:
+├── ERROR: Validation failures
+├── WARNING: Degraded conditions
+└── INFO: Successful validations
+```
+
+### 10. HTTPClient with Retry Logic
+```
+Enhanced HTTP client with structured logging and error handling:
+
+from services.http_client import HTTPClient
+
+http_client = HTTPClient(
+    timeout=15,
+    use_system_ca=True,      # Use system certs (fixes Cloudflare issues)
+    proxy_manager=proxy_mgr, # Optional proxy rotation
+    pool_connections=1,
+    pool_maxsize=1
+)
+response = http_client.get(url, max_retries=3)
+
+Features:
+├── Configurable retries with exponential backoff (1s, 2s, 3s)
+├── Detailed error logging (HTTP status, timeouts, connection errors)
+├── User-Agent rotation from 5 browser profiles
+├── System CA bundle support
+├── Session management with connection pooling
+└── Proxy integration with success/failure tracking
+```
+
+### 11. ProxyManager for Request Rotation
+```
+Manages proxy rotation to avoid IP bans during scraping:
+
+from services import ProxyManager
+
+# Load from Webshare.io (recommended)
+proxy_manager = ProxyManager(
+    webshare_url=webshare_url,
+    validate_on_load=True,
+    validation_workers=50
+)
+
+# Or load from file
+proxy_manager = ProxyManager(
+    proxy_file='proxies.txt',
+    validate_on_load=True
+)
+
+Features:
+├── Parallel proxy validation with ThreadPoolExecutor
+├── Failure tracking with cooldown (300s after 3 failures)
+├── Round-robin selection via get_next_proxy()
+├── Automatic reactivation after cooldown
+└── Statistics: print_stats()
+
+Constants:
+├── MAX_FAILURES = 3
+├── FAILURE_COOLDOWN = 300 seconds
+├── VALIDATION_TIMEOUT = 5 seconds
+└── VALIDATION_WORKERS = 50
+```
+
+### 12. Database Retry Logic for Concurrent Operations
+```
+CityNormalizer handles race conditions during concurrent city creation:
+
+Retry mechanism (transparent to callers):
+├── Attempts up to 3 times to create CityNormalized record
+├── Incremental backoff: 10ms, 20ms, 30ms between attempts
+├── Catches IntegrityError from duplicate unique constraint
+├── Falls back to querying existing record on final attempt
+└── Prevents PendingRollbackError from corrupting session
+
+This is handled automatically - just call normalize() normally.
+```
+
 ## Development Workflow
 
 ### Local Development
@@ -513,21 +676,51 @@ docker compose -f docker-compose.dev.yml up
 # Inside container or with venv
 cd concert-tracker/scripts
 
-# Parse concerts for a user (filter by UserArtist + Last.fm)
-python parse_concerts.py --user-id 1 --output db --use-proxies webshare
+# === parse_concerts.py ===
+# Basic usage with proxies
+python parse_concerts.py --user-id 1 --use-proxies webshare
 
-# Parse ALL concerts without filtering (no artist sources needed)
-python parse_concerts.py --user-id 1 --output db --no-filter
+# All available options:
+python parse_concerts.py \
+  --user-id 1 \              # User ID for per-user data (UserArtist, UserConcert)
+  --use-proxies webshare \   # Proxy mode: webshare (from env) or custom (proxies.txt)
+  --max-pages 10 \           # Limit pages per country (default: no limit)
+  --delay 3.0 \              # Delay between requests (default: 3.0s)
+  --save-frequency auto \    # Save progress: page, country, or auto (every 5 pages)
+  --debug \                  # Enable verbose logging
+  --dry-run \                # Parse but don't save (test proxies/parsing)
+  --no-filter \              # Fetch all concerts without artist filtering
+  --no-page-detection \      # Disable automatic page count detection
+  --no-proxy-validation \    # Skip proxy validation (faster startup)
+  --proxy-workers 50         # Parallel workers for proxy validation
 
-# Fetch metadata (MusicBrainz + optional Last.fm)
-python fetch_metadata.py --user-id 1 --limit 100
+# === fetch_metadata.py ===
+# Basic usage
+python fetch_metadata.py --user-id 1
 
-# Refresh playcounts (requires Last.fm)
-python fetch_metadata.py --user-id 1 --refresh-playcounts
+# All available options:
+python fetch_metadata.py \
+  --user-id 1 \              # User ID for per-user playcounts
+  --limit 100 \              # Limit artists to process (for testing)
+  --force \                  # Re-fetch images even if present
+  --refresh-playcounts \     # Refresh playcounts for ALL artists
+  --delay 0.25 \             # Delay between API calls (default: 0.25s)
+  --db-path /path/to/db      # SQLite path (optional if DATABASE_URL set)
 
-# Add country
-python add_country.py --code tr --name "Turkey"
+# === add_country.py ===
+python add_country.py tr                    # Add by ISO code
+python add_country.py "Turkey"              # Add by name
+python add_country.py "Germany" true        # Set active status
+
+# === invalidate_cache.py ===
+python invalidate_cache.py                  # Invalidate all cache
+python invalidate_cache.py LASTFM_API_KEY   # Invalidate specific key
 ```
+
+**Parser Constants:**
+- `DEFAULT_DELAY = 3.0` - Base delay between requests
+- `COUNTRY_DELAY_MULTIPLIER = 3` - Longer delay between countries
+- `PAGES_PER_SAVE = 5` - Auto-save frequency
 
 ### Database Switching
 ```bash
@@ -582,6 +775,8 @@ See `.env.example` for all options:
 ### 3. Graceful Shutdown
 - Scanner sends SIGTERM to Python subprocess
 - `isStopping` flag prevents race conditions
+- Python subprocess uses `GracefulShutdown` context manager
+- Interruptible rate limiting via `RateLimiter` with shutdown flag
 - Allows cleanup of database transactions
 - Prevents data corruption on concurrent scans
 
@@ -647,6 +842,119 @@ Located in: `concert-tracker/scripts/tests/`
 ~/lastfm-parser/venv/bin/python concert-tracker/scripts/tests/run_phase7_tests.py --verbose
 ```
 
+**End-to-End Tests:**
+- `test_city_e2e.py` - City normalization with diacritics (root `/tests/`)
+- `test_artist_concert_links.py` - Artist-Concert M2M relationships
+- `test_phase3_database_fixes.py` - Concurrency, N+1 optimization, null checks
+
+### End-to-End Testing Patterns
+
+All e2e tests follow consistent patterns for working with the real database:
+
+**Setup and Logging:**
+```python
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from utils import get_logger, setup_logging
+from database.config import get_engine
+from database.models import Concert, Artist, ...
+from database.writer import ConcertDatabaseWriter
+from sqlalchemy.orm import sessionmaker
+
+logger = get_logger(__name__)
+setup_logging(verbose=True)  # Always enable verbose for tests
+```
+
+**Database Session Management:**
+```python
+class TestSuite:
+    def __init__(self):
+        self.engine = get_engine()
+        self.Session = sessionmaker(bind=self.engine)
+        self.session = self.Session()
+        self.test_results = []
+
+    def refresh_session(self):
+        """Refresh session after writer operations to see committed changes"""
+        self.session.close()
+        self.session = self.Session()
+```
+
+**Test Data Isolation:**
+```python
+# Use unique identifiers for test data
+test_urls = [
+    'https://test-phase3.com/concert-1',
+    'https://test-phase3.com/concert-2'
+]
+test_artists = ['Phase3 Test Artist A', 'Phase3 Test Artist B']
+
+# Track created IDs for cleanup
+self.cleanup_ids = {
+    'concerts': [],
+    'artists': [],
+    'city_mappings': []
+}
+```
+
+**Cleanup Pattern (respecting foreign keys):**
+```python
+def cleanup_test_data(self):
+    # Delete in order: links first, then main records
+    # 1. ArtistConcert links
+    # 2. UserConcert links
+    # 3. UserArtist links
+    # 4. Concerts
+    # 5. Artists
+    # 6. CityMappings
+    # 7. CityNormalized
+    self.session.commit()
+```
+
+**Assertion Tracking:**
+```python
+def assert_equal(self, actual, expected, message):
+    if actual == expected:
+        self.test_results.append(('PASS', message))
+        logger.info(f"  ✅ {message}")
+        return True
+    else:
+        self.test_results.append(('FAIL', f"{message} - Expected: {expected}, Got: {actual}"))
+        logger.error(f"  ❌ {message}")
+        return False
+
+def print_summary(self):
+    passed = sum(1 for result, _ in self.test_results if result == 'PASS')
+    failed = len(self.test_results) - passed
+    logger.info(f"Total: {len(self.test_results)}, Passed: {passed}, Failed: {failed}")
+```
+
+**Writer Session Pattern:**
+```python
+# Writer creates its own session - refresh test session after
+writer = ConcertDatabaseWriter(user_id=self.test_user_id, debug=True)
+writer.write_concerts([concert_data], ...)
+writer.session.close()
+
+# IMPORTANT: Refresh to see committed changes
+self.refresh_session()
+
+# Now query to verify
+concert = self.session.query(Concert).filter_by(eventUrl=url).first()
+```
+
+**Test Runner Pattern (for multiple test files):**
+```python
+# See run_phase7_tests.py for example
+result = subprocess.run(
+    [sys.executable, test_path],
+    capture_output=not verbose,
+    timeout=300  # 5 minute timeout
+)
+```
+
 ### Manual Testing
 1. Scanner: Fetch concerts via UI
 2. Map: Add friends, filter by interests
@@ -708,15 +1016,16 @@ Main branch: `main`
 - Deploy via docker-compose
 
 Recent commits show:
+- Structured logging migration across all Python scripts
+- Graceful shutdown with interruptible waits
+- Database retry logic for concurrent operations
+- HTTPClient improvements with better error handling
 - Last.fm optional refactoring (Phases 1-7 complete)
 - ArtistSourceManager for flexible artist filtering
 - MusicBrainz priority for MBID lookups
 - Comprehensive test suite (8 test files, 5 scenarios)
-- Critical bugfix: --no-filter mode database writer
 - Concert card improvements
-- Sidebar filters & detail editing
 - Friends feature
-- City restructuring
 
 ---
 
@@ -751,5 +1060,5 @@ See [docs/LASTFM_OPTIONAL_STATUS.md](docs/LASTFM_OPTIONAL_STATUS.md) for detaile
 
 ---
 
-**Last Updated**: January 2025
+**Last Updated**: November 2025
 **Technology Version**: Next.js 15, Prisma 5.22, MySQL 8.0, Python 3.12
