@@ -138,7 +138,8 @@ def add_or_update_country(input_value: str, active: bool = True) -> dict:
 def main():
     """Main function for command line usage"""
     if len(sys.argv) < 2:
-        logger.error(json.dumps({
+        # Output clean JSON for API consumption (no logger formatting)
+        print(json.dumps({
             'success': False,
             'error': 'Usage: python add_country.py <country_name_or_code> [active]'
         }))
@@ -153,7 +154,8 @@ def main():
         active = active_str in ('true', '1', 'yes', 'on')
 
     result = add_or_update_country(input_value, active)
-    logger.info(json.dumps(result))
+    # Output clean JSON for API consumption (no logger formatting)
+    print(json.dumps(result))
 
     sys.exit(0 if result['success'] else 1)
 
