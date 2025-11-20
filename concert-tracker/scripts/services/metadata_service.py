@@ -6,7 +6,7 @@ Handles MBID repair, image fetching, and playcount updates.
 """
 
 import requests
-from typing import Optional, Tuple, Dict, List
+from typing import Optional, Tuple, Dict, List, Any
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
@@ -20,7 +20,7 @@ logger = get_logger(__name__)
 class ArtistMetadataService:
     """Service for fetching and updating artist metadata"""
 
-    def __init__(self, lastfm_api_key: str = None, fanart_api_key: str = None, lastfm_user: str = None):
+    def __init__(self, lastfm_api_key: Optional[str] = None, fanart_api_key: Optional[str] = None, lastfm_user: Optional[str] = None) -> None:
         """Initialize metadata service
 
         Args:
@@ -41,14 +41,14 @@ class ArtistMetadataService:
         """Check if Fanart.tv is configured"""
         return self.fanart_service is not None
 
-    def _get_musicbrainz_service(self):
+    def _get_musicbrainz_service(self) -> Any:
         """Lazy initialize MusicBrainz service"""
         if self.musicbrainz_service is None:
             from services.musicbrainz_service import MusicBrainzService
             self.musicbrainz_service = MusicBrainzService()
         return self.musicbrainz_service
     
-    def repair_mbid(self, artist: Artist, overall_dict: Dict = None, month12_dict: Dict = None) -> Optional[str]:
+    def repair_mbid(self, artist: Artist, overall_dict: Optional[Dict[str, Any]] = None, month12_dict: Optional[Dict[str, Any]] = None) -> Optional[str]:
         """Attempt to find and set MBID for an artist
 
         Strategy:
@@ -118,11 +118,11 @@ class ArtistMetadataService:
 
         return self.fanart_service.fetch_artist_image(artist.mbid)
     
-    def update_artist_metadata(self, session: Session, artist: Artist, 
+    def update_artist_metadata(self, session: Session, artist: Artist,
                               fetch_mbid: bool = True, fetch_image: bool = True,
-                              overall_dict: Dict = None, month12_dict: Dict = None) -> Dict:
+                              overall_dict: Optional[Dict[str, Any]] = None, month12_dict: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Update artist metadata (MBID and/or image)
-        
+
         Args:
             session: Database session
             artist: Artist object
@@ -130,7 +130,7 @@ class ArtistMetadataService:
             fetch_image: Whether to fetch image
             overall_dict: Pre-fetched overall artist data (optional)
             month12_dict: Pre-fetched 12-month artist data (optional)
-            
+
         Returns:
             Dict with update results: {'mbid_updated': bool, 'image_updated': bool, 'mbid': str, 'image_url': str}
         """
@@ -162,7 +162,7 @@ class ArtistMetadataService:
         return result
     
     def update_user_artist_stats(self, session: Session, user_id: int, artist: Artist,
-                                 overall_dict: Dict = None, month12_dict: Dict = None) -> Tuple[int, int]:
+                                 overall_dict: Optional[Dict[str, Any]] = None, month12_dict: Optional[Dict[str, Any]] = None) -> Tuple[int, int]:
         """Update or create UserArtist stats for a specific user
 
         Args:
@@ -287,9 +287,9 @@ class ArtistMetadataService:
 # =============================================================================
 
 def fetch_artist_metadata(
-    db_path: str = None,
+    db_path: Optional[str] = None,
     silent: bool = False,
-    user_id: int = None,
+    user_id: Optional[int] = None,
     batch_size: int = 5
 ) -> int:
     """

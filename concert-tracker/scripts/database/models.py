@@ -7,6 +7,7 @@ from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Text, Float
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from datetime import datetime, timezone
+from typing import Optional
 
 from database.config import get_engine
 
@@ -289,12 +290,12 @@ def create_database(db_path: str = None):
     return engine
 
 
-def get_session(db_path: str = None):
+def get_session(db_path: Optional[str] = None):
     """Get a database session
-    
+
     Args:
         db_path: Path to SQLite database file (for SQLite) or None to use DB_TYPE-based configuration
-        
+
     Returns:
         SQLAlchemy session
     """

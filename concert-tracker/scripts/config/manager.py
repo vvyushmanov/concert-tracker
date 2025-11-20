@@ -52,7 +52,7 @@ class ConfigManager:
         'WEBSHARE_PROXY_URL': ('', 'string', 'Webshare.io proxy download URL'),
     }
     
-    def __new__(cls):
+    def __new__(cls) -> 'ConfigManager':
         """Singleton pattern with thread safety"""
         if cls._instance is None:
             with cls._lock:
@@ -60,8 +60,8 @@ class ConfigManager:
                     cls._instance = super(ConfigManager, cls).__new__(cls)
                     cls._instance._initialized = False
         return cls._instance
-    
-    def __init__(self):
+
+    def __init__(self) -> None:
         """Initialize cache and DB connection"""
         if self._initialized:
             return
@@ -83,14 +83,14 @@ class ConfigManager:
             logger.warning(f"ConfigManager DB initialization failed: {e}")
             logger.warning("Falling back to environment variables only")
     
-    def _ensure_settings_table(self):
+    def _ensure_settings_table(self) -> None:
         """Create Setting table if it doesn't exist"""
         try:
             Base.metadata.create_all(self._engine, tables=[Setting.__table__])
         except Exception as e:
             logger.warning(f"Could not create Setting table: {e}")
-    
-    def _migrate_from_env(self):
+
+    def _migrate_from_env(self) -> None:
         """Auto-migrate ENV vars to DB on first run"""
         if not self._Session:
             return
@@ -147,14 +147,30 @@ class ConfigManager:
                 session.close()
     
     def get(self, key: str, default: Optional[str] = None) -> str:
-        """Get setting as string"""
+        """Get setting as string
+
+        Args:
+            key: Setting key
+            default: Default value if key not found
+
+        Returns:
+            Setting value as string, or default if not found
+        """
         value, _ = self._get_value(key)
         if value is None:
             return default
         return str(value)
     
     def get_int(self, key: str, default: int = 0) -> int:
-        """Get setting as integer"""
+        """Get setting as integer
+
+        Args:
+            key: Setting key
+            default: Default value if key not found or conversion fails
+
+        Returns:
+            Setting value as integer, or default if not found/invalid
+        """
         value, value_type = self._get_value(key)
         if value is None:
             return default
@@ -164,7 +180,15 @@ class ConfigManager:
             return default
     
     def get_bool(self, key: str, default: bool = False) -> bool:
-        """Get setting as boolean"""
+        """Get setting as boolean
+
+        Args:
+            key: Setting key
+            default: Default value if key not found
+
+        Returns:
+            Setting value as boolean (accepts 'true', '1', 'yes'), or default if not found
+        """
         value, value_type = self._get_value(key)
         if value is None:
             return default
@@ -175,7 +199,15 @@ class ConfigManager:
         return bool(value)
     
     def get_json(self, key: str, default: Any = None) -> Any:
-        """Get setting as parsed JSON"""
+        """Get setting as parsed JSON
+
+        Args:
+            key: Setting key
+            default: Default value if key not found or JSON invalid
+
+        Returns:
+            Parsed JSON value (dict, list, etc.), or default if not found/invalid
+        """
         value, value_type = self._get_value(key)
         if value is None:
             return default
@@ -185,14 +217,31 @@ class ConfigManager:
             return default
     
     def get_list(self, key: str, default: Optional[list] = None) -> list:
-        """Get setting as list (convenience for JSON arrays)"""
+        """Get setting as list (convenience for JSON arrays)
+
+        Args:
+            key: Setting key
+            default: Default list if key not found
+
+        Returns:
+            Setting value as list, or default (or empty list) if not found
+        """
         result = self.get_json(key, default)
         if isinstance(result, list):
             return result
         return default if default is not None else []
     
-    def set(self, key: str, value: Any, value_type: Optional[str] = None):
-        """Set setting in DB and invalidate cache"""
+    def set(self, key: str, value: Any, value_type: Optional[str] = None) -> None:
+        """Set setting in DB and invalidate cache
+
+        Args:
+            key: Setting key
+            value: Setting value (any type - will be converted to string for storage)
+            value_type: Optional type hint ('string', 'int', 'bool', 'json') - auto-detected if None
+
+        Raises:
+            RuntimeError: If ConfigManager not properly initialized or if database operation fails
+        """
         if not self._Session:
             raise RuntimeError("ConfigManager not properly initialized with database")
         
@@ -246,8 +295,12 @@ class ConfigManager:
         finally:
             session.close()
     
-    def invalidate_cache(self, key: Optional[str] = None):
-        """Invalidate cache (all keys or specific key)"""
+    def invalidate_cache(self, key: Optional[str] = None) -> None:
+        """Invalidate cache (all keys or specific key)
+
+        Args:
+            key: Specific key to invalidate, or None to clear entire cache
+        """
         with self._cache_lock:
             if key is None:
                 self._cache.clear()
@@ -255,7 +308,12 @@ class ConfigManager:
                 del self._cache[key]
     
     def get_all(self) -> Dict[str, Any]:
-        """Get all settings as dict"""
+        """Get all settings as dict with proper type conversion
+
+        Returns:
+            Dictionary of all settings with keys and values properly typed
+            (int, bool, json are converted from string storage format)
+        """
         if not self._Session:
             # Fallback to ENV only
             result = {}

@@ -56,7 +56,7 @@ class ArtistSourceManager:
         lastfm_service: Optional[LastFMService] = None,
         lastfm_user: Optional[str] = None,
         min_playcount: int = 40
-    ):
+    ) -> None:
         """Initialize ArtistSourceManager
 
         Args:

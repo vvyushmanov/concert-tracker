@@ -9,7 +9,7 @@ import logging
 import requests
 from bs4 import BeautifulSoup
 import json
-from typing import List, Dict, Optional, Set, Tuple
+from typing import List, Dict, Optional, Set, Tuple, Any, Callable
 import argparse
 import time
 import os
@@ -51,9 +51,9 @@ class CountryConcertParser:
     PAGES_PER_SAVE = 5  # Save progress every N pages in auto mode
     MAX_PAGE_BOUND = 100  # Maximum expected pages per country (for binary search)
     
-    def __init__(self, country_code: str, max_pages: Optional[int] = None, delay: float = 1.0, 
+    def __init__(self, country_code: str, max_pages: Optional[int] = None, delay: float = 1.0,
                  lastfm_artists: Optional[Set[str]] = None, proxy_manager: Optional[ProxyManager] = None,
-                 debug: bool = False, shutdown_flag: Optional['GracefulShutdown'] = None):
+                 debug: bool = False, shutdown_flag: Optional['GracefulShutdown'] = None) -> None:
         self.country_code = country_code.lower()
         self.base_url = self.BASE_URL
         self.max_pages = max_pages
@@ -212,13 +212,16 @@ class CountryConcertParser:
         
         return last_valid
     
-    def parse_all_pages(self, on_page_complete=None, detect_total_pages=True):
+    def parse_all_pages(self, on_page_complete: Optional[Callable[[List[Dict[str, Any]], List[Dict[str, Any]], int], None]] = None, detect_total_pages: bool = True) -> List[Dict[str, Any]]:
         """Parse all pages starting from page 1
-        
+
         Args:
             on_page_complete: Optional callback function called after each page is parsed
-                             with signature: on_page_complete(all_concerts, filtered_concerts)
+                             with signature: on_page_complete(all_concerts, filtered_concerts, page_num)
             detect_total_pages: If True, detect total page count before parsing (default: True)
+
+        Returns:
+            List of all parsed concerts
         """
         # Detect total pages first if requested
         total_pages = None
@@ -290,9 +293,9 @@ class CountryConcertParser:
         
         return self.concerts
     
-    def print_statistics(self, country_code: str, normalizer=None):
+    def print_statistics(self, country_code: str, normalizer: Optional[Any] = None) -> None:
         """Print statistics about parsed concerts
-        
+
         Args:
             country_code: Country code being processed
             normalizer: Optional CityNormalizer to show normalized city names
@@ -398,22 +401,22 @@ class GracefulShutdown:
     NOTE: This class has been moved to cli/parse_concerts.py
     This is kept here for backward compatibility.
     """
-    def __init__(self):
+    def __init__(self) -> None:
         self.interrupted = False
         self.original_sigint = None
         self.original_sigterm = None
-    
-    def __enter__(self):
+
+    def __enter__(self) -> 'GracefulShutdown':
         self.original_sigint = signal.signal(signal.SIGINT, self._signal_handler)
         self.original_sigterm = signal.signal(signal.SIGTERM, self._signal_handler)
         return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
+
+    def __exit__(self, exc_type: Optional[type], exc_val: Optional[BaseException], exc_tb: Optional[Any]) -> bool:
         signal.signal(signal.SIGINT, self.original_sigint)
         signal.signal(signal.SIGTERM, self.original_sigterm)
         return False
-    
-    def _signal_handler(self, signum, frame):
+
+    def _signal_handler(self, signum: int, frame: Optional[Any]) -> None:
         if not self.interrupted:
             self.interrupted = True
             logger.warning("Interrupt received - initiating graceful shutdown...")

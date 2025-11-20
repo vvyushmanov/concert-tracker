@@ -7,7 +7,7 @@ import json
 
 import traceback
 from datetime import datetime, timezone
-from typing import List, Dict, Set
+from typing import List, Dict, Set, Optional, Any
 from sqlalchemy.exc import IntegrityError
 from utils import get_logger
 
@@ -20,9 +20,9 @@ from database.normalizers.city import CityNormalizer, get_or_create_city_mapping
 class ConcertDatabaseWriter:
     """Writes concert data to database (SQLite or MySQL)"""
     
-    def __init__(self, db_path: str = None, user_id: int = None, auto_add_mappings: bool = False, debug: bool = False):
+    def __init__(self, db_path: Optional[str] = None, user_id: Optional[int] = None, auto_add_mappings: bool = False, debug: bool = False) -> None:
         """Initialize database writer
-        
+
         Args:
             db_path: Path to SQLite database file (for SQLite) or None to use DATABASE_URL env var (for MySQL)
             user_id: User ID for per-user data (UserArtist, UserConcert). If None, uses legacy global mode.
@@ -53,7 +53,7 @@ class ConcertDatabaseWriter:
             'errors': 0
         }
     
-    def _add_common_manual_mappings(self):
+    def _add_common_manual_mappings(self) -> None:
         """Add common manual city mappings for known metropolitan areas"""
         mappings = [
             # Lyon agglomeration (France)
@@ -85,23 +85,23 @@ class ConcertDatabaseWriter:
             except Exception as e:
                 logger.debug(f"Skipping manual mapping '{original}' -> '{normalized}': {e}")
     
-    def close(self):
+    def close(self) -> None:
         """Close database session"""
         self.session.close()
-    
-    def __enter__(self):
+
+    def __enter__(self) -> 'ConcertDatabaseWriter':
         return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
+
+    def __exit__(self, exc_type: Optional[type], exc_val: Optional[BaseException], exc_tb: Optional[Any]) -> None:
         self.close()
     
-    def get_or_create_artist(self, name: str, mbid: str = None) -> Artist:
+    def get_or_create_artist(self, name: str, mbid: Optional[str] = None) -> Artist:
         """Get existing artist or create new one (shared data only)
-        
+
         Args:
             name: Artist name
             mbid: MusicBrainz ID for fetching images later
-            
+
         Returns:
             Artist object
         """
@@ -171,9 +171,9 @@ class ConcertDatabaseWriter:
         
         return user_artist
     
-    def create_user_concert_link(self, concert: Concert):
+    def create_user_concert_link(self, concert: Concert) -> None:
         """Create UserConcert link if it doesn't exist
-        
+
         Args:
             concert: Concert object to link to user
         """
@@ -202,24 +202,34 @@ class ConcertDatabaseWriter:
         self,
         concert: Concert,
         matched_artists: List[str],
-        artist_mbids: Dict[str, str] = None,
-        artist_playcounts: Dict[str, int] = None,
-        artist_playcounts_12month: Dict[str, int] = None,
-        recent_artists: Set[str] = None
-    ):
+        artist_mbids: Optional[Dict[str, str]] = None,
+        artist_playcounts: Optional[Dict[str, int]] = None,
+        artist_playcounts_12month: Optional[Dict[str, int]] = None,
+        recent_artists: Optional[Set[str]] = None
+    ) -> None:
         """Create ArtistConcert links for all matched artists
 
-        Creates Artist records if they don't exist (for additional artists beyond primary).
-        Also creates/updates UserArtist records for all matched artists.
-        Only creates ONE primary artist link per concert (first scan wins).
+        Creates Artist records if they don't exist. Marks the first artist in
+        matched_artists as primary if no primary exists yet. Subsequent scans
+        will not override the existing primary artist.
+
+        Also creates/updates UserArtist records for all matched artists with
+        playcount statistics.
 
         Args:
             concert: Concert object to link artists to
-            matched_artists: List of artist names that matched Last.fm artists
-            artist_mbids: Optional dict of artist MusicBrainz IDs
-            artist_playcounts: Optional dict of artist overall playcounts
-            artist_playcounts_12month: Optional dict of artist 12-month playcounts
-            recent_artists: Optional set of recent artists
+            matched_artists: List of artist names (first one considered headliner)
+            artist_mbids: Optional MBID mappings
+            artist_playcounts: Optional overall playcount mappings
+            artist_playcounts_12month: Optional 12-month playcount mappings
+            recent_artists: Optional set of recently played artists
+
+        Behavior:
+            - First artist in matched_artists becomes primary if none exists
+            - Existing primary is never overridden (preserves first scan)
+            - All artists linked via ArtistConcert junction table
+            - UserArtist records updated with latest playcounts
+            - Skips artists that are already linked to this concert
         """
         if not matched_artists:
             return
@@ -316,16 +326,18 @@ class ConcertDatabaseWriter:
             if self.debug:
                 logger.debug(f"Created link (isPrimary={is_primary})")
     
-    def parse_date(self, date_str: str) -> int:
+    def parse_date(self, date_str: Optional[str]) -> int:
         """Parse date string to Unix timestamp
-        
+
         Args:
-            date_str: Date string in format YYYY-MM-DD
-            
+            date_str: Date string in format YYYY-MM-DD, or None
+
         Returns:
-            Unix timestamp (seconds since epoch)
+            Unix timestamp (seconds since epoch), or current timestamp if date_str is None/invalid
         """
         try:
+            if date_str is None:
+                return int(datetime.now(timezone.utc).timestamp())
             dt = datetime.strptime(date_str, '%Y-%m-%d')
             return int(dt.timestamp())
         except (ValueError, TypeError):
@@ -334,8 +346,8 @@ class ConcertDatabaseWriter:
     
     def upsert_concert(
         self,
-        concert_data: Dict
-    ) -> str:
+        concert_data: Dict[str, Any]
+    ) -> None:
         """Insert or update concert in database
 
         NOTE: Primary artist (artistId field) is preserved on updates to maintain
@@ -345,9 +357,6 @@ class ConcertDatabaseWriter:
 
         Args:
             concert_data: Concert data from parser
-
-        Returns:
-            Normalized city name
         """
         event_url = concert_data.get('event_url')
         if not event_url:
@@ -446,12 +455,12 @@ class ConcertDatabaseWriter:
     
     def write_concerts(
         self,
-        concerts: List[Dict],
-        artist_playcounts: Dict[str, int] = None,
-        artist_playcounts_12month: Dict[str, int] = None,
-        recent_artists: Set[str] = None,
-        artist_mbids: Dict[str, str] = None
-    ):
+        concerts: List[Dict[str, Any]],
+        artist_playcounts: Optional[Dict[str, int]] = None,
+        artist_playcounts_12month: Optional[Dict[str, int]] = None,
+        recent_artists: Optional[Set[str]] = None,
+        artist_mbids: Optional[Dict[str, str]] = None
+    ) -> None:
         """Write multiple concerts to database
 
         Args:
@@ -552,7 +561,7 @@ class ConcertDatabaseWriter:
             self.session.rollback()
             self.stats['errors'] += 1
     
-    def print_stats(self):
+    def print_stats(self) -> None:
         """Print statistics about database operations"""
         logger.info("=" * 80)
         logger.info("DATABASE WRITE STATISTICS")
