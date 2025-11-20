@@ -26,7 +26,7 @@ This document provides a phase-based, AI-friendly, testable guide to fix 21+ cod
 
 ## Implementation Status
 
-**Last Updated:** November 18, 2025
+**Last Updated:** November 19, 2025
 
 ### Phase 1: Critical Security & Reliability Fixes ✅ COMPLETE
 - ✅ Task 1.1: Session cleanup in add_country.py - DONE
@@ -48,7 +48,17 @@ This document provides a phase-based, AI-friendly, testable guide to fix 21+ cod
 - ✅ Task 3.2: N+1 query optimization in artist concert linking - DONE (batch query)
 - ✅ Task 3.3: Null checks added in artist_source_manager.py - DONE
 
-### Phases 4-8: NOT STARTED
+### Phase 4: Code Organization & Architecture ✅ COMPLETE
+- ✅ Task 4.1: Extract Metadata Phases into Methods - DONE
+  - Created `MetadataProcessor` class with separate phase methods
+  - Reduced main() from 393 lines to ~180 lines
+  - Added type hints and comprehensive docstrings
+- ✅ Task 4.2: Refactor CityNormalizer into Smaller Classes - DONE
+  - Created `utils/geo_distance.py` - Haversine distance calculation
+  - Created `services/city_text_normalizer.py` - Text normalization service
+  - Refactored `city.py` to delegate to new services
+
+### Phases 5-8: NOT STARTED
 
 ---
 
@@ -2022,10 +2032,10 @@ Use `2>&1 | tee log.txt` to save output.
 - [x] Task 3.3: Null checks added
 - [x] Syntax checks pass
 
-### Phase 4: Architecture (NOT STARTED)
-- [ ] Task 4.1: Metadata phases extracted
-- [ ] Task 4.2: City normalizer refactored
-- [ ] All refactored code tested
+### Phase 4: Architecture ✅ COMPLETE
+- [x] Task 4.1: Metadata phases extracted
+- [x] Task 4.2: City normalizer refactored
+- [x] All refactored code tested (syntax verified)
 
 ### Phase 5: Documentation (NOT STARTED)
 - [ ] Task 5.1: Type hints added
@@ -2130,7 +2140,7 @@ Issues deferred for future work:
 
 ---
 
-**Document Version:** 1.3
-**Last Updated:** November 18, 2025
-**Status:** Phases 1-3 Complete, Ready for Phase 4
-**Estimated Remaining Time:** 10-14 days (2-3 sprints)
+**Document Version:** 1.4
+**Last Updated:** November 19, 2025
+**Status:** Phases 1-4 Complete, Ready for Phase 5
+**Estimated Remaining Time:** 5-9 days (1-2 sprints)

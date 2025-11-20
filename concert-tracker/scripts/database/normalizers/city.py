@@ -1,30 +1,47 @@
 """
-City normalization module for concert tracker
-Handles text normalization, manual mappings, and geocoding
+City normalization module for concert tracker.
+
+Handles text normalization, manual mappings, and geocoding.
+
+This module coordinates:
+- Text normalization (via CityTextNormalizer)
+- Manual mapping lookups (database)
+- Geocoding (via Nominatim API)
+- Smart clustering (via Overpass API)
+- Database persistence
 """
 
 import re
 import time
 from typing import Optional, Tuple, Dict
 from datetime import datetime, timezone
-from unidecode import unidecode
 import requests
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from database.models import CityMapping, CityNormalized
 from database.normalizers.country import get_or_create_country
+from services.city_text_normalizer import CityTextNormalizer
 from utils import get_logger
+from utils.geo_distance import haversine_distance
 
 logger = get_logger(__name__)
 
 
 class CityNormalizer:
-    """Normalizes city names using hybrid approach:
-    1. Check manual mapping table (database)
-    2. Apply text normalization
-    3. Use geocoding for unknown cities (with caching)
     """
-    
+    Normalizes city names using hybrid approach.
+
+    Strategy:
+    1. Check manual mapping table (database)
+    2. Apply text normalization (via CityTextNormalizer)
+    3. Use geocoding for unknown cities (with caching)
+    4. Smart clustering to nearby larger cities
+
+    The normalizer coordinates between text normalization services,
+    geocoding APIs, and database operations to provide consistent
+    city name normalization.
+    """
+
     # Configuration
     GEOCODING_ENABLED = True
     GEOCODING_PROVIDER = 'nominatim'
@@ -33,18 +50,11 @@ class CityNormalizer:
     CLUSTER_RADIUS_KM = 35  # cities within this radius are considered same metro area
     MIN_MAJOR_CITY_POPULATION = 400000  # cities above this population won't be clustered
     USER_AGENT = 'concert-tracker/1.0 (https://github.com/yourusername/concert-tracker)'
-    
-    # Text normalization rules
-    ABBREVIATIONS = {
-        'St.': 'Saint',
-        'St ': 'Saint ',
-        'Ste.': 'Sainte',
-        'Ste ': 'Sainte ',
-    }
-    
+
     def __init__(self, db_session: Session, verbose: bool = False):
-        """Initialize normalizer with database session
-        
+        """
+        Initialize normalizer with database session and services.
+
         Args:
             db_session: SQLAlchemy session for database operations
             verbose: Enable verbose logging for debugging
@@ -54,6 +64,9 @@ class CityNormalizer:
         self.last_overpass_time = 0
         self._geocode_cache = {}  # In-memory cache for current session
         self.verbose = verbose
+
+        # Initialize text normalizer service
+        self._text_normalizer = CityTextNormalizer()
         
     def normalize(self, city: str, country: str) -> str:
         """Normalize a city name using hybrid approach
@@ -80,7 +93,7 @@ class CityNormalizer:
         logger.debug("No existing mapping found for original city")
 
         # Step 2: Apply text normalization (for API requests and normalizedCity field)
-        normalized = self._normalize_text(city)
+        normalized = self._text_normalizer.normalize(city)
         logger.debug(f"Text normalized: '{city}' -> '{normalized}'")
 
         # Step 3: Try geocoding and clustering
@@ -114,36 +127,8 @@ class CityNormalizer:
             CityMapping.countryId == country_obj.id
         ).first()
     
-    def _normalize_text(self, city: str) -> str:
-        """Apply text normalization rules
-        
-        Args:
-            city: Original city name
-            
-        Returns:
-            Normalized city name
-        """
-        # Apply abbreviation replacements
-        result = city
-        for abbr, full in self.ABBREVIATIONS.items():
-            result = result.replace(abbr, full)
-        
-        # Remove diacritics
-        result = unidecode(result)
-        
-        # Normalize whitespace
-        result = re.sub(r'\s+', ' ', result).strip()
-        
-        # Remove parenthetical suffixes (e.g., "Lyon (Décines-Charpieu)" -> "Lyon")
-        # But only if there's content before the parenthesis
-        match = re.match(r'^([^(]+?)\s*\([^)]+\)$', result)
-        if match:
-            result = match.group(1).strip()
-        
-        # Capitalize properly (Title Case)
-        result = result.title()
-        
-        return result
+    # Text normalization delegated to CityTextNormalizer service
+    # See services/city_text_normalizer.py
     
     def _geocode_and_cluster(self, original_city: str, country: str, normalized_text: str) -> Optional[str]:
         """Geocode city and check for nearby cities to cluster
@@ -211,7 +196,7 @@ class CityNormalizer:
         largest_nearby = self._find_largest_nearby_city_overpass(lat, lon, country)
         if largest_nearby:
             # Text-normalize the Overpass result
-            nearby_normalized = self._normalize_text(largest_nearby['name'])
+            nearby_normalized = self._text_normalizer.normalize(largest_nearby['name'])
 
             # If it's the same city (distance <= 1 km), use it directly
             # This prevents falling through to municipality fallback
@@ -236,7 +221,7 @@ class CityNormalizer:
         # 3. Use municipality field as fallback if available and different from current city
         if municipality:
             # Text-normalize the municipality name
-            municipality_normalized = self._normalize_text(municipality)
+            municipality_normalized = self._text_normalizer.normalize(municipality)
             if municipality_normalized != normalized_text:
                 logger.debug(f"Using municipality (no nearby cities found): '{normalized_text}' → '{municipality_normalized}'")
                 self._store_mapping(original_city, country, municipality_normalized, lat, lon, 'geocoded')
@@ -252,85 +237,113 @@ class CityNormalizer:
         return normalized_text
     
     def _geocode_city(self, city: str, country: str) -> Optional[Dict]:
-        """Get coordinates and metadata for a city using Nominatim API
-        
+        """Get coordinates and metadata for a city using Nominatim API.
+
         Args:
             city: City name
             country: Country name
-            
+
         Returns:
             Dict with lat, lon, municipality, population, importance or None if not found
         """
-        # Rate limiting
-        elapsed = time.time() - self.last_geocode_time
-        if elapsed < self.RATE_LIMIT:
-            logger.debug(f"Rate limiting: waiting {self.RATE_LIMIT - elapsed:.2f}s")
-            time.sleep(self.RATE_LIMIT - elapsed)
-        
-        try:
-            url = 'https://nominatim.openstreetmap.org/search'
-            params = {
-                'q': f'{city}, {country}',
-                'format': 'json',
-                'limit': 1,
-                'addressdetails': 1,
-                'extratags': 1
-            }
-            headers = {
-                'User-Agent': self.USER_AGENT
-            }
+        # Retry logic with exponential backoff
+        max_retries = 3
+        retry_delay = 2  # seconds
 
-            logger.debug(f"Querying Nominatim: '{city}, {country}'")
-            
-            response = requests.get(url, params=params, headers=headers, timeout=self.TIMEOUT)
-            self.last_geocode_time = time.time()
-            
-            if response.status_code == 200:
-                data = response.json()
-                if data:
-                    result = data[0]
-                    lat, lon = float(result['lat']), float(result['lon'])
-                    
-                    # Extract metadata for smart clustering
-                    address = result.get('address', {})
-                    extratags = result.get('extratags', {})
-                    
-                    municipality = address.get('municipality') or address.get('city')
-                    population = extratags.get('population', '0')
-                    try:
-                        population = int(population)
-                    except (ValueError, TypeError):
-                        population = 0
-                    
-                    importance = float(result.get('importance', 0))
-                    
-                    metadata = {
-                        'lat': lat,
-                        'lon': lon,
-                        'municipality': municipality,
-                        'population': population,
-                        'importance': importance
-                    }
+        for attempt in range(max_retries):
+            # Rate limiting (only on first attempt, not on retries)
+            if attempt == 0:
+                elapsed = time.time() - self.last_geocode_time
+                if elapsed < self.RATE_LIMIT:
+                    logger.debug(f"Rate limiting: waiting {self.RATE_LIMIT - elapsed:.2f}s")
+                    time.sleep(self.RATE_LIMIT - elapsed)
 
-                    logger.debug(f"Found coordinates: {lat}, {lon}")
-                    logger.debug(f"Display name: {result.get('display_name', 'N/A')}")
-                    if municipality and municipality != city:
-                        logger.debug(f"Municipality: {municipality}")
-                    if population > 0:
-                        logger.debug(f"Population: {population:,}")
-                    logger.debug(f"Importance: {importance:.3f}")
+            try:
+                url = 'https://nominatim.openstreetmap.org/search'
+                params = {
+                    'q': f'{city}, {country}',
+                    'format': 'json',
+                    'limit': 1,
+                    'addressdetails': 1,
+                    'extratags': 1
+                }
+                headers = {
+                    'User-Agent': self.USER_AGENT
+                }
 
-                    return metadata
+                if attempt == 0:
+                    logger.debug(f"Querying Nominatim: '{city}, {country}'")
                 else:
-                    logger.debug("No results found")
-            else:
-                logger.debug(f"API error: status {response.status_code}")
+                    logger.warning(f"Retry attempt {attempt + 1}/{max_retries}...")
 
-            return None
+                response = requests.get(url, params=params, headers=headers, timeout=self.TIMEOUT)
+                self.last_geocode_time = time.time()
 
-        except Exception as e:
-            logger.error(f"Geocoding error for {city}, {country}: {e}")
-            return None
+                if response.status_code == 200:
+                    data = response.json()
+                    if data:
+                        result = data[0]
+                        lat, lon = float(result['lat']), float(result['lon'])
+
+                        # Extract metadata for smart clustering
+                        address = result.get('address', {})
+                        extratags = result.get('extratags', {})
+
+                        municipality = address.get('municipality') or address.get('city')
+                        population = extratags.get('population', '0')
+                        try:
+                            population = int(population)
+                        except (ValueError, TypeError):
+                            population = 0
+
+                        importance = float(result.get('importance', 0))
+
+                        metadata = {
+                            'lat': lat,
+                            'lon': lon,
+                            'municipality': municipality,
+                            'population': population,
+                            'importance': importance
+                        }
+
+                        logger.debug(f"Found coordinates: {lat}, {lon}")
+                        logger.debug(f"Display name: {result.get('display_name', 'N/A')}")
+                        if municipality and municipality != city:
+                            logger.debug(f"Municipality: {municipality}")
+                        if population > 0:
+                            logger.debug(f"Population: {population:,}")
+                        logger.debug(f"Importance: {importance:.3f}")
+
+                        return metadata
+                    else:
+                        logger.warning("No results found")
+                        return None  # No results, don't retry
+                else:
+                    logger.error(f"API error: status {response.status_code}")
+
+                    # Retry on server errors (5xx) or rate limiting (429)
+                    if response.status_code >= 500 or response.status_code == 429:
+                        if attempt < max_retries - 1:
+                            wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
+                            logger.warning(f"Retrying in {wait_time}s...")
+                            time.sleep(wait_time)
+                            continue
+                    return None
+
+            except Exception as e:
+                logger.error(f"Geocoding error on attempt {attempt + 1}: {e}")
+
+                # Retry on exceptions (timeouts, connection errors)
+                if attempt < max_retries - 1:
+                    wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
+                    logger.warning(f"Retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                    continue
+
+                logger.error(f"Geocoding failed for {city}, {country} after {max_retries} attempts: {e}")
+                return None
+
+        return None  # All retries failed
     
     def _find_exact_location_match(self, lat: float, lon: float, country: str, threshold_km: float = 1.0) -> Optional[str]:
         """Find if there's an existing city at the exact same location (within threshold)
@@ -363,7 +376,7 @@ class CityNormalizer:
         # Find cities at the same location (within threshold)
         for existing in existing_cities:
             existing_coords = (existing.latitude, existing.longitude)
-            distance = self._haversine_distance(
+            distance = haversine_distance(
                 lat, lon,
                 existing_coords[0], existing_coords[1]
             )
@@ -409,7 +422,7 @@ class CityNormalizer:
         candidates = []
         for nearby in nearby_cities:
             nearby_coords = (nearby.latitude, nearby.longitude)
-            distance = self._haversine_distance(
+            distance = haversine_distance(
                 lat, lon,
                 nearby_coords[0], nearby_coords[1]
             )
@@ -529,7 +542,7 @@ class CityNormalizer:
                         continue
                     
                     if elem_lat and elem_lon:
-                        distance = self._haversine_distance(lat, lon, float(elem_lat), float(elem_lon))
+                        distance = haversine_distance(lat, lon, float(elem_lat), float(elem_lon))
                         
                         cities.append({
                             'name': name,
@@ -573,29 +586,9 @@ class CityNormalizer:
                 return None
 
         return None  # All retries failed
-    
-    def _haversine_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-        """Calculate distance between two points using Haversine formula
-        
-        Args:
-            lat1, lon1: First point coordinates
-            lat2, lon2: Second point coordinates
-            
-        Returns:
-            Distance in kilometers
-        """
-        from math import radians, sin, cos, sqrt, atan2
-        
-        R = 6371  # Earth's radius in kilometers
-        
-        lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
-        dlat = lat2 - lat1
-        dlon = lon2 - lon1
-        
-        a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
-        c = 2 * atan2(sqrt(a), sqrt(1-a))
-        
-        return R * c
+
+    # Haversine distance calculation delegated to utils.geo_distance
+    # See utils/geo_distance.py
     
     def _get_or_create_city_normalized(self, normalized_city: str, country_id: int) -> CityNormalized:
         """Get or create CityNormalized with retry logic for race conditions.
