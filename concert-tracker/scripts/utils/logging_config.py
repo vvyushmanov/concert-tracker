@@ -52,7 +52,8 @@ def setup_logging(
     level: int = logging.INFO,
     log_file: Optional[str] = None,
     verbose: bool = False,
-    format_string: Optional[str] = None
+    format_string: Optional[str] = None,
+    use_colors: bool = True
 ) -> None:
     """
     Configure logging for the application.
@@ -62,6 +63,7 @@ def setup_logging(
         log_file: Optional file path to write logs to
         verbose: If True, set level to DEBUG
         format_string: Optional custom format string
+        use_colors: If True, use colored output for console (default: True)
     """
     if verbose:
         level = logging.DEBUG
@@ -72,7 +74,10 @@ def setup_logging(
     file_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 
     # Create formatters
-    console_formatter = ColoredFormatter(console_format)
+    if use_colors:
+        console_formatter = ColoredFormatter(console_format)
+    else:
+        console_formatter = logging.Formatter(console_format)
     file_formatter = logging.Formatter(file_format, datefmt='%Y-%m-%d %H:%M:%S')
 
     # Configure root logger

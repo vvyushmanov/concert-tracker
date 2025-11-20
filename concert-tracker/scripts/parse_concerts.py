@@ -176,11 +176,16 @@ def main():
         action='store_true',
         help='Disable automatic page count detection (use sequential fetching instead)'
     )
-    
+    parser.add_argument(
+        '--no-color-log',
+        action='store_true',
+        help='Disable colored output in logs (useful for log files or CI/CD)'
+    )
+
     args = parser.parse_args()
 
     # Setup logging based on debug flag
-    setup_logging(verbose=args.debug)
+    setup_logging(verbose=args.debug, use_colors=not args.no_color_log)
 
     # Dry run mode overrides output settings
     if args.dry_run:

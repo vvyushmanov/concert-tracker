@@ -18,7 +18,7 @@ export async function POST() {
     // -u flag for unbuffered output so we see logs in real-time
     // DATABASE_URL is set via environment variables, no --db-path needed
     return new Promise((resolve) => {
-      const process = spawn('python3', ['-u', pythonScript, '--output', 'db', '--use-proxies', 'webshare'], {
+      const process = spawn('python3', ['-u', pythonScript, '--output', 'db', '--use-proxies', 'webshare', '--no-color-log'], {
         cwd: '/app/scripts',
       });
       

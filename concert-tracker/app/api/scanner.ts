@@ -51,7 +51,8 @@ export async function startScan(userId: number, debug: boolean = false) {
       pythonScript, 
       '--user-id', userId.toString(),
       '--output', 'db', 
-      '--use-proxies', 'webshare'
+      '--use-proxies', 'webshare',
+      '--no-color-log',
     ];
     
     // Add debug flag if enabled
