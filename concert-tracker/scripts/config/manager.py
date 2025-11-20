@@ -366,8 +366,8 @@ class ConfigManager:
         # Try ENV
         env_value = self._get_from_env(key)
         if env_value is not None:
-            # Determine type from defaults
-            default_value, default_type, _ = self.DEFAULTS.get(key, (None, 'string', None))
+            # Determine type from defaults (use env value, but type from defaults)
+            _, default_type, _ = self.DEFAULTS.get(key, (None, 'string', None))
             return env_value, default_type
         
         # Try defaults

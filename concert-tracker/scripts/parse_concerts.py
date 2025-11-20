@@ -23,6 +23,7 @@ Usage:
 import sys
 import os
 import argparse
+from typing import Optional, List, Dict, Any
 from dotenv import load_dotenv
 
 # Import logging infrastructure
@@ -38,25 +39,25 @@ from services.metadata_service import fetch_artist_metadata
 from config import ConfigManager
 from utils.validation import validate_artist_sources
 from utils.credentials import load_credentials
-
-# Import database writer if available
-try:
-    from database import ConcertDatabaseWriter
-    DB_AVAILABLE = True
-except ImportError:
-    DB_AVAILABLE = False
-    ConcertDatabaseWriter = None
+from database import ConcertDatabaseWriter
 
 
-def finalize_and_cleanup(db_writer, args, data_to_save):
-    """Finalize database writes and fetch metadata for artists
+def finalize_and_cleanup(
+    db_writer: Optional['ConcertDatabaseWriter'],
+    args: argparse.Namespace,
+) -> None:
+    """
+    Finalize database writes and optionally trigger metadata enrichment.
 
     Args:
-        db_writer: Database writer instance (or None)
-        args: Command line arguments
-        data_to_save: Concerts to save
-        all_concerts: All concerts (for --save-all)
-        filtering_artists: filtered artists set
+        db_writer: Database writer instance (None if using JSON output)
+        args: Command line arguments with user settings
+
+    Side Effects:
+        - Prints database statistics (if db_writer provided)
+        - Spawns metadata fetch subprocess for artist enrichment
+        - Commits database transaction and closes session
+        - Logs database output path
     """
 
     # Handle database finalization
@@ -189,12 +190,7 @@ def main():
         logger.info("This mode will fetch and parse data but skip all writes.")
         logger.info("Useful for testing proxies, delays, and parsing logic.")
         logger.info("=" * 60)
-    
-    # Check if database module is available
-    if args.output in ['db'] and not DB_AVAILABLE:
-        logger.error("Database output requested but SQLAlchemy is not installed")
-        logger.error("Please install: pip install sqlalchemy")
-        return 1
+
     
     # Initialize database writer if needed (skip in dry run)
     db_writer = None
@@ -464,8 +460,7 @@ def main():
         
         finally:
             # Always execute cleanup, even on interruption
-            data_to_save = all_filtered_concerts if filtering_artists else all_concerts
-            finalize_and_cleanup(db_writer, args, data_to_save)
+            finalize_and_cleanup(db_writer, args)
     
     # Print overall summary
     logger.info("=" * 80)
