@@ -10,8 +10,24 @@ export async function GET() {
   const settings = await prisma.setting.findMany({
     orderBy: { key: 'asc' }
   });
-  
-  return Response.json(settings);
+
+  // Define defaults for global settings (always show these even if not in DB)
+  const defaults = [
+    { key: 'LASTFM_API_KEY', value: '', valueType: 'string' },
+    { key: 'FANART_API_KEY', value: '', valueType: 'string' },
+    { key: 'WEBSHARE_PROXY_URL', value: '', valueType: 'string' },
+  ];
+
+  // Merge with actual settings
+  const merged = defaults.map(def => {
+    const dbSetting = settings.find(s => s.key === def.key);
+    return dbSetting || def;
+  });
+
+  // Add any other settings from DB that aren't in defaults
+  const otherSettings = settings.filter(s => !defaults.find(d => d.key === s.key));
+
+  return Response.json([...merged, ...otherSettings]);
 }
 
 export async function PATCH(request: Request) {

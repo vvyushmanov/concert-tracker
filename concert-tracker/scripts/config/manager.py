@@ -45,9 +45,9 @@ class ConfigManager:
     # Configuration keys with defaults (value, type, description)
     # NOTE: Only GLOBAL settings belong here. User-specific settings (LASTFM_USER, MIN_PLAYCOUNT)
     # should ONLY exist in UserSetting table, never in global Setting table.
+    # NOTE: COUNTRY_CODES removed - countries are now managed via Country table (active=true/false)
     DEFAULTS = {
         'LASTFM_API_KEY': ('', 'string', 'Last.fm API key for fetching artist data'),
-        'COUNTRY_CODES': ('["tr","fr","de"]', 'json', 'Country codes to scan for concerts'),
         'FANART_API_KEY': ('', 'string', 'Fanart.tv API key for fetching artist images'),
         'WEBSHARE_PROXY_URL': ('', 'string', 'Webshare.io proxy download URL'),
     }
@@ -406,31 +406,31 @@ class ConfigManager:
     
     def get_active_country_codes(self) -> list[str]:
         """
-        Get list of active country codes from database with env var fallback
-        
+        Get list of active country codes from Country table
+
         Returns:
             List of country codes (e.g., ['tr', 'fr', 'de'])
         """
         if not self._Session:
-            # Fallback to COUNTRY_CODES env var/setting
-            return self.get_list('COUNTRY_CODES', ['tr', 'fr', 'de'])
-        
+            logger.warning("ConfigManager database not initialized, returning default countries")
+            return ['tr', 'fr', 'de']
+
         session = self._Session()
         try:
             # Query active countries from database
             active_countries = session.query(Country).filter(Country.active == True).all()
-            
+
             if active_countries:
                 # Return codes from active countries
                 return [country.code for country in active_countries]
             else:
-                # No active countries found, fallback to COUNTRY_CODES setting
-                return self.get_list('COUNTRY_CODES', ['tr', 'fr', 'de'])
-                
+                # No active countries found - database needs seeding
+                logger.warning("No active countries found in database. Run seed or add countries via admin panel.")
+                return []
+
         except Exception as e:
             logger.error(f"Failed to query active countries: {e}")
-            # Fallback to COUNTRY_CODES setting
-            return self.get_list('COUNTRY_CODES', ['tr', 'fr', 'de'])
+            return []
         finally:
             session.close()
 
@@ -454,7 +454,7 @@ if __name__ == '__main__':
     
     logger.info("--- Type-safe getters ---")
     logger.info(f"LASTFM_API_KEY (string): {config.get('LASTFM_API_KEY')}")
-    logger.info(f"COUNTRY_CODES (list): {config.get_list('COUNTRY_CODES')}")
     logger.info(f"FANART_API_KEY (string): {config.get('FANART_API_KEY')}")
+    logger.info(f"WEBSHARE_PROXY_URL (string): {config.get('WEBSHARE_PROXY_URL')}")
     
     logger.info("✅ ConfigManager test complete")
