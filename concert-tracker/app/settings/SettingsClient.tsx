@@ -124,8 +124,7 @@ export default function SettingsClient({ isAdmin, userId }: { isAdmin: boolean; 
             value={setting.value}
             onChange={(e) => handleChange(setting.key, e.target.value)}
             className={commonClasses}
-            placeholder={setting.key === 'LASTFM_USER' ? 'Your Last.fm username' : 
-                        setting.key === 'LASTFM_API_KEY' ? 'Your Last.fm API key' : ''}
+            placeholder={setting.key === 'LASTFM_USER' ? 'Your Last.fm username' : ''}
           />
         );
     }
@@ -270,7 +269,6 @@ export default function SettingsClient({ isAdmin, userId }: { isAdmin: boolean; 
                     <span className="block text-xs text-gray-500 mt-1">
                       {activeTab === 'user' && setting.key === 'MIN_PLAYCOUNT' && 'Minimum playcount to include artists'}
                       {activeTab === 'user' && setting.key === 'LASTFM_USER' && 'Your Last.fm username for tracking'}
-                      {activeTab === 'user' && setting.key === 'LASTFM_API_KEY' && 'Your personal Last.fm API key'}
                       {activeTab === 'global' && setting.key === 'FANART_API_KEY' && 'API key for fetching artist images'}
                       {activeTab === 'global' && setting.key === 'WEBSHARE_PROXY_URL' && 'Proxy URL for web requests'}
                     </span>

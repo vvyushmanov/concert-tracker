@@ -12,10 +12,10 @@ export async function GET() {
   });
 
   // Define defaults for per-user settings
+  // NOTE: LASTFM_API_KEY is a global setting only (not per-user)
   const defaults = [
     { key: 'MIN_PLAYCOUNT', value: '1', valueType: 'int' },
     { key: 'LASTFM_USER', value: '', valueType: 'string' },
-    { key: 'LASTFM_API_KEY', value: '', valueType: 'string' },
   ];
 
   // Merge with user's actual settings
