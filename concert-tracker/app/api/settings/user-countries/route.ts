@@ -228,11 +228,17 @@ async function addCountryViaPython(input: string, active: boolean): Promise<{
     });
     
     process.on('close', (code) => {
+      console.log(`[add_country.py] Exit code: ${code}`);
+      console.log(`[add_country.py] stdout:`, output);
+      console.log(`[add_country.py] stderr:`, errorOutput);
+
       if (code === 0) {
         try {
           const result = JSON.parse(output.trim());
           resolve(result);
         } catch (e) {
+          console.error('[add_country.py] JSON parse error:', e);
+          console.error('[add_country.py] Raw output:', output);
           resolve({
             success: false,
             error: 'Failed to parse Python script output'

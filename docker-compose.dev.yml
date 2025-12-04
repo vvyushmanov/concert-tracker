@@ -30,7 +30,7 @@ services:
       # Mount source code for hot reload (includes scripts directory)
       - ./concert-tracker:/app
       # Mount node_modules as named volume for performance
-      - concert-tracker-node-modules:/app/node_modules:delegated
+      - concert-tracker-node-modules:/app/node_modules
       # Mount shared database directory (for backups/exports)
       - ./data:/app/data
       # Mount .env for configuration
@@ -50,7 +50,7 @@ services:
       - FANART_API_KEY=${FANART_API_KEY}
       - WATCHPACK_POLLING=true
     command: sh scripts/startup.sh
-    user: "1000:1000"
+    # user: "1000:1000"
     stdin_open: true
     tty: true
     depends_on:
