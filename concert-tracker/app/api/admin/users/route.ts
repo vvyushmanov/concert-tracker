@@ -121,6 +121,7 @@ export async function POST(request: Request) {
     });
 
     // Create default user settings
+    // NOTE: LASTFM_API_KEY is a global setting only, not per-user
     await prisma.userSetting.createMany({
       data: [
         {
@@ -134,14 +135,6 @@ export async function POST(request: Request) {
         {
           userId: newUser.id,
           key: 'LASTFM_USER',
-          value: '',
-          valueType: 'string',
-          createdAt: now,
-          updatedAt: now
-        },
-        {
-          userId: newUser.id,
-          key: 'LASTFM_API_KEY',
           value: '',
           valueType: 'string',
           createdAt: now,
