@@ -5,8 +5,9 @@ WORKDIR /app
 
 # Install dependencies for better development experience and Prisma
 # mysqlclient requires build dependencies
-RUN apk add --no-cache git python3 py3-pip openssl ca-certificates \
-    gcc musl-dev python3-dev mariadb-dev \
+# Pin Python to 3.12.x for consistency
+RUN apk add --no-cache git python3~=3.12 py3-pip openssl ca-certificates \
+    gcc musl-dev python3-dev~=3.12 mariadb-dev \
     && update-ca-certificates
 
 # Add Comodo AAA root certificate (required for Cloudflare certificate chain)

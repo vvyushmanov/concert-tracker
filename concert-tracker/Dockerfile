@@ -47,7 +47,8 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 
 # Install runtime dependencies (including Python for rescan)
-RUN apk add --no-cache openssl ca-certificates python3 py3-pip \
+# Pin Python to 3.12.x for consistency
+RUN apk add --no-cache openssl ca-certificates python3~=3.12 py3-pip \
     && update-ca-certificates
 
 # Add Comodo AAA root certificate (required for Cloudflare certificate chain)
