@@ -29,8 +29,6 @@ services:
     volumes:
       # Mount source code for hot reload (includes scripts directory)
       - ./concert-tracker:/app
-      # Mount node_modules as named volume for performance
-      - concert-tracker-node-modules:/app/node_modules
       # Mount shared database directory (for backups/exports)
       - ./data:/app/data
       # Mount .env for configuration
@@ -56,9 +54,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-
-volumes:
-  concert-tracker-node-modules:
 
 networks:
   default:
