@@ -85,7 +85,6 @@ def finalize_and_cleanup(
             logger.warning(f"Could not auto-fetch metadata: {e}")
 
         db_writer.close()
-        logger.info(f"Database output: {args.db_path}")
 
 def main():
     # Load environment variables

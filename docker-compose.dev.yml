@@ -50,7 +50,7 @@ services:
       - FANART_API_KEY=${FANART_API_KEY}
       - WATCHPACK_POLLING=true
     command: sh scripts/startup.sh
-    # user: "1000:1000"
+    user: "1000:1000"
     stdin_open: true
     tty: true
     depends_on:
