@@ -16,3 +16,7 @@
 - [ ] Retrieve average and latest setlists for the concert
 - [ ] Create Spotify playlist with the setlist
 
+## Settings:
+
+- [ ] Move Last.fm settings to a "LastFM" section inside user settings, add enable/disable switch, hide settings if disabled
+
