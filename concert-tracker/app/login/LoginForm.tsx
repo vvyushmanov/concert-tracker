@@ -91,11 +91,6 @@ export default function LoginForm({ callbackUrl }: { callbackUrl?: string }) {
           {loading ? 'Signing in...' : 'Sign in'}
         </button>
       </div>
-
-      <div className="text-sm text-center text-gray-600">
-        <p>Default admin credentials:</p>
-        <p className="font-mono text-xs mt-1">admin / admin123</p>
-      </div>
     </form>
   );
 }

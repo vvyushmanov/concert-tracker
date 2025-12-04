@@ -83,11 +83,20 @@ else
     fi
 fi
 
+# 6. Seed database (create default admin if needed)
+echo ""
+echo "Step 6: Seeding database..."
+if npx prisma db seed; then
+    echo "✓ Database seeding complete"
+else
+    echo "⚠️  Seeding failed, but continuing startup..."
+fi
+
 echo ""
 echo "=========================================="
 echo "✓ Startup complete! Starting dev server..."
 echo "=========================================="
 echo ""
 
-# 6. Start the development server
+# 7. Start the development server
 exec npm run dev
