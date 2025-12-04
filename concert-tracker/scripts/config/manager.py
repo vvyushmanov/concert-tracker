@@ -43,11 +43,11 @@ class ConfigManager:
     _lock = threading.Lock()
     
     # Configuration keys with defaults (value, type, description)
+    # NOTE: Only GLOBAL settings belong here. User-specific settings (LASTFM_USER, MIN_PLAYCOUNT)
+    # should ONLY exist in UserSetting table, never in global Setting table.
     DEFAULTS = {
         'LASTFM_API_KEY': ('', 'string', 'Last.fm API key for fetching artist data'),
-        'LASTFM_USER': ('', 'string', 'Last.fm username to fetch top artists from'),
         'COUNTRY_CODES': ('["tr","fr","de"]', 'json', 'Country codes to scan for concerts'),
-        'MIN_PLAYCOUNT': ('40', 'int', 'Minimum playcount threshold for filtering artists'),
         'FANART_API_KEY': ('', 'string', 'Fanart.tv API key for fetching artist images'),
         'WEBSHARE_PROXY_URL': ('', 'string', 'Webshare.io proxy download URL'),
     }
@@ -454,7 +454,7 @@ if __name__ == '__main__':
     
     logger.info("--- Type-safe getters ---")
     logger.info(f"LASTFM_API_KEY (string): {config.get('LASTFM_API_KEY')}")
-    logger.info(f"MIN_PLAYCOUNT (int): {config.get_int('MIN_PLAYCOUNT')}")
     logger.info(f"COUNTRY_CODES (list): {config.get_list('COUNTRY_CODES')}")
+    logger.info(f"FANART_API_KEY (string): {config.get('FANART_API_KEY')}")
     
     logger.info("✅ ConfigManager test complete")

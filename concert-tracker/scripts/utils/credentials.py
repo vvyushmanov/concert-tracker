@@ -115,7 +115,7 @@ def load_credentials(
             lastfm_api_key=config.get('LASTFM_API_KEY'),
             lastfm_user=None,
             fanart_api_key=config.get('FANART_API_KEY'),
-            min_playcount=config.get_int('MIN_PLAYCOUNT', 40),
+            min_playcount=0,  # Not applicable in global mode (no user filtering)
             country_codes=country_codes,
             settings={}
         )
