@@ -63,7 +63,11 @@ def get_engine(db_path: str = None, echo: bool = False) -> Engine:
                 "DB_TYPE is set to 'mysql' but DATABASE_URL environment variable is not set. "
                 "Please set DATABASE_URL in your .env file (e.g., DATABASE_URL=mysql://user:pass@host:3306/db)"
             )
-        return create_engine(database_url, echo=echo)
+        # Use PyMySQL driver with SSL disabled (safe for Docker internal network)
+        # Replace mysql:// with mysql+pymysql://
+        if database_url.startswith('mysql://'):
+            database_url = database_url.replace('mysql://', 'mysql+pymysql://', 1)
+        return create_engine(database_url, echo=echo, connect_args={'ssl_disabled': True})
     
     # Priority 3: No configuration found
     raise ValueError(
