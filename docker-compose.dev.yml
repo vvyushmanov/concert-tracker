@@ -21,6 +21,7 @@ services:
 
   # Next.js development server
   web:
+    init: true
     build:
       context: ./concert-tracker
       dockerfile: Dockerfile.dev
