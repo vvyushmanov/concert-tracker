@@ -1,7 +1,7 @@
 import { spawn } from 'child_process';
 import { scannerState, broadcastLog, broadcastState } from './state';
 
-export async function startScan(userId: number, debug: boolean = false) {
+export async function startScan(userId: number, debug: boolean = false, globalScan: boolean = false) {
   // Check if user already has a scan running or stopping
   const existingState = scannerState.get(userId);
   if (existingState?.isScanning || existingState?.isStopping) {
@@ -40,21 +40,28 @@ export async function startScan(userId: number, debug: boolean = false) {
       where: { userId }
     });
     
-    broadcastLog(userId, `Starting scan${debug ? ' (DEBUG MODE)' : ''}... Current concerts: ${beforeCount}`, 'log');
-    
+    const scanMode = globalScan ? ' (GLOBAL SCAN - NO FILTER)' : (debug ? ' (DEBUG MODE)' : '');
+    broadcastLog(userId, `Starting scan${scanMode}... Current concerts: ${beforeCount}`, 'log');
+
     // Path to Python script (inside Docker container)
     const pythonScript = '/app/scripts/parse_concerts.py';
-    
+
     // Build arguments array
     const args = [
-      '-u', 
-      pythonScript, 
-      '--user-id', userId.toString(),
-      '--output', 'db', 
+      '-u',
+      pythonScript,
+      '--output', 'db',
       '--use-proxies', 'webshare',
       '--no-color-log',
     ];
-    
+
+    // Add user-id or no-filter based on scan mode
+    if (globalScan) {
+      args.push('--no-filter');
+    } else {
+      args.push('--user-id', userId.toString());
+    }
+
     // Add debug flag if enabled
     if (debug) {
       args.push('--debug');

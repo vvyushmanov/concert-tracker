@@ -22,6 +22,7 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
   // Server state received via SSE
   const [serverStatus, setServerStatus] = useState<ScannerStatus>({ isScanning: false, isStopping: false, stats: null });
   const [debugMode, setDebugMode] = useState(false);
+  const [globalScan, setGlobalScan] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [showStats, setShowStats] = useState(false); // Only show stats after scan completes in current session
@@ -122,19 +123,21 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
       // Clear old stats when starting new scan
       setServerStatus(prev => ({ ...prev, stats: null }));
       setShowStats(false); // Hide stats panel until new scan completes
-      
+
       const currentDebugMode = debugMode;
+      const currentGlobalScan = globalScan;
       setDebugMode(false);
-      
-      const res = await fetch('/api/scanner/start', { 
+      setGlobalScan(false);
+
+      const res = await fetch('/api/scanner/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ debug: currentDebugMode })
+        body: JSON.stringify({ debug: currentDebugMode, globalScan: currentGlobalScan })
       });
       const data = await res.json();
       
       if (data.success) {
-        showToast(currentDebugMode ? 'Scan started in DEBUG mode!' : 'Scan started!', 'success');
+        showToast(data.message || 'Scan started!', 'success');
         // Status polling will detect the scan and connect to logs
       } else {
         showToast(data.error || 'Failed to start scan', 'error');
@@ -255,15 +258,26 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
             </div>
           )}
           {isAdmin && !serverStatus.isScanning && (
-            <label className="flex items-center gap-2 text-green-400 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={debugMode}
-                onChange={(e) => setDebugMode(e.target.checked)}
-                className="w-4 h-4"
-              />
-              <span className="text-sm">Debug Mode (Admin)</span>
-            </label>
+            <>
+              <label className="flex items-center gap-2 text-green-400 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={debugMode}
+                  onChange={(e) => setDebugMode(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <span className="text-sm">Debug Mode (Admin)</span>
+              </label>
+              <label className="flex items-center gap-2 text-yellow-400 cursor-pointer" title="Fetch all concerts without artist filtering">
+                <input
+                  type="checkbox"
+                  checked={globalScan}
+                  onChange={(e) => setGlobalScan(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <span className="text-sm">Global Scan (Admin) - No artist filtering</span>
+              </label>
+            </>
           )}
           {!serverStatus.isScanning && !serverStatus.isStopping && (
             <div className="ml-auto text-green-700 text-sm">

@@ -10,12 +10,14 @@ export async function POST(request: Request) {
 
     const userId = parseInt(session.user.id);
     const isAdmin = session.user.role === 'ADMIN';
-    
-    // Parse request body for debug flag
+
+    // Parse request body for debug and globalScan flags
     let debug = false;
+    let globalScan = false;
     try {
       const body = await request.json();
       debug = body.debug === true && isAdmin; // Only admins can use debug mode
+      globalScan = body.globalScan === true && isAdmin; // Only admins can use global scan
     } catch {
       // No body or invalid JSON, use default
     }
@@ -33,15 +35,15 @@ export async function POST(request: Request) {
       }, { status: 409 });
     }
     
-    // Start the scan in the background with user ID and optional debug flag
+    // Start the scan in the background with user ID and optional flags
     const { startScan } = await import('../../scanner');
-    startScan(userId, debug);
-    
+    startScan(userId, debug, globalScan);
+
     return NextResponse.json({
       success: true,
-      message: debug 
-        ? 'Scan started in DEBUG mode with your personal settings'
-        : 'Scan started with your personal settings',
+      message: globalScan
+        ? (debug ? 'Global scan started in DEBUG mode (all concerts, no filtering)' : 'Global scan started (all concerts, no filtering)')
+        : (debug ? 'Scan started in DEBUG mode with your personal settings' : 'Scan started with your personal settings'),
     });
   } catch (error) {
     console.error('Failed to start scan:', error);
