@@ -46,10 +46,10 @@ class CityNormalizer:
     GEOCODING_ENABLED = True
     GEOCODING_PROVIDER = 'nominatim'
     RATE_LIMIT = 1.1  # requests per second
-    TIMEOUT = 5  # seconds
+    TIMEOUT = 10  # seconds (increased from 5s - Nominatim can be slow during peak loads)
     CLUSTER_RADIUS_KM = 35  # cities within this radius are considered same metro area
     MIN_MAJOR_CITY_POPULATION = 400000  # cities above this population won't be clustered
-    USER_AGENT = 'concert-tracker/1.0 (https://github.com/yourusername/concert-tracker)'
+    USER_AGENT = 'concert-tracker/1.0 (vyushmanov lastfm-parser; contact via github.com/vyushmanov)'
 
     def __init__(self, db_session: Session, verbose: bool = False):
         """
@@ -251,12 +251,11 @@ class CityNormalizer:
         retry_delay = 2  # seconds
 
         for attempt in range(max_retries):
-            # Rate limiting (only on first attempt, not on retries)
-            if attempt == 0:
-                elapsed = time.time() - self.last_geocode_time
-                if elapsed < self.RATE_LIMIT:
-                    logger.debug(f"Rate limiting: waiting {self.RATE_LIMIT - elapsed:.2f}s")
-                    time.sleep(self.RATE_LIMIT - elapsed)
+            # Rate limiting (apply to all attempts including retries)
+            elapsed = time.time() - self.last_geocode_time
+            if elapsed < self.RATE_LIMIT:
+                logger.debug(f"Rate limiting: waiting {self.RATE_LIMIT - elapsed:.2f}s")
+                time.sleep(self.RATE_LIMIT - elapsed)
 
             try:
                 url = 'https://nominatim.openstreetmap.org/search'
@@ -479,12 +478,11 @@ class CityNormalizer:
         retry_delay = 2  # seconds
         
         for attempt in range(max_retries):
-            # Rate limiting (only on first attempt, not on retries)
-            if attempt == 0:
-                elapsed = time.time() - self.last_overpass_time
-                if elapsed < self.RATE_LIMIT:
-                    logger.debug(f"Rate limiting: waiting {self.RATE_LIMIT - elapsed:.2f}s")
-                    time.sleep(self.RATE_LIMIT - elapsed)
+            # Rate limiting (apply to all attempts including retries)
+            elapsed = time.time() - self.last_overpass_time
+            if elapsed < self.RATE_LIMIT:
+                logger.debug(f"Rate limiting: waiting {self.RATE_LIMIT - elapsed:.2f}s")
+                time.sleep(self.RATE_LIMIT - elapsed)
 
             try:
                 if attempt == 0:
