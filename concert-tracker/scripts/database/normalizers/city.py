@@ -13,16 +13,19 @@ This module coordinates:
 
 import re
 import time
-from typing import Optional, Tuple, Dict
+from typing import Optional, Tuple, Dict, TYPE_CHECKING
 from datetime import datetime, timezone
-import requests
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from database.models import CityMapping, CityNormalized
 from database.normalizers.country import get_or_create_country
 from services.city_text_normalizer import CityTextNormalizer
+from services.http_client import HTTPClient
 from utils import get_logger
 from utils.geo_distance import haversine_distance
+
+if TYPE_CHECKING:
+    from services.proxy import ProxyManager
 
 logger = get_logger(__name__)
 
@@ -46,17 +49,19 @@ class CityNormalizer:
     GEOCODING_ENABLED = True
     GEOCODING_PROVIDER = 'nominatim'
     RATE_LIMIT = 1.1  # requests per second
-    TIMEOUT = 10  # seconds (increased from 5s - Nominatim can be slow during peak loads)
+    TIMEOUT = 30  # seconds (increased from 10s - APIs can be slow during peak loads)
     CLUSTER_RADIUS_KM = 35  # cities within this radius are considered same metro area
     MIN_MAJOR_CITY_POPULATION = 400000  # cities above this population won't be clustered
-    USER_AGENT = 'concert-tracker/1.0 (vyushmanov lastfm-parser; contact via github.com/vyushmanov)'
+    NOMINATIM_USER_AGENT = 'concert-tracker/1.0 (vyushmanov lastfm-parser; contact via github.com/vyushmanov)'
+    OVERPASS_USER_AGENT = 'concert-tracker/1.0 (vyushmanov lastfm-parser; contact via github.com/vyushmanov)'
 
-    def __init__(self, db_session: Session, verbose: bool = False):
+    def __init__(self, db_session: Session, proxy_manager: Optional['ProxyManager'] = None, verbose: bool = False):
         """
         Initialize normalizer with database session and services.
 
         Args:
             db_session: SQLAlchemy session for database operations
+            proxy_manager: Optional ProxyManager for proxy rotation
             verbose: Enable verbose logging for debugging
         """
         self.db = db_session
@@ -67,6 +72,13 @@ class CityNormalizer:
 
         # Initialize text normalizer service
         self._text_normalizer = CityTextNormalizer()
+
+        # Initialize HTTP client for API requests (no FlareSolverr for geocoding APIs)
+        self.http_client = HTTPClient(
+            timeout=self.TIMEOUT,
+            proxy_manager=proxy_manager,
+            use_flaresolverr=False  # Never use FlareSolverr for geocoding APIs
+        )
         
     def normalize(self, city: str, country: str) -> str:
         """Normalize a city name using hybrid approach
@@ -267,7 +279,7 @@ class CityNormalizer:
                     'extratags': 1
                 }
                 headers = {
-                    'User-Agent': self.USER_AGENT
+                    'User-Agent': self.NOMINATIM_USER_AGENT
                 }
 
                 if attempt == 0:
@@ -275,10 +287,16 @@ class CityNormalizer:
                 else:
                     logger.warning(f"Retry attempt {attempt + 1}/{max_retries}...")
 
-                response = requests.get(url, params=params, headers=headers, timeout=self.TIMEOUT)
+                # Use HTTPClient with custom headers (includes proxy support)
+                response = self.http_client.get(
+                    url,
+                    max_retries=1,  # We handle retries in this method
+                    headers=headers,
+                    params=params
+                )
                 self.last_geocode_time = time.time()
 
-                if response.status_code == 200:
+                if response and response.status_code == 200:
                     data = response.json()
                     if data:
                         result = data[0]
@@ -317,7 +335,7 @@ class CityNormalizer:
                     else:
                         logger.warning("No results found")
                         return None  # No results, don't retry
-                else:
+                elif response:
                     logger.error(f"API error: status {response.status_code}")
 
                     # Retry on server errors (5xx) or rate limiting (429)
@@ -327,6 +345,15 @@ class CityNormalizer:
                             logger.warning(f"Retrying in {wait_time}s...")
                             time.sleep(wait_time)
                             continue
+                    return None
+                else:
+                    # HTTPClient returned None (failed after retries)
+                    logger.warning(f"Request failed (HTTPClient returned None)")
+                    if attempt < max_retries - 1:
+                        wait_time = retry_delay * (2 ** attempt)
+                        logger.warning(f"Retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                        continue
                     return None
 
             except Exception as e:
@@ -486,13 +513,33 @@ class CityNormalizer:
 
             try:
                 if attempt == 0:
-                    logger.debug(f"Querying for cities within {self.CLUSTER_RADIUS_KM} km...")
+                    logger.debug(f"Querying Overpass for cities within {self.CLUSTER_RADIUS_KM} km...")
                 else:
                     logger.debug(f"Retry attempt {attempt + 1}/{max_retries}...")
 
                 url = 'https://overpass-api.de/api/interpreter'
-                response = requests.post(url, data={'data': query}, timeout=30)
+                headers = {
+                    'User-Agent': self.OVERPASS_USER_AGENT
+                }
+
+                # Use HTTPClient.post for POST requests (with proxy support and logging)
+                response = self.http_client.post(
+                    url,
+                    max_retries=1,  # We handle retries in this method
+                    headers=headers,
+                    data={'data': query}
+                )
                 self.last_overpass_time = time.time()
+
+                if not response:
+                    # HTTPClient returned None (failed after retries)
+                    logger.debug(f"Request failed (HTTPClient returned None)")
+                    if attempt < max_retries - 1:
+                        wait_time = retry_delay * (2 ** attempt)
+                        logger.debug(f"Retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                        continue
+                    return None
 
                 if response.status_code != 200:
                     logger.debug(f"API error: status {response.status_code}")
@@ -715,20 +762,22 @@ class CityNormalizer:
         self._store_mapping(original_city, country, normalized_city, latitude, longitude, 'manual')
 
 
-def get_or_create_city_mapping(session: Session, original_city: str, country: str, verbose: bool = False) -> Optional[CityMapping]:
+def get_or_create_city_mapping(session: Session, original_city: str, country: str,
+                               proxy_manager: Optional['ProxyManager'] = None, verbose: bool = False) -> Optional[CityMapping]:
     """Get or create a city mapping for the given city and country.
-    
+
     This is the main entry point for getting city mappings. It will:
     1. Check if mapping exists in database
     2. If not, normalize the city name and create a new mapping
     3. Link to CityNormalized table
-    
+
     Args:
         session: SQLAlchemy session
         original_city: Original city name (with diacritics preserved)
         country: Country name
+        proxy_manager: Optional ProxyManager for proxy rotation
         verbose: Enable verbose logging
-        
+
     Returns:
         CityMapping object or None if country not found
     """
@@ -736,24 +785,24 @@ def get_or_create_city_mapping(session: Session, original_city: str, country: st
     country_obj = get_or_create_country(session, country, verbose=verbose)
     if not country_obj:
         return None
-    
+
     # Check if mapping already exists
     existing = session.query(CityMapping).filter(
         CityMapping.originalCity == original_city,
         CityMapping.countryId == country_obj.id
     ).first()
-    
+
     if existing:
         return existing
-    
+
     # Create new mapping using normalizer
-    normalizer = CityNormalizer(session, verbose=verbose)
+    normalizer = CityNormalizer(session, proxy_manager=proxy_manager, verbose=verbose)
     normalized_city = normalizer.normalize(original_city, country)
-    
+
     # Query again in case normalizer created it
     mapping = session.query(CityMapping).filter(
         CityMapping.originalCity == original_city,
         CityMapping.countryId == country_obj.id
     ).first()
-    
+
     return mapping

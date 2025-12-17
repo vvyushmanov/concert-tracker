@@ -45,6 +45,7 @@ from database import ConcertDatabaseWriter
 def finalize_and_cleanup(
     db_writer: Optional['ConcertDatabaseWriter'],
     args: argparse.Namespace,
+    proxy_manager: Optional['ProxyManager'] = None,
 ) -> None:
     """
     Finalize database writes and optionally trigger metadata enrichment.
@@ -52,6 +53,7 @@ def finalize_and_cleanup(
     Args:
         db_writer: Database writer instance (None if using JSON output)
         args: Command line arguments with user settings
+        proxy_manager: Optional ProxyManager for proxy rotation in metadata APIs
 
     Side Effects:
         - Prints database statistics (if db_writer provided)
@@ -76,7 +78,9 @@ def finalize_and_cleanup(
         try:
             # Note: fetch_artist_metadata reads Last.fm config from ConfigManager
             # It will use MusicBrainz as primary source and Last.fm as fallback if configured
-            result = fetch_artist_metadata(args.db_path, silent=False, user_id=args.user_id)
+            # Pass proxy_manager for MusicBrainz API requests
+            result = fetch_artist_metadata(args.db_path, silent=False, user_id=args.user_id,
+                                          proxy_manager=proxy_manager)
             if result == 0:
                 logger.info("Metadata fetch completed")
             else:
@@ -200,32 +204,10 @@ def main():
         logger.info("Useful for testing proxies, delays, and parsing logic.")
         logger.info("=" * 60)
 
-    
-    # Initialize database writer if needed (skip in dry run)
-    db_writer = None
-    if not args.dry_run and args.output in ['db']:
-        if args.db_path:
-            logger.info(f"Local database output mode: SQLite at {args.db_path}")
-        else:
-            logger.info("Using configured database")
-        if args.user_id:
-            logger.info(f"User-specific mode: Writing to UserArtist and UserConcert for user ID {args.user_id}")
-        db_writer = ConcertDatabaseWriter(args.db_path, user_id=args.user_id, debug=args.debug)
-    
-    # Get normalizer for display purposes
-    # In normal mode: use db_writer's normalizer
-    # In dry-run mode: create a temporary in-memory normalizer
-    if db_writer:
-        display_normalizer = db_writer.normalizer
-    else:
-        from database.models import get_session
-        from database.normalizers import CityNormalizer
-        display_session = get_session(':memory:')
-        display_normalizer = CityNormalizer(display_session, verbose=args.debug)
-    
+
     # Use graceful shutdown handler for the entire main function
     with GracefulShutdown() as shutdown:
-        # Initialize proxy manager if needed
+        # Initialize proxy manager if needed (MUST be done before db_writer)
         proxy_manager = None
         if args.use_proxies:
             logger.info("=" * 60)
@@ -275,7 +257,31 @@ def main():
             logger.info("To avoid IP bans, use:")
             logger.info("  --use-proxies webshare  (add WEBSHARE_PROXY_URL to .env)")
             logger.info("  --use-proxies custom    (create proxies.txt)")
-        
+
+        # Initialize database writer if needed (skip in dry run)
+        # MUST be after proxy_manager initialization to pass it to CityNormalizer
+        db_writer = None
+        display_normalizer = None
+        if not args.dry_run and args.output in ['db']:
+            if args.db_path:
+                logger.info(f"Local database output mode: SQLite at {args.db_path}")
+            else:
+                logger.info("Using configured database")
+            if args.user_id:
+                logger.info(f"User-specific mode: Writing to UserArtist and UserConcert for user ID {args.user_id}")
+
+            # Pass proxy_manager to database writer (will be used for geocoding APIs)
+            db_writer = ConcertDatabaseWriter(args.db_path, user_id=args.user_id,
+                                             proxy_manager=proxy_manager, debug=args.debug)
+            display_normalizer = db_writer.normalizer
+
+        # Get normalizer for display purposes in dry-run mode
+        if not display_normalizer:
+            from database.models import get_session
+            from database.normalizers import CityNormalizer
+            display_session = get_session(':memory:')
+            display_normalizer = CityNormalizer(display_session, proxy_manager=proxy_manager, verbose=args.debug)
+
         # Load credentials using centralized loader
         # Supports both user-specific mode (with --user-id) and global mode (without --user-id)
         credentials, validation = load_credentials(
@@ -473,7 +479,7 @@ def main():
         
         finally:
             # Always execute cleanup, even on interruption
-            finalize_and_cleanup(db_writer, args)
+            finalize_and_cleanup(db_writer, args, proxy_manager)
     
     # Print overall summary
     logger.info("=" * 80)

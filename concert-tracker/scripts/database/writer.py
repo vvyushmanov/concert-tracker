@@ -7,9 +7,12 @@ import json
 
 import traceback
 from datetime import datetime, timezone
-from typing import List, Dict, Set, Optional, Any
+from typing import List, Dict, Set, Optional, Any, TYPE_CHECKING
 from sqlalchemy.exc import IntegrityError
 from utils import get_logger
+
+if TYPE_CHECKING:
+    from services.proxy import ProxyManager
 
 logger = get_logger(__name__)
 
@@ -19,21 +22,25 @@ from database.normalizers.city import CityNormalizer, get_or_create_city_mapping
 
 class ConcertDatabaseWriter:
     """Writes concert data to database (SQLite or MySQL)"""
-    
-    def __init__(self, db_path: Optional[str] = None, user_id: Optional[int] = None, auto_add_mappings: bool = False, debug: bool = False) -> None:
+
+    def __init__(self, db_path: Optional[str] = None, user_id: Optional[int] = None,
+                 proxy_manager: Optional['ProxyManager'] = None, auto_add_mappings: bool = False,
+                 debug: bool = False) -> None:
         """Initialize database writer
 
         Args:
             db_path: Path to SQLite database file (for SQLite) or None to use DATABASE_URL env var (for MySQL)
             user_id: User ID for per-user data (UserArtist, UserConcert). If None, uses legacy global mode.
+            proxy_manager: Optional ProxyManager for proxy rotation in geocoding APIs
             auto_add_mappings: If True, automatically add common manual city mappings
             debug: If True, enable verbose logging in normalizer
         """
         self.db_path = db_path
         self.user_id = user_id
         self.debug = debug
+        self.proxy_manager = proxy_manager
         self.session = get_session(db_path)
-        self.normalizer = CityNormalizer(self.session, verbose=debug)
+        self.normalizer = CityNormalizer(self.session, proxy_manager=proxy_manager, verbose=debug)
         
         # Automatically add common manual mappings if enabled
         if auto_add_mappings:
@@ -372,7 +379,8 @@ class ConcertDatabaseWriter:
         # Get or create city mapping (this handles normalization internally)
         original_city = concert_data.get('city', '')
         country_name = concert_data.get('country', '')
-        city_mapping = get_or_create_city_mapping(self.session, original_city, country_name, verbose=self.debug)
+        city_mapping = get_or_create_city_mapping(self.session, original_city, country_name,
+                                                   proxy_manager=self.proxy_manager, verbose=self.debug)
         
         if city_mapping:
             city_mapping_id = city_mapping.id

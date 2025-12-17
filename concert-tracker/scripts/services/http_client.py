@@ -332,13 +332,21 @@ class HTTPClient:
             try:
                 # Get proxy if proxy manager is available
                 proxy = None
+                proxy_display = "direct connection"
                 if self.proxy_manager:
                     proxy = self.proxy_manager.get_next_proxy()
+                    if proxy:
+                        # Extract proxy address for logging
+                        proxy_url = proxy.get('http') or proxy.get('https', '')
+                        proxy_display = f"proxy {proxy_url}"
 
                 # Merge headers
                 request_headers = self._get_headers(base_url)
                 if headers:
                     request_headers.update(headers)
+
+                # Log request details
+                logger.debug(f"GET {url} via {proxy_display}")
 
                 # Make request
                 response = self.session.get(
@@ -355,6 +363,7 @@ class HTTPClient:
                 # Success - mark proxy as working
                 if self.proxy_manager and proxy:
                     self.proxy_manager.mark_proxy_success(proxy)
+                    logger.debug(f"Request succeeded via {proxy_display}")
 
                 # Store URL for next request's Referer
                 self._last_url = url
@@ -417,7 +426,108 @@ class HTTPClient:
                 return None
 
         return None
-    
+
+    def post(
+        self,
+        url: str,
+        max_retries: int = 3,
+        headers: Optional[dict] = None,
+        data: Optional[dict] = None,
+        json: Optional[dict] = None,
+        **kwargs
+    ) -> Optional[requests.Response]:
+        """Perform POST request with retries and proxy rotation
+
+        Args:
+            url: URL to post to
+            max_retries: Maximum number of retry attempts
+            headers: Optional custom headers (merged with default headers)
+            data: Optional form data
+            json: Optional JSON data
+            **kwargs: Additional arguments passed to requests.post
+
+        Returns:
+            Response object or None if all retries failed
+        """
+        # Standard request flow (FlareSolverr only supports GET for now)
+        for attempt in range(max_retries):
+            try:
+                # Get proxy if proxy manager is available
+                proxy = None
+                proxy_display = "direct connection"
+                if self.proxy_manager:
+                    proxy = self.proxy_manager.get_next_proxy()
+                    if proxy:
+                        # Extract proxy address for logging
+                        proxy_url = proxy.get('http') or proxy.get('https', '')
+                        proxy_display = f"proxy {proxy_url}"
+
+                # Merge headers
+                request_headers = self._get_headers()
+                if headers:
+                    request_headers.update(headers)
+
+                # Log request details
+                logger.debug(f"POST {url} via {proxy_display}")
+
+                # Make request
+                response = self.session.post(
+                    url,
+                    timeout=self.timeout,
+                    verify=self.verify_ssl,
+                    headers=request_headers,
+                    proxies=proxy,
+                    data=data,
+                    json=json,
+                    **kwargs
+                )
+                response.raise_for_status()
+
+                # Success - mark proxy as working
+                if self.proxy_manager and proxy:
+                    self.proxy_manager.mark_proxy_success(proxy)
+                    logger.debug(f"Request succeeded via {proxy_display}")
+
+                return response
+
+            except requests.RequestException as e:
+                # Mark proxy as failed
+                if self.proxy_manager and proxy:
+                    self.proxy_manager.mark_proxy_failed(proxy)
+
+                # Determine error details for logging
+                error_detail = str(e)
+                if hasattr(e, 'response') and e.response is not None:
+                    status_code = e.response.status_code
+                    error_detail = f"HTTP {status_code}"
+
+                    if status_code >= 500:
+                        error_detail += " (server error)"
+                    elif status_code == 429:
+                        error_detail += " (rate limited)"
+                    elif status_code == 403:
+                        error_detail += " (forbidden)"
+                elif isinstance(e, requests.Timeout):
+                    error_detail = f"Timeout after {self.timeout}s"
+                elif isinstance(e, requests.ConnectionError):
+                    error_detail = "Connection error"
+
+                # Retry if we have attempts left
+                if attempt < max_retries - 1:
+                    retry_delay = 1 + attempt
+                    logger.warning(
+                        f"POST request failed (attempt {attempt + 1}/{max_retries}): {error_detail} - "
+                        f"retrying in {retry_delay}s..."
+                    )
+                    time.sleep(retry_delay)
+                    continue
+
+                # All retries exhausted
+                logger.error(f"POST request failed after {max_retries} attempts: {error_detail}")
+                return None
+
+        return None
+
     def head(self, url: str, **kwargs) -> Optional[requests.Response]:
         """Perform HEAD request
         
