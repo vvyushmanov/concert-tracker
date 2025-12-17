@@ -180,6 +180,11 @@ def main():
         action='store_true',
         help='Disable colored output in logs (useful for log files or CI/CD)'
     )
+    parser.add_argument(
+        '--use-flaresolverr',
+        action='store_true',
+        help='Use FlareSolverr to bypass Cloudflare/Turnstile protection (requires FLARESOLVERR_URL in .env)'
+    )
 
     args = parser.parse_args()
 
@@ -394,73 +399,77 @@ def main():
                 logger.info("=" * 80)
                 logger.info(f"Processing country: {country_code.upper()}")
                 logger.info("=" * 80)
-        
-                concert_parser = CountryConcertParser(
+
+                # Use context manager to ensure cleanup (FlareSolverr session, etc.)
+                with CountryConcertParser(
                     country_code,
                     max_pages=args.max_pages,
                     delay=args.delay,
                     lastfm_artists=filtering_artists,
                     proxy_manager=proxy_manager,
                     debug=args.debug,
-                    shutdown_flag=shutdown
-                )
-        
-                # Define callback wrapper for incremental saving
-                def save_callback(all_concerts_so_far, filtered_concerts_so_far, page_num):
-                    # Skip all saves in dry run mode
-                    if args.dry_run:
-                        logger.info(f"[DRY RUN] Would save progress here (page {page_num})")
-                        return
+                    shutdown_flag=shutdown,
+                    use_flaresolverr=args.use_flaresolverr
+                ) as concert_parser:
 
-                    # Save based on frequency setting
-                    should_save = False
+                    # Define callback wrapper for incremental saving
+                    def save_callback(all_concerts_so_far, filtered_concerts_so_far, page_num):
+                        # Skip all saves in dry run mode
+                        if args.dry_run:
+                            logger.info(f"[DRY RUN] Would save progress here (page {page_num})")
+                            return
 
-                    if args.save_frequency == 'page':
-                        should_save = True
-                    elif args.save_frequency == 'auto':
-                        # Save every PAGES_PER_SAVE pages
-                        should_save = (page_num % CountryConcertParser.PAGES_PER_SAVE == 0)
+                        # Save based on frequency setting
+                        should_save = False
 
-                    if should_save:
+                        if args.save_frequency == 'page':
+                            should_save = True
+                        elif args.save_frequency == 'auto':
+                            # Save every PAGES_PER_SAVE pages
+                            should_save = (page_num % CountryConcertParser.PAGES_PER_SAVE == 0)
+
+                        if should_save:
+                            # Save to database if needed
+                            if args.output in ['db'] and db_writer:
+                                data_to_write = filtered_concerts_so_far if filtering_artists else all_concerts_so_far
+                                db_writer.write_concerts(data_to_write, artist_playcounts, artist_playcounts_12month, recent_artists, artist_mbids)
+
+                            logger.info(f"Progress saved (page {page_num})")
+
+                    # Parse all pages for this country
+                    # Use callback for 'page' and 'auto' modes
+                    callback = save_callback if args.save_frequency in ['page', 'auto'] else None
+                    detect_pages = not args.no_page_detection
+                    concert_parser.parse_all_pages(on_page_complete=callback, detect_total_pages=detect_pages)
+
+                    # Collect final results from this country
+                    all_concerts.extend(concert_parser.concerts)
+                    all_filtered_concerts.extend(concert_parser.filtered_concerts)
+
+                    # Save after country completion (for 'country' mode or final save for 'auto')
+                    if not args.dry_run and args.save_frequency in ['country', 'auto']:
+
                         # Save to database if needed
                         if args.output in ['db'] and db_writer:
-                            data_to_write = filtered_concerts_so_far if filtering_artists else all_concerts_so_far
+                            data_to_write = concert_parser.filtered_concerts if filtering_artists else concert_parser.concerts
                             db_writer.write_concerts(data_to_write, artist_playcounts, artist_playcounts_12month, recent_artists, artist_mbids)
 
-                        logger.info(f"Progress saved (page {page_num})")
-        
-                # Parse all pages for this country
-                # Use callback for 'page' and 'auto' modes
-                callback = save_callback if args.save_frequency in ['page', 'auto'] else None
-                detect_pages = not args.no_page_detection
-                concert_parser.parse_all_pages(on_page_complete=callback, detect_total_pages=detect_pages)
-                
-                # Collect final results from this country
-                all_concerts.extend(concert_parser.concerts)
-                all_filtered_concerts.extend(concert_parser.filtered_concerts)
-        
-                # Save after country completion (for 'country' mode or final save for 'auto')
-                if not args.dry_run and args.save_frequency in ['country', 'auto']:
-                    
-                    # Save to database if needed
-                    if args.output in ['db'] and db_writer:
-                        data_to_write = concert_parser.filtered_concerts if filtering_artists else concert_parser.concerts
-                        db_writer.write_concerts(data_to_write, artist_playcounts, artist_playcounts_12month, recent_artists, artist_mbids)
-        
-                data_to_save = all_filtered_concerts if filtering_artists else all_concerts
-                if args.dry_run:
-                    logger.info(f"[DRY RUN] Country complete: {len(data_to_save)} total concerts parsed (not saved)")
-                else:
-                    logger.info(f"Country complete: {len(data_to_save)} total concerts saved to database")
-                
-                # Accumulate proxy stats
-                total_proxy_successes += concert_parser.proxy_successes
-                total_proxy_failures += concert_parser.proxy_failures
-                
-                # Print country summary
-                if not args.no_summary:
-                    # Pass normalizer to show normalization preview
-                    concert_parser.print_statistics(country_code, normalizer=display_normalizer)
+                    data_to_save = all_filtered_concerts if filtering_artists else all_concerts
+                    if args.dry_run:
+                        logger.info(f"[DRY RUN] Country complete: {len(data_to_save)} total concerts parsed (not saved)")
+                    else:
+                        logger.info(f"Country complete: {len(data_to_save)} total concerts saved to database")
+
+                    # Accumulate proxy stats
+                    total_proxy_successes += concert_parser.proxy_successes
+                    total_proxy_failures += concert_parser.proxy_failures
+
+                    # Print country summary
+                    if not args.no_summary:
+                        # Pass normalizer to show normalization preview
+                        concert_parser.print_statistics(country_code, normalizer=display_normalizer)
+
+                # FlareSolverr session automatically destroyed here when exiting 'with' block
         
         finally:
             # Always execute cleanup, even on interruption
