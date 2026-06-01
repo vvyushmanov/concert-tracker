@@ -89,14 +89,16 @@ class HTTPClient:
         self.flaresolverr_url, flaresolverr_enabled = get_flaresolverr_config()
         self.use_flaresolverr = use_flaresolverr and flaresolverr_enabled
         self.flaresolverr_session_id = None
+        self.flaresolverr_session_proxy = None  # Track which proxy the session is using
         self.cloudflare_active = None  # None = unknown, True = active, False = not active
 
         # Log FlareSolverr status
         if use_flaresolverr and not flaresolverr_enabled:
             logger.warning("FlareSolverr requested but FLARESOLVERR_URL not set in environment")
         elif self.use_flaresolverr:
-            logger.info(f"FlareSolverr enabled at {self.flaresolverr_url}")
-            self._init_flaresolverr_session()
+            proxy_status = f" with {len(self.proxy_manager.proxies)} proxies" if self.proxy_manager else " without proxies"
+            logger.info(f"FlareSolverr enabled at {self.flaresolverr_url}{proxy_status}")
+            # Note: We'll create session on first request with a proxy (if available)
 
         # Determine SSL verification setting
         if verify_ssl is False:
@@ -169,6 +171,20 @@ class HTTPClient:
         """
         for attempt in range(max_retries):
             try:
+                # Get proxy if proxy manager is available
+                proxy_dict = None
+                proxy_url = None
+                if self.proxy_manager:
+                    proxy_dict = self.proxy_manager.get_next_proxy()
+                    if proxy_dict:
+                        # Extract proxy URL from dict (format: {'http': 'http://user:pass@ip:port', 'https': '...'})
+                        proxy_url = proxy_dict.get('http') or proxy_dict.get('https')
+                        logger.debug(f"Using proxy for FlareSolverr: {proxy_url}")
+                    else:
+                        logger.warning("ProxyManager available but get_next_proxy() returned None (no working proxies?)")
+                else:
+                    logger.debug("No ProxyManager available for FlareSolverr request")
+
                 # Prepare FlareSolverr request
                 payload = {
                     "cmd": "request.get",
@@ -189,12 +205,17 @@ class HTTPClient:
                     # After first request, session has cookies - no tabs_till_verify needed
                     mode_description = "fast mode (using session cookies)"
 
+                # Add proxy if available (FlareSolverr format: {"url": "http://ip:port"})
+                if proxy_url:
+                    payload["proxy"] = {"url": proxy_url}
+
                 # Add session if available
                 if self.flaresolverr_session_id:
                     payload["session"] = self.flaresolverr_session_id
 
                 # Make request to FlareSolverr
-                logger.debug(f"FlareSolverr request ({mode_description}): {url}")
+                proxy_display = f" via {proxy_url}" if proxy_url else ""
+                logger.debug(f"FlareSolverr request ({mode_description}){proxy_display}: {url}")
                 response = requests.post(
                     self.flaresolverr_url,
                     json=payload,
@@ -246,6 +267,11 @@ class HTTPClient:
                     # Session has cookies (if challenge was solved) or no protection (if no challenge)
                     self.cloudflare_active = False  # False means "first request done, use fast mode"
 
+                # Success - mark proxy as working
+                if self.proxy_manager and proxy_dict:
+                    self.proxy_manager.mark_proxy_success(proxy_dict)
+                    logger.debug(f"FlareSolverr proxy marked as working: {proxy_url}")
+
                 # Create mock response object
                 mock_response = requests.Response()
                 mock_response.status_code = status_code or 200
@@ -257,6 +283,10 @@ class HTTPClient:
                 return mock_response
 
             except Exception as e:
+                # Mark proxy as failed
+                if self.proxy_manager and proxy_dict:
+                    self.proxy_manager.mark_proxy_failed(proxy_dict)
+
                 error_detail = str(e)
 
                 # Retry if we have attempts left
