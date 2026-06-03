@@ -1,9 +1,11 @@
 import { prisma } from '@/lib/prisma';
 import { auth } from '@/auth';
+import { getRelevantConcerts } from '@/lib/concerts';
 import Link from 'next/link';
 import Image from 'next/image';
 import { notFound } from 'next/navigation';
 import ArtistConcerts from './ArtistConcerts';
+import FollowButton from './FollowButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,55 +44,14 @@ export default async function ArtistDetailPage({ params }: { params: Promise<{ i
     notFound();
   }
 
-  // Get user's concerts where this artist performs (via ArtistConcert junction)
-  const artistConcerts = await prisma.artistConcert.findMany({
-    where: { artistId },
-    include: {
-      concert: {
-        include: {
-          cityMapping: {
-            select: {
-              id: true,
-              originalCity: true,
-              cityNormalized: {
-                select: {
-                  normalizedCity: true,
-                }
-              }
-            }
-          },
-          countryObj: true,
-          userInteractions: {
-            where: { userId },
-            select: { interested: true, notes: true }
-          }
-        }
-      }
-    },
-    orderBy: {
-      concert: {
-        dateStart: 'asc'
-      }
-    }
-  });
-
-  // Filter to only concerts the user has (via UserConcert)
-  const userConcertIds = new Set(
-    (await prisma.userConcert.findMany({
-      where: { userId },
-      select: { concertId: true }
-    })).map(uc => uc.concertId)
+  // This artist's upcoming concerts that are relevant to the user (read-time:
+  // active countries; this artist is in the user's followed set). Reuses the
+  // same logic as the /artists list so counts stay consistent.
+  const { concerts: relevant, followedArtistIds } = await getRelevantConcerts(userId);
+  const concerts = relevant.filter((c: any) =>
+    c.artists.some((ac: any) => ac.artistId === artistId)
   );
-
-  const userConcerts = artistConcerts.filter(ac => 
-    userConcertIds.has(ac.concertId)
-  );
-
-  const concerts = userConcerts.map((ac: any) => ({
-    ...ac.concert,
-    interested: ac.concert.userInteractions[0]?.interested || false,
-    notes: ac.concert.userInteractions[0]?.notes || '',
-  }));
+  const isFollowing = followedArtistIds.includes(artistId);
 
   // Get user-specific artist stats
   const userArtistStats = await prisma.userArtist.findUnique({
@@ -133,13 +94,16 @@ export default async function ArtistDetailPage({ params }: { params: Promise<{ i
             
             {/* Artist Info */}
             <div className="flex-1">
-              <div className="flex items-start justify-between mb-4">
+              <div className="flex items-start justify-between mb-4 gap-4">
                 <h1 className="text-4xl font-bold">{artist.name}</h1>
-                {userArtistStats?.recent && (
-                  <span className="text-sm bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 px-3 py-1 rounded-full">
-                    Recently Played
-                  </span>
-                )}
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  {userArtistStats?.recent && (
+                    <span className="text-sm bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 px-3 py-1 rounded-full">
+                      Recently Played
+                    </span>
+                  )}
+                  <FollowButton artistId={artistId} initialFollowing={isFollowing} />
+                </div>
               </div>
               
               <div className="flex flex-wrap gap-6 text-gray-600 dark:text-gray-400">

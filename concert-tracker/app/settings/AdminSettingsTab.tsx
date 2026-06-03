@@ -35,10 +35,51 @@ export default function AdminSettingsTab() {
   const [deleteTarget, setDeleteTarget] = useState<Country | null>(null);
   const [deletingCountryId, setDeletingCountryId] = useState<number | null>(null);
   const [errorModal, setErrorModal] = useState<{ title: string; message: string } | null>(null);
+  const [metaRefreshing, setMetaRefreshing] = useState(false);
 
   useEffect(() => {
     fetchData();
+    // Reflect an already-running global metadata refresh on load.
+    fetch('/api/admin/metadata/refresh')
+      .then((r) => r.json())
+      .then((d) => { if (d.isRefreshing) setMetaRefreshing(true); })
+      .catch(() => {});
   }, []);
+
+  // Poll global metadata refresh status while running.
+  useEffect(() => {
+    if (!metaRefreshing) return;
+    const id = setInterval(async () => {
+      try {
+        const r = await fetch('/api/admin/metadata/refresh');
+        const d = await r.json();
+        if (!d.isRefreshing) {
+          setMetaRefreshing(false);
+          setMessage({ type: 'success', text: 'Global metadata refresh complete.' });
+          router.refresh();
+        }
+      } catch {
+        /* ignore poll errors */
+      }
+    }, 3000);
+    return () => clearInterval(id);
+  }, [metaRefreshing, router]);
+
+  const handleGlobalMetadataRefresh = async () => {
+    setMessage(null);
+    try {
+      const r = await fetch('/api/admin/metadata/refresh', { method: 'POST' });
+      const d = await r.json();
+      if (!r.ok) {
+        setMessage({ type: 'error', text: d.error || 'Failed to start metadata refresh' });
+        return;
+      }
+      setMetaRefreshing(true);
+      setMessage({ type: 'success', text: d.message || 'Global metadata refresh started.' });
+    } catch {
+      setMessage({ type: 'error', text: 'Failed to start metadata refresh' });
+    }
+  };
 
   useEffect(() => {
     // Filter countries based on search query
@@ -447,6 +488,23 @@ export default function AdminSettingsTab() {
             <li>Deleting a country will only work if it has no associated concerts or city mappings</li>
           </ul>
         </div>
+      </div>
+
+      {/* Maintenance Section */}
+      <div className="bg-white rounded-lg shadow-md p-6 mt-6">
+        <h2 className="text-2xl font-semibold text-gray-900 mb-2">Maintenance</h2>
+        <p className="text-sm text-gray-600 mb-4">
+          Backfill missing artist metadata (MusicBrainz IDs + images from Fanart.tv) for <strong>all</strong> artists
+          in the database. Newly added/followed artists are enriched automatically — use this for a one-time backfill of
+          existing artists. This can take several minutes (MusicBrainz is rate-limited).
+        </p>
+        <button
+          onClick={handleGlobalMetadataRefresh}
+          disabled={metaRefreshing}
+          className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+        >
+          {metaRefreshing ? 'Refreshing all metadata…' : 'Refresh all artist metadata'}
+        </button>
       </div>
 
       {/* Delete Confirmation Modal */}

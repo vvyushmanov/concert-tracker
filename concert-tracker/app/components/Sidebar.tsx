@@ -65,6 +65,8 @@ export default function Sidebar({ isMobileMenuOpen = false, onClose, onExpandedC
     }
   }, [session]);
 
+  const isAdmin = session?.user?.role === 'ADMIN';
+
   const navItems: NavItem[] = [
     { href: '/', label: 'Concerts', icon: '🎸' },
     { href: '/artists', label: 'Artists', icon: '🎤' },
@@ -72,12 +74,13 @@ export default function Sidebar({ isMobileMenuOpen = false, onClose, onExpandedC
     { href: '/calendar', label: 'Calendar', icon: '📅' },
     { href: '/map', label: 'Map', icon: '🗺️' },
     { href: '/friends', label: 'Friends', icon: '👥' },
-    { href: '/scanner', label: 'Scanner', icon: '🔍' },
     { href: '/settings', label: 'Settings', icon: '⚙️' },
   ];
 
-  // Add admin items if user is admin
-  if (session?.user?.role === 'ADMIN') {
+  // Admin-only items (scanning now populates the global concert table — a
+  // maintenance action, not a per-user one).
+  if (isAdmin) {
+    navItems.splice(6, 0, { href: '/scanner', label: 'Scanner', icon: '🔍', adminOnly: true });
     navItems.push({
       href: '/admin/users',
       label: 'User Management',

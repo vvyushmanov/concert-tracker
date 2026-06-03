@@ -4,3 +4,4 @@ vpn/
 __pycache__
 *.db*
 data/*
+poc/

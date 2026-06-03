@@ -1,5 +1,5 @@
-import { prisma } from '@/lib/prisma';
 import { auth } from '@/auth';
+import { getRelevantConcerts } from '@/lib/concerts';
 import CalendarView from './CalendarView';
 
 export const dynamic = 'force-dynamic';
@@ -25,53 +25,9 @@ export default async function CalendarPage() {
 
   const userId = parseInt(session.user.id);
 
-  // Get only concerts linked to this user via UserConcert
-  const userConcerts = await prisma.userConcert.findMany({
-    where: { userId },
-    include: {
-      concert: {
-        include: {
-          cityMapping: {
-            select: {
-              id: true,
-              originalCity: true,
-              cityNormalized: {
-                select: {
-                  normalizedCity: true,
-                }
-              }
-            }
-          },
-          artists: {
-            include: {
-              artist: true,
-            },
-            orderBy: {
-              isPrimary: 'desc',
-            },
-          },
-          countryObj: true,
-        }
-      }
-    },
-    orderBy: {
-      concert: {
-        dateStart: 'asc'
-      }
-    }
-  });
-
-  // Extract concerts with user data and derive primary artist
-  const concertsWithUserData = userConcerts.map((uc: any) => {
-    const primaryArtistLink = uc.concert.artists.find((ac: any) => ac.isPrimary) || uc.concert.artists[0];
-    return {
-      ...uc.concert,
-      interested: uc.interested,
-      notes: uc.notes,
-      artistId: primaryArtistLink?.artistId,
-      artist: primaryArtistLink?.artist,
-    };
-  });
+  // Personalized read: global concerts filtered by the user's followed artists
+  // and active countries (see lib/concerts.ts). No re-scan needed on pref change.
+  const { concerts: concertsWithUserData } = await getRelevantConcerts(userId);
 
   // Get unique artists from user's concerts
   const uniqueArtistIds = new Set(concertsWithUserData.map((c: any) => c.artistId).filter(Boolean));

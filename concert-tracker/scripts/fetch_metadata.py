@@ -419,6 +419,11 @@ def main():
         help='User ID for per-user playcount updates (recommended)'
     )
     parser.add_argument(
+        '--artist-id',
+        type=int,
+        help='Process a single artist by ID (e.g. to enrich a newly added artist)'
+    )
+    parser.add_argument(
         '--limit',
         type=int,
         help='Limit number of artists to process (for testing)'
@@ -444,9 +449,14 @@ def main():
         action='store_true',
         help='Enable verbose logging'
     )
+    parser.add_argument(
+        '--no-color-log',
+        action='store_true',
+        help='Disable colored log output (for non-TTY callers)'
+    )
 
     args = parser.parse_args()
-    setup_logging(verbose=args.verbose)
+    setup_logging(verbose=args.verbose, use_colors=not args.no_color_log)
 
     # Load credentials using centralized loader
     credentials, validation = load_credentials(
@@ -522,8 +532,14 @@ def main():
     Session = sessionmaker(bind=engine)
     session = Session()
 
-    # Query artists - filter by user if user_id provided
-    if args.user_id:
+    # Query artists - single artist, per-user, or global (in priority order)
+    if args.artist_id:
+        all_artists = session.query(Artist).filter(Artist.id == args.artist_id).all()
+        if not all_artists:
+            logger.info(f"No artist found with ID {args.artist_id}")
+            return 0
+        logger.info(f"Processing single artist ID {args.artist_id} ({all_artists[0].name})")
+    elif args.user_id:
         user_artist_ids = session.query(UserArtist.artistId).filter_by(userId=args.user_id).distinct().all()
         user_artist_ids = [id[0] for id in user_artist_ids]
 

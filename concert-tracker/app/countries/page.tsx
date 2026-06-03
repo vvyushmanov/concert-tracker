@@ -1,5 +1,5 @@
-import { prisma } from '@/lib/prisma';
 import { auth } from '@/auth';
+import { getRelevantConcerts } from '@/lib/concerts';
 import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
@@ -25,53 +25,13 @@ export default async function CountriesPage() {
 
   const userId = parseInt(session.user.id);
 
-  // Get only user's concerts
-  const userConcerts = await prisma.userConcert.findMany({
-    where: { userId },
-    select: {
-      concert: {
-        select: {
-          countryObj: true,
-          cityMapping: {
-            select: {
-              originalCity: true,
-              cityNormalized: {
-                select: {
-                  normalizedCity: true
-                }
-              }
-            }
-          },
-          id: true,
-          artists: {
-            select: {
-              artistId: true,
-              isPrimary: true,
-              artist: {
-                select: {
-                  name: true,
-                },
-              },
-            },
-            orderBy: {
-              isPrimary: 'desc',
-            },
-          },
-        }
-      }
-    }
-  });
-
-  const concerts = userConcerts.map((uc: any) => {
-    const primaryArtist = uc.concert.artists.find((a: any) => a.isPrimary) || uc.concert.artists[0];
-    return {
-      ...uc.concert,
-      artist: primaryArtist?.artist,
-    };
-  });
+  // Personalized read: global concerts filtered by the user's followed artists
+  // and active countries (see lib/concerts.ts).
+  const { concerts } = await getRelevantConcerts(userId);
 
   // Group concerts by country
-  const concertsByCountry = concerts.reduce((acc: any, concert: any) => {
+  type CountryAgg = { count: number; cities: Set<string>; artists: Set<string> };
+  const concertsByCountry = concerts.reduce((acc: Record<string, CountryAgg>, concert: any) => {
     const countryName = concert.countryObj?.name;
     if (!acc[countryName]) {
       acc[countryName] = {

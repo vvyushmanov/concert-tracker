@@ -1,5 +1,5 @@
-import { prisma } from '@/lib/prisma';
 import { auth } from '@/auth';
+import { getRelevantConcerts } from '@/lib/concerts';
 import ConcertGrid from './ConcertGrid';
 
 export const dynamic = 'force-dynamic';
@@ -25,108 +25,28 @@ export default async function Home() {
 
   const userId = parseInt(session.user.id);
 
-  // Get only concerts linked to this user via UserConcert
-  const userConcerts = await prisma.userConcert.findMany({
-    where: { userId },
-    include: {
-      concert: {
-        include: {
-          artists: {
-            include: {
-              artist: true,
-            },
-            orderBy: {
-              isPrimary: 'desc', // Primary artist first
-            },
-          },
-          cityMapping: {
-            include: {
-              cityNormalized: {
-                include: { country: true }
-              }
-            }
-          },
-          countryObj: true,
-        }
-      }
-    },
-    orderBy: {
-      concert: {
-        dateStart: 'asc'
-      }
-    }
-  });
+  // Personalized read: global concerts filtered by the user's followed artists
+  // and active countries (see lib/concerts.ts). Reflects preference changes
+  // instantly — no re-scan required.
+  const { concerts: concertsWithUserData } = await getRelevantConcerts(userId);
 
-  // Get all artist IDs from the concerts' artists arrays
-  const artistIds = Array.from(new Set(
-    userConcerts.flatMap((uc: any) => uc.concert.artists.map((ac: any) => ac.artistId))
-  ));
-  
-  const userArtistStats = await prisma.userArtist.findMany({
-    where: {
-      userId,
-      artistId: { in: artistIds }
-    }
-  });
-
-  // Create a map for quick lookup
-  const artistStatsMap = new Map(
-    userArtistStats.map((ua: any) => [ua.artistId, ua])
+  // Unique primary artists (for the filter dropdown)
+  const uniqueArtistIds = new Set(
+    concertsWithUserData.map((c) => c.artistId).filter(Boolean) as number[]
   );
+  const uniqueArtists = Array.from(uniqueArtistIds)
+    .map((id) => concertsWithUserData.find((c) => c.artistId === id)?.artist)
+    .filter(Boolean);
 
-  // Extract concerts with user data and artist playcount
-  const concertsWithUserData = userConcerts
-    .map((uc: any) => {
-      // Get primary artist for backward compatibility
-      const primaryArtistLink = uc.concert.artists.find((ac: any) => ac.isPrimary) || uc.concert.artists[0];
-      const primaryArtist = primaryArtistLink?.artist;
-      
-      return {
-        ...uc.concert,
-        interested: uc.interested,
-        notes: uc.notes,
-        // Add primary artist for backward compatibility
-        artistId: primaryArtistLink?.artistId || uc.concert.artistId,
-        artist: primaryArtist ? {
-          ...primaryArtist,
-          playcount: artistStatsMap.get(primaryArtistLink.artistId)?.playcount || 0,
-        } : null,
-        // Transform artists array
-        artists: uc.concert.artists.map((ac: any) => ({
-          id: ac.id,
-          artistId: ac.artistId,
-          concertId: ac.concertId,
-          isPrimary: ac.isPrimary,
-          artist: {
-            ...ac.artist,
-            playcount: artistStatsMap.get(ac.artistId)?.playcount || 0,
-          },
-        })),
-      };
-    })
-    // Filter out concerts where user doesn't track any artists (all playcounts are 0)
-    .filter((concert: any) => 
-      concert.artists.some((ac: any) => ac.artist.playcount > 0)
-    );
+  // Get unique countries from user's concerts for filters
+  const uniqueCountryNames = Array.from(
+    new Set(concertsWithUserData.map((c) => c.countryObj?.name).filter(Boolean))
+  ) as string[];
 
-  // Count unique artists from user's concerts
-  const uniqueArtistIds = new Set(concertsWithUserData.map(c => c.artistId));
-  
   const stats = {
     total: concertsWithUserData.length,
     artists: uniqueArtistIds.size,
   };
-
-  // Get unique artists from user's concerts for filters
-  const uniqueArtists = Array.from(uniqueArtistIds).map(id => {
-    const concert = concertsWithUserData.find(c => c.artistId === id);
-    return concert?.artist;
-  }).filter(Boolean);
-
-  // Get unique countries from user's concerts for filters
-  const uniqueCountryNames = Array.from(
-    new Set(concertsWithUserData.map(c => c.countryObj?.name).filter(Boolean))
-  ) as string[];
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -140,15 +60,15 @@ export default async function Home() {
 
         {concertsWithUserData.length === 0 ? (
           <div className="text-center py-16 bg-white dark:bg-gray-800 rounded-lg shadow">
-            <h2 className="text-2xl font-semibold mb-4">No concerts added yet</h2>
+            <h2 className="text-2xl font-semibold mb-4">No matching concerts yet</h2>
             <p className="text-gray-600 dark:text-gray-400 mb-6">
-              Please run the scanner to discover concerts! 🎵
+              Follow some artists (or sync your Last.fm) and pick your countries to see relevant concerts. 🎵
             </p>
             <a
-              href="/scanner"
+              href="/artists"
               className="inline-block px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
             >
-              Go to Scanner
+              Manage Artists
             </a>
           </div>
         ) : (

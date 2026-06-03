@@ -52,12 +52,16 @@ export async function GET() {
     friendUsers.map(async (friend) => {
       const now = Math.floor(Date.now() / 1000);
       
+      // UserConcert is now pure user-state: only count concerts the friend has
+      // explicitly marked interested (legacy materialized rows have interested=false
+      // and must not inflate these stats). totalArtists = followed artists.
       const [totalConcerts, totalArtists, upcomingConcerts] = await Promise.all([
-        prisma.userConcert.count({ where: { userId: friend.id } }),
+        prisma.userConcert.count({ where: { userId: friend.id, interested: true } }),
         prisma.userArtist.count({ where: { userId: friend.id } }),
         prisma.userConcert.count({
           where: {
             userId: friend.id,
+            interested: true,
             concert: { dateStart: { gte: now } }
           }
         })
