@@ -1,0 +1,14 @@
+{
+  "name": "concerts-metal-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop scraper agent: a real-Chromium 'custom browser' that crawls concerts-metal.com past Cloudflare Turnstile (persistent profile) and pushes concerts to the backend's POST /api/ingest.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/agent-units.test.js"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0"
+  }
+}

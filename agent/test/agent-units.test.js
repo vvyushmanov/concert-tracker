@@ -1,0 +1,62 @@
+/*
+ * Unit tests for the agent's PURE-LOGIC modules — no Electron required.
+ *   node test/agent-units.test.js
+ *
+ * Covers scheduler.nextRunAt (cadence math), scraper.buildPageUrl (URL shape),
+ * and ingestClient.postConcerts guard clauses. The full crawl + Turnstile +
+ * push cycle is the manual Electron checkpoint; the HTTP path against the live
+ * route is covered separately (ingest-client-live).
+ */
+const assert = require('assert');
+const { nextRunAt } = require('../scheduler');
+const { buildPageUrl } = require('../scraper');
+const { postConcerts } = require('../ingestClient');
+
+let passed = 0;
+let failed = 0;
+function check(cond, msg) {
+  if (cond) { passed++; console.log(`  ✅ ${msg}`); }
+  else { failed++; console.error(`  ❌ ${msg}`); }
+}
+
+(async () => {
+  console.log('— scheduler.nextRunAt —');
+  // Fixed reference: 2026-06-04T12:00:00 local.
+  const now = new Date(2026, 5, 4, 12, 0, 0).getTime();
+
+  const n2 = nextRunAt(now, { runsPerDay: 2, anchorHour: 9 });
+  check(n2.getTime() > now, 'twice-daily: next run is strictly in the future');
+  check(n2.getHours() === 21 && n2.getDate() === 4, 'twice-daily from 12:00: next slot is 21:00 same day');
+
+  const n1 = nextRunAt(now, { runsPerDay: 1, anchorHour: 9 });
+  check(n1.getHours() === 9 && n1.getDate() === 5, 'once-daily (anchor 9) from 12:00: next slot is 09:00 next day');
+
+  const beforeAnchor = new Date(2026, 5, 4, 6, 0, 0).getTime(); // 06:00
+  const n3 = nextRunAt(beforeAnchor, { runsPerDay: 2, anchorHour: 9 });
+  check(n3.getHours() === 9 && n3.getDate() === 4, 'twice-daily from 06:00: next slot is 09:00 same day');
+
+  check(
+    nextRunAt(now, { runsPerDay: 2 }).getTime() === nextRunAt(now, { runsPerDay: 2 }).getTime(),
+    'nextRunAt is deterministic for a fixed now'
+  );
+  check(
+    nextRunAt(now, {}).getTime() > now,
+    'defaults (no opts) still yield a future run'
+  );
+
+  console.log('\n— scraper.buildPageUrl —');
+  check(buildPageUrl('ge', 2) === 'https://en.concerts-metal.com/next_ge_p2.html', 'builds ge p2 URL');
+  check(buildPageUrl('fr', 1) === 'https://en.concerts-metal.com/next_fr_p1.html', 'builds fr p1 URL');
+
+  console.log('\n— ingestClient.postConcerts guards —');
+  async function throwsWith(fn, frag, msg) {
+    try { await fn(); check(false, msg + ' (did not throw)'); }
+    catch (e) { check(String(e.message).includes(frag), `${msg} (threw: "${e.message}")`); }
+  }
+  await throwsWith(() => postConcerts([], {}), 'ingestUrl not configured', 'missing url throws');
+  await throwsWith(() => postConcerts([], { url: 'http://x' }), 'ingestToken not configured', 'missing token throws');
+  await throwsWith(() => postConcerts('nope', { url: 'http://x', token: 't' }), 'must be an array', 'non-array payload throws');
+
+  console.log(`\nTotal: ${passed + failed}, Passed: ${passed}, Failed: ${failed}`);
+  process.exit(failed === 0 ? 0 : 1);
+})();
