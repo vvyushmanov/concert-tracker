@@ -48,6 +48,10 @@ services:
       - LASTFM_API_KEY=${LASTFM_API_KEY}
       - LASTFM_USER=${LASTFM_USER}
       - FANART_API_KEY=${FANART_API_KEY}
+      # Bearer token for POST /api/ingest (desktop scraper agent). Read by the
+      # Next.js process env here — the mounted /app/.env is only seen by Python's
+      # load_dotenv, not Node, so this MUST be in the environment block.
+      - INGEST_TOKEN=${INGEST_TOKEN}
       - WATCHPACK_POLLING=true
     command: sh scripts/startup.sh
     user: "1000:1000"
