@@ -2,7 +2,10 @@
  * config.js — agent configuration, persisted as JSON in Electron's userData,
  * with environment-variable overrides (handy for dev / headless runs).
  *
- * Precedence: env vars > saved agent-config.json > DEFAULTS.
+ * Precedence: saved agent-config.json (the dashboard's authority) > env vars > DEFAULTS.
+ * Env vars seed first-run defaults (handy for dev / headless) but do NOT mask a
+ * value the user has saved from the UI. The pure behaviour flags CM_RUN_ONCE /
+ * CM_AUTOSTART are runtime-only (read in main.js), not part of this config.
  * userData lives next to the 'persist:cm' Chromium profile — do NOT delete it.
  */
 const { app } = require('electron');
@@ -44,14 +47,25 @@ function envOverrides() {
   return env;
 }
 
-/** Effective config (DEFAULTS <- file <- env). */
+// Keys the dashboard may persist. Anything else in an IPC payload is ignored,
+// so a buggy/hostile renderer can't write arbitrary keys into the config file.
+const PERSISTABLE_KEYS = [
+  'ingestUrl', 'ingestToken', 'countries', 'maxPages',
+  'runsPerDay', 'anchorHour', 'jitterMinutes', 'pageDelayMs', 'autoStartOnLaunch',
+];
+
+/** Effective config: DEFAULTS <- env (first-run seed) <- saved file (authoritative). */
 function load() {
-  return { ...DEFAULTS, ...readFileConfig(), ...envOverrides() };
+  return { ...DEFAULTS, ...envOverrides(), ...readFileConfig() };
 }
 
-/** Persist a partial update to agent-config.json (env still wins at load time). */
+/** Persist a whitelisted partial update to agent-config.json. */
 function save(partial) {
-  const merged = { ...readFileConfig(), ...partial };
+  const clean = {};
+  for (const k of PERSISTABLE_KEYS) {
+    if (partial && Object.prototype.hasOwnProperty.call(partial, k)) clean[k] = partial[k];
+  }
+  const merged = { ...readFileConfig(), ...clean };
   fs.writeFileSync(configPath(), JSON.stringify(merged, null, 2));
   return load();
 }

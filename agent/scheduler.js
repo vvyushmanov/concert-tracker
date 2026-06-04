@@ -54,13 +54,15 @@ function createScheduler(cfg) {
   let timer = null;
   let running = false;
   let lastResult = null;
+  let nextRunTime = null;
 
   function scheduleNext() {
     if (timer) clearTimeout(timer);
     const next = nextRunAt(Date.now(), { runsPerDay, anchorHour });
     const jitterMs = (rand() * 2 - 1) * jitterMinutes * 60 * 1000;
     const delay = Math.max(60 * 1000, next.getTime() - Date.now() + jitterMs);
-    log(`next run ~ ${new Date(Date.now() + delay).toISOString()} (in ${Math.round(delay / 60000)}m)`);
+    nextRunTime = new Date(Date.now() + delay);
+    log(`next run ~ ${nextRunTime.toISOString()} (in ${Math.round(delay / 60000)}m)`);
     timer = setTimeout(() => { tick().catch(() => {}); }, delay);
   }
 
@@ -93,6 +95,7 @@ function createScheduler(cfg) {
     },
     isRunning() { return running; },
     get lastResult() { return lastResult; },
+    get nextRunTime() { return nextRunTime; },
   };
 }
 
