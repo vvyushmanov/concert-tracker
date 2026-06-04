@@ -23,7 +23,7 @@
  *   CM_AUTOSTART=0 ... npm start    # open the dashboard WITHOUT a launch crawl
  *   CM_COUNTRY=ge ... npm start     # single country
  */
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, dialog } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
@@ -41,6 +41,14 @@ let dashWin = null;
 let scheduler = null;
 let cfg = null;
 let lastError = null;
+let tray = null;
+let isQuitting = false; // true once a real quit is in progress (vs. minimize-to-tray)
+
+// Linux system trays (especially under WSLg) are unreliable, so only turn the
+// dashboard's close button into "minimize to tray" where the tray is
+// dependable. Elsewhere the tray is a bonus menu and closing the window exits
+// (so we never strand the user with an unrecoverable hidden window).
+const HIDE_ON_CLOSE = process.platform !== 'linux';
 
 // ── manual "Continue" gate ───────────────────────────────────────────────────
 // When a crawl is redirected to a challenge / sign-in / register page, the agent
@@ -55,6 +63,7 @@ function requestContinue(reason, timeoutMs = 900000) {
   return new Promise((resolve) => {
     awaitContinue = resolve;
     sendToDash('agent:awaiting', { waiting: true, reason });
+    updateTray();
     if (scrapeWin && !scrapeWin.isDestroyed()) { scrapeWin.show(); scrapeWin.focus(); }
     awaitTimer = setTimeout(() => {
       if (awaitContinue) { awaitContinue = null; sendToDash('agent:awaiting', { waiting: false }); resolve('timeout'); }
@@ -68,6 +77,7 @@ function resolveContinue(how) {
   const r = awaitContinue;
   awaitContinue = null;
   sendToDash('agent:awaiting', { waiting: false });
+  updateTray();
   r(how);
   return true;
 }
@@ -113,6 +123,7 @@ function createDashboardWindow() {
     show: true,
     title: 'Concerts-Metal Scraper Agent',
     backgroundColor: '#0b0d10',
+    icon: path.join(__dirname, 'assets', 'tray.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -122,12 +133,80 @@ function createDashboardWindow() {
   });
   dashWin.setMenuBarVisibility(false);
   dashWin.loadFile(path.join(__dirname, 'dashboard.html'));
+  dashWin.on('close', (e) => {
+    // Closing the window minimizes to the tray instead of quitting the agent
+    // (where the tray is dependable). A real quit sets isQuitting first.
+    if (!isQuitting && tray && HIDE_ON_CLOSE) { e.preventDefault(); dashWin.hide(); }
+  });
   dashWin.on('closed', () => { dashWin = null; });
   return dashWin;
 }
 
 function sendToDash(channel, payload) {
   if (dashWin && !dashWin.isDestroyed()) dashWin.webContents.send(channel, payload);
+}
+
+// ── tray ──────────────────────────────────────────────────────────────────
+function showDashboard() {
+  if (!dashWin || dashWin.isDestroyed()) return createDashboardWindow();
+  if (dashWin.isMinimized()) dashWin.restore();
+  dashWin.show();
+  dashWin.focus();
+  return dashWin;
+}
+
+function updateTray() {
+  if (!tray) return;
+  const running = scheduler ? scheduler.isRunning() : false;
+  tray.setToolTip(
+    awaitContinue ? 'Scraper Agent — waiting for you'
+      : running ? 'Scraper Agent — crawling…'
+      : 'Scraper Agent — idle'
+  );
+}
+
+function createTray() {
+  try {
+    const img = nativeImage.createFromPath(path.join(__dirname, 'assets', 'tray.png'));
+    if (img.isEmpty()) { console.warn('[agent] tray icon missing — running without a tray'); return; }
+    tray = new Tray(img);
+    tray.setToolTip('Scraper Agent — idle');
+    tray.setContextMenu(Menu.buildFromTemplate([
+      { label: 'Open dashboard', click: () => showDashboard() },
+      { label: 'Show scraper window', click: () => { if (scrapeWin && !scrapeWin.isDestroyed()) { scrapeWin.show(); scrapeWin.focus(); } } },
+      { type: 'separator' },
+      { label: 'Run crawl now', click: () => { if (scheduler) scheduler.runNow().catch((e) => bus.emit('error', e)); } },
+      { type: 'separator' },
+      { label: 'Quit', click: () => requestQuit() },
+    ]));
+    // Windows: a tray click toggles the dashboard. Linux: the context menu is primary.
+    tray.on('click', () => {
+      if (dashWin && !dashWin.isDestroyed() && dashWin.isVisible() && !dashWin.isMinimized()) dashWin.hide();
+      else showDashboard();
+    });
+  } catch (e) {
+    console.warn('[agent] could not create tray:', e && e.message);
+    tray = null;
+  }
+}
+
+// Quit, but guard against killing a crawl mid-flight (incl. one paused for a
+// manual challenge/sign-in — scheduler.isRunning() stays true the whole time).
+function requestQuit() {
+  if (scheduler && scheduler.isRunning()) {
+    const choice = dialog.showMessageBoxSync(dashWin && !dashWin.isDestroyed() ? dashWin : undefined, {
+      type: 'warning',
+      buttons: ['Keep running', 'Stop & quit'],
+      defaultId: 0,
+      cancelId: 0,
+      title: 'Crawl in progress',
+      message: 'A crawl is currently running.',
+      detail: 'Concerts already pushed to the backend are saved. Quitting now stops the rest of this crawl.',
+    });
+    if (choice === 0) return; // user chose to keep it running
+  }
+  isQuitting = true;
+  app.quit();
 }
 
 function buildStatus() {
@@ -143,6 +222,7 @@ function buildStatus() {
 // ── one crawl + push cycle ──────────────────────────────────────────────────
 async function runScrapeAndPush() {
   lastError = null;
+  updateTray();
   const win = ensureScrapeWindow();
   bus.emit('progress', `crawl start: ${cfg.countries.join(',')} (≤${cfg.maxPages} pages each)`);
 
@@ -188,7 +268,7 @@ app.whenReady().then(() => {
     console.log('[agent] ✅ ingested →', JSON.stringify(s));
     sendToDash('agent:log', { level: 'ok', msg: 'ingested → ' + JSON.stringify(s) });
   });
-  bus.on('done', () => { sendToDash('agent:challenge', false); sendToDash('agent:status-update', buildStatus()); });
+  bus.on('done', () => { sendToDash('agent:challenge', false); sendToDash('agent:status-update', buildStatus()); updateTray(); });
   bus.on('challenge', () => {
     sendToDash('agent:log', { level: 'warn', msg: 'Turnstile detected — solve it in the scraper window' });
     sendToDash('agent:challenge', true);
@@ -199,6 +279,7 @@ app.whenReady().then(() => {
     console.error('[agent] ❌', lastError);
     sendToDash('agent:log', { level: 'error', msg: lastError });
     sendToDash('agent:status-update', buildStatus());
+    updateTray();
   });
 
   scheduler = createScheduler({
@@ -208,6 +289,10 @@ app.whenReady().then(() => {
     runJob: runScrapeAndPush,
     log: (m) => bus.emit('progress', m),
   });
+
+  // Tray runs in the background (a real desktop install). Skip in headless
+  // run-once mode, which has no UI lifetime to attach to.
+  if (!process.env.CM_RUN_ONCE) createTray();
 
   // ── IPC (dashboard ↔ main) ──────────────────────────────────────────────
   ipcMain.handle('config:get', () => config.load());
@@ -252,7 +337,7 @@ app.whenReady().then(() => {
     setTimeout(() => {
       scheduler.runNow()
         .catch((e) => bus.emit('error', e))
-        .finally(() => { if (process.env.CM_RUN_ONCE) { console.log('[agent] CM_RUN_ONCE — quitting'); app.quit(); } });
+        .finally(() => { if (process.env.CM_RUN_ONCE) { isQuitting = true; console.log('[agent] CM_RUN_ONCE — quitting'); app.quit(); } });
     }, 3000);
   }
 
@@ -260,4 +345,11 @@ app.whenReady().then(() => {
   if (!process.env.CM_RUN_ONCE && cfg.runsPerDay > 0) scheduler.start();
 });
 
-app.on('window-all-closed', () => app.quit());
+// Any genuine quit path (tray Quit, Cmd/Ctrl+Q, OS shutdown) flips this so the
+// dashboard's close handler stops minimizing-to-tray and lets the app exit.
+app.on('before-quit', () => { isQuitting = true; });
+
+// With a dependable tray the agent keeps running in the background when its
+// windows close; otherwise (Linux/WSLg, headless, or tray unavailable) closing
+// the last window exits.
+app.on('window-all-closed', () => { if (!tray || !HIDE_ON_CLOSE) app.quit(); });
