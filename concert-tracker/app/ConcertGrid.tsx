@@ -47,6 +47,7 @@ type Concert = {
       id: number;
       name: string;
       playcount: number;
+      followed?: boolean;
     };
   }[];
 };
@@ -331,7 +332,7 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
                         <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">🎸 Your Artists:</p>
                         <div className="flex flex-wrap gap-1">
                           {concert.artists
-                            .filter(ac => ac.artist.playcount > 0)
+                            .filter(ac => ac.artist.followed)
                             .map(ac => (
                               <span
                                 key={ac.id}
@@ -412,7 +413,7 @@ export default function ConcertGrid({ initialConcerts, artists, countries }: Con
                           <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">🎸 Your Artists:</p>
                           <div className="flex flex-wrap gap-1">
                             {concert.artists
-                              .filter(ac => ac.artist.playcount > 0)
+                              .filter(ac => ac.artist.followed)
                               .map(ac => (
                                 <span
                                   key={ac.id}

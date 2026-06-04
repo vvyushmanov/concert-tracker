@@ -189,7 +189,7 @@ export default function CountriesTab({ isAdmin }: { isAdmin: boolean }) {
         <div className="mb-6">
           <h2 className="text-2xl font-semibold text-gray-900 mb-2">Manage Countries</h2>
           <p className="text-sm text-gray-600">
-            Add countries you want to track and activate/deactivate them for your scanner.
+            Add countries you want to track and activate the ones whose concerts you want to see.
             {isAdmin && ' As an admin, you can also delete unused countries.'}
           </p>
         </div>

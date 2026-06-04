@@ -50,6 +50,7 @@ interface Concert {
       name: string;
       imageUrl: string | null;
       playcount?: number;
+      followed?: boolean;
     };
   }[];
 }
@@ -259,7 +260,7 @@ export default function ConcertDetailPage() {
                     <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">🎸 Your Artists</div>
                     <div className="flex flex-wrap gap-2">
                       {concert.artists
-                        .filter(ac => ac.artist.playcount && ac.artist.playcount > 0)
+                        .filter(ac => ac.artist.followed)
                         .map(ac => (
                           <Link
                             key={ac.id}

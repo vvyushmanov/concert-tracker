@@ -65,15 +65,15 @@ export default async function CalendarPage() {
 
         {concertsWithUserData.length === 0 ? (
           <div className="text-center py-16 bg-white dark:bg-gray-800 rounded-lg shadow">
-            <h2 className="text-2xl font-semibold mb-4">No concerts added yet</h2>
+            <h2 className="text-2xl font-semibold mb-4">No matching concerts yet</h2>
             <p className="text-gray-600 dark:text-gray-400 mb-6">
-              Please run the scanner to discover concerts! 🎵
+              Follow some artists (or sync your Last.fm) and pick your countries to see relevant concerts. 🎵
             </p>
             <a
-              href="/scanner"
+              href="/artists"
               className="inline-block px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
             >
-              Go to Scanner
+              Manage Artists
             </a>
           </div>
         ) : (

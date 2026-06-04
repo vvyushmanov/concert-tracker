@@ -196,7 +196,7 @@ export default function CountryConcerts({ concerts }: CountryConcertsProps) {
                 <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">🎸 Your Artists:</p>
                 <div className="flex flex-wrap gap-1">
                   {concert.artists
-                    .filter((ac: any) => ac.artist.playcount > 0)
+                    .filter((ac: any) => ac.artist.followed)
                     .map((ac: any) => (
                       <span
                         key={ac.id}
