@@ -326,12 +326,18 @@ class CityNormalizer:
                 if response and response.status_code == 200:
                     data = response.json()
                     if data:
-                        result = data[0]
+                        result = data[0] or {}
+                        if 'lat' not in result or 'lon' not in result:
+                            logger.info(f"Nominatim result for '{city}, {country}' has no lat/lon — no coordinates (will stay null)")
+                            return None  # malformed entry, not retryable
                         lat, lon = float(result['lat']), float(result['lon'])
 
-                        # Extract metadata for smart clustering
-                        address = result.get('address', {})
-                        extratags = result.get('extratags', {})
+                        # Extract metadata for smart clustering. NOTE: `.get(k, {})`
+                        # only defaults when the key is MISSING — Nominatim sometimes
+                        # returns "address": null / "extratags": null, so use `or {}`
+                        # to also coerce an explicit null (else `None.get(...)` throws).
+                        address = result.get('address') or {}
+                        extratags = result.get('extratags') or {}
 
                         municipality = address.get('municipality') or address.get('city')
                         population = extratags.get('population', '0')

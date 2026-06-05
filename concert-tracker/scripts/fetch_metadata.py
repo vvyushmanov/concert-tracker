@@ -20,6 +20,9 @@ Usage:
 """
 
 import argparse
+import atexit
+import os
+import tempfile
 import time
 from typing import List, Dict, Tuple, Optional
 from dotenv import load_dotenv
@@ -38,6 +41,49 @@ logger = get_logger(__name__)
 
 # Load environment variables
 load_dotenv()
+
+# Single-flight lock: the ingest worker spawns this after every drain-with-new, and
+# a full MBID+image pass over thousands of artists can run well over an hour at
+# MusicBrainz's ~1 req/s. Without a lock, a second scan mid-run would spawn an
+# overlapping process and double the API load on the same artist set. The stale
+# threshold is deliberately long so a legitimately slow run is never reclaimed.
+LOCK_PATH = os.path.join(tempfile.gettempdir(), 'concert-tracker-metadata.lock')
+LOCK_STALE_SECONDS = 3 * 60 * 60  # 3h — longer than any realistic full pass
+
+
+def acquire_lock() -> Optional[int]:
+    """Atomically create the lock file. Returns its fd, or None if a live run holds it."""
+    for _ in range(2):
+        try:
+            fd = os.open(LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, f"{os.getpid()} {int(time.time())}\n".encode())
+            return fd
+        except FileExistsError:
+            try:
+                age = time.time() - os.path.getmtime(LOCK_PATH)
+            except OSError:
+                return None
+            if age > LOCK_STALE_SECONDS:
+                logger.warning(f"Removing stale metadata lock ({age:.0f}s old)")
+                try:
+                    os.unlink(LOCK_PATH)
+                except OSError:
+                    return None
+                continue
+            return None
+    return None
+
+
+def release_lock(fd: Optional[int]) -> None:
+    if fd is not None:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+    try:
+        os.unlink(LOCK_PATH)
+    except OSError:
+        pass
 
 
 class MetadataProcessor:
@@ -457,6 +503,15 @@ def main():
 
     args = parser.parse_args()
     setup_logging(verbose=args.verbose, use_colors=not args.no_color_log)
+
+    # Single-flight: bail if another metadata pass is already running (the worker
+    # re-triggers this after every drain; overlapping runs would double MusicBrainz
+    # load on the same artists). Released on exit via atexit, covering every return.
+    lock_fd = acquire_lock()
+    if lock_fd is None:
+        logger.info("Another metadata pass is already running — exiting.")
+        return 0
+    atexit.register(release_lock, lock_fd)
 
     # Load credentials using centralized loader
     credentials, validation = load_credentials(
