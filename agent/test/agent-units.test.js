@@ -3,14 +3,14 @@
  *   node test/agent-units.test.js
  *
  * Covers scheduler.nextRunAt (cadence math), scraper.buildPageUrl (URL shape),
- * and ingestClient.postConcerts guard clauses. The full crawl + Turnstile +
- * push cycle is the manual Electron checkpoint; the HTTP path against the live
- * route is covered separately (ingest-client-live).
+ * and ingestClient pushBatch/postConcerts guard clauses. The full crawl +
+ * Turnstile + per-page push cycle is the manual Electron checkpoint; the HTTP
+ * path against the live route is covered separately (ingest-client-live).
  */
 const assert = require('assert');
 const { nextRunAt } = require('../scheduler');
 const { buildPageUrl } = require('../scraper');
-const { postConcerts } = require('../ingestClient');
+const { pushBatch, postConcerts } = require('../ingestClient');
 
 let passed = 0;
 let failed = 0;
@@ -56,6 +56,11 @@ function check(cond, msg) {
   await throwsWith(() => postConcerts([], {}), 'ingestUrl not configured', 'missing url throws');
   await throwsWith(() => postConcerts([], { url: 'http://x' }), 'ingestToken not configured', 'missing token throws');
   await throwsWith(() => postConcerts('nope', { url: 'http://x', token: 't' }), 'must be an array', 'non-array payload throws');
+
+  console.log('\n— ingestClient.pushBatch guards (fail fast, before any retry) —');
+  await throwsWith(() => pushBatch([], {}), 'ingestUrl not configured', 'missing url throws');
+  await throwsWith(() => pushBatch([], { url: 'http://x' }), 'ingestToken not configured', 'missing token throws');
+  await throwsWith(() => pushBatch('nope', { url: 'http://x', token: 't' }), 'must be an array', 'non-array payload throws');
 
   console.log(`\nTotal: ${passed + failed}, Passed: ${passed}, Failed: ${failed}`);
   process.exit(failed === 0 ? 0 : 1);

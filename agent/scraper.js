@@ -170,7 +170,10 @@ async function getPage(win, url, hooks = {}) {
  * Crawl the configured countries/pages and return the combined concerts array.
  * @param {BrowserWindow} win
  * @param {{countries:string[], maxPages:number, pageDelayMs?:number}} cfg
- * @param {{onChallenge?:Function, onProgress?:(m:string)=>void, shouldAbort?:()=>boolean}} hooks
+ * @param {{onChallenge?:Function, onProgress?:(m:string)=>void, shouldAbort?:()=>boolean,
+ *          onPage?:(events:object[], meta:{cc:string,page:number})=>Promise<void>|void}} hooks
+ *   onPage is awaited after each non-empty page — the agent uses it to push that
+ *   page's batch to the backend before moving on (async delivery).
  */
 async function crawl(win, cfg, hooks = {}) {
   const countries = cfg.countries || ['fr', 'ge', 'de', 'tr'];
@@ -194,6 +197,8 @@ async function crawl(win, cfg, hooks = {}) {
       if (res.count === 0) break;
       for (const e of res.events) { e._sourceCountry = cc; all.push(e); }
       total += res.count;
+      // Hand this page's batch to the caller to push now, before scraping on.
+      if (hooks.onPage) await hooks.onPage(res.events, { cc, page });
       page += 1;
       await wait(baseDelay + Math.floor(Math.random() * 1600)); // human-paced jitter
     }

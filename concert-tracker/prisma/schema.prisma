@@ -26,6 +26,15 @@ enum NotificationType {
   FRIEND_ACCEPTED
 }
 
+// Lifecycle of one ingest batch (a page's worth of scraped concerts) in the
+// durable async-delivery queue. See model IngestBatch.
+enum IngestBatchStatus {
+  PENDING
+  PROCESSING
+  DONE
+  ERROR
+}
+
 model Artist {
   id        Int       @id @default(autoincrement())
   name      String    @unique @db.VarChar(255)
@@ -286,4 +295,27 @@ model ArtistConcert {
   @@index([artistId])
   @@index([concertId])
   @@index([isPrimary])
+}
+
+// Durable async-ingest queue: the scraper agent POSTs one batch per scraped page
+// to /api/ingest, which enqueues a row here and returns 202 immediately. An
+// in-process worker drains PENDING rows serially (ingest_json.py per batch),
+// decoupling the DB write pace from the HTTP request. Survives a backend
+// restart (rows persist); stale PROCESSING rows are reclaimed on boot.
+model IngestBatch {
+  id         Int               @id @default(autoincrement())
+  batchId    String            @unique @db.VarChar(255) // client idempotency key (e.g. "<runId>-fr-p1") — re-POST is a no-op
+  status     IngestBatchStatus @default(PENDING)
+  received   Int               @default(0)              // # concerts in payload (denormalized for status reads)
+  attempts   Int               @default(0)              // worker tries; → ERROR (dead-letter) after the cap
+  source     String?           @db.VarChar(255)         // human label, e.g. "fr p1" / runId — observability only
+  payload    String            @db.LongText             // JSON array of concert objects (the page's batch)
+  result     String?           @db.Text                 // INGEST_RESULT JSON for this batch once DONE
+  error      String?           @db.Text                 // last failure detail when status=ERROR
+  createdAt  Int                                        // enqueued at (unix seconds)
+  startedAt  Int?                                       // claimed (PROCESSING) at
+  finishedAt Int?                                       // DONE/ERROR at
+
+  @@index([status])
+  @@index([createdAt])
 }

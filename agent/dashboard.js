@@ -62,10 +62,9 @@ function renderStatus(s) {
   els.stNext.textContent = s.running ? 'running now' : fmtTime(s.nextRunAt);
   if (s.lastResult && typeof s.lastResult.received === 'number') {
     const r = s.lastResult;
-    const stats = r.stats || r; // runScrapeAndPush returns {received, stats} or stats
-    const recv = r.received != null ? r.received : (stats.received != null ? stats.received : '?');
-    const neu = stats.new != null ? stats.new : (r.new != null ? r.new : '?');
-    els.stLast.innerHTML = `${recv} scraped<br><span class="k">${neu} new</span>`;
+    const batches = r.batches != null ? r.batches : '?';
+    const tail = `${batches} batch${batches === 1 ? '' : 'es'}${r.pushErrors ? ` · ${r.pushErrors} failed` : ''}`;
+    els.stLast.innerHTML = `${r.received} queued<br><span class="k">${tail}</span>`;
   } else {
     els.stLast.textContent = '—';
   }

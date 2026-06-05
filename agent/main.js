@@ -259,6 +259,13 @@ async function runScrapeAndPush() {
   const win = ensureScrapeWindow();
   bus.emit('progress', `crawl start: ${cfg.countries.join(',')} (≤${cfg.maxPages} pages each)`);
 
+  // runId namespaces this crawl's batch ids so a re-run re-enqueues fresh batches
+  // (page batchIds are idempotent WITHIN a run, so a retried push never dupes).
+  const runId = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  let queued = 0;      // concerts the backend accepted
+  let batches = 0;     // pages successfully enqueued
+  let pushErrors = 0;  // pages that failed to enqueue (after retries)
+
   const concerts = await scraper.crawl(win, cfg, {
     onChallenge: () => bus.emit('challenge'),
     onProgress: (m) => bus.emit('progress', m),
@@ -266,9 +273,25 @@ async function runScrapeAndPush() {
     waitForContinue: (reason) => requestContinue(reason),
     // True once the user picks "Stop this crawl" — bails the whole crawl.
     shouldAbort: () => crawlAborted,
+    // Async delivery: push each scraped page to the backend queue, then scrape on.
+    onPage: async (events, meta) => {
+      if (!events.length) return;
+      const batchId = `${runId}-${meta.cc}-p${meta.page}`;
+      try {
+        const res = await ingest.pushBatch(events, {
+          url: cfg.ingestUrl, token: cfg.ingestToken, batchId, source: `${meta.cc} p${meta.page}`,
+        });
+        queued += events.length;
+        batches += 1;
+        bus.emit('progress', `  ↑ queued ${meta.cc} p${meta.page}: ${events.length} (${(res && res.status) || 'accepted'})`);
+      } catch (err) {
+        pushErrors += 1;
+        bus.emit('progress', `  ⚠ push ${meta.cc} p${meta.page} failed: ${err.message}`);
+      }
+    },
   });
 
-  // Local debug dump.
+  // Local debug dump of everything scraped this run.
   try {
     const outDir = path.join(__dirname, 'out');
     fs.mkdirSync(outDir, { recursive: true });
@@ -277,16 +300,13 @@ async function runScrapeAndPush() {
     bus.emit('progress', 'could not write debug dump: ' + e.message);
   }
 
-  if (concerts.length === 0) {
-    bus.emit('done', { received: 0 });
-    return { received: 0 };
+  if (pushErrors > 0) {
+    bus.emit('error', new Error(`${pushErrors} page push(es) failed this run — see log; they'll re-send next crawl`));
   }
-
-  bus.emit('progress', `pushing ${concerts.length} concerts → ${cfg.ingestUrl} …`);
-  const stats = await ingest.postConcerts(concerts, { url: cfg.ingestUrl, token: cfg.ingestToken });
-  bus.emit('pushed', stats);
-  bus.emit('done', { received: concerts.length, stats });
-  return { received: concerts.length, stats };
+  const result = { received: queued, scraped: concerts.length, batches, pushErrors };
+  bus.emit('pushed', result);
+  bus.emit('done', result);
+  return result;
 }
 
 // ── lifecycle ────────────────────────────────────────────────────────────────
@@ -301,8 +321,10 @@ app.whenReady().then(() => {
   // interference bus → console + dashboard
   bus.on('progress', (m) => { console.log('[agent]', m); sendToDash('agent:log', { level: 'info', msg: m }); });
   bus.on('pushed', (s) => {
-    console.log('[agent] ✅ ingested →', JSON.stringify(s));
-    sendToDash('agent:log', { level: 'ok', msg: 'ingested → ' + JSON.stringify(s) });
+    const msg = `queued ${s.received} concert(s) in ${s.batches} batch(es)`
+      + (s.pushErrors ? `, ${s.pushErrors} failed` : '') + ` (backend ingests them async)`;
+    console.log('[agent] ✅', msg);
+    sendToDash('agent:log', { level: s.pushErrors ? 'warn' : 'ok', msg });
   });
   bus.on('done', () => { sendToDash('agent:challenge', false); sendToDash('agent:status-update', buildStatus()); updateTray(); });
   bus.on('challenge', () => {

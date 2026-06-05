@@ -5,13 +5,15 @@ export default auth((req) => {
   const { pathname } = req.nextUrl;
   const session = req.auth;
 
-  // Always allow login and auth routes. /api/ingest is the headless scraper-agent
-  // endpoint: it is NOT a NextAuth session — it authenticates itself with a
-  // constant-time bearer token (INGEST_TOKEN), so it must bypass session gating.
+  // Always allow login and auth routes. The /api/ingest* endpoints are the
+  // headless scraper-agent's surface (POST /api/ingest, GET /api/ingest/status):
+  // they are NOT NextAuth sessions — they authenticate with a constant-time
+  // bearer token (INGEST_TOKEN), so they must bypass session gating.
   if (
     pathname.startsWith('/login') ||
     pathname.startsWith('/api/auth') ||
-    pathname === '/api/ingest'
+    pathname === '/api/ingest' ||
+    pathname.startsWith('/api/ingest/')
   ) {
     return NextResponse.next();
   }
