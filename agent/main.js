@@ -75,6 +75,7 @@ function requestContinue(reason, timeoutMs = 900000) {
     sendToDash('agent:awaiting', { waiting: true, reason });
     updateTray();
     if (scrapeWin && !scrapeWin.isDestroyed()) { scrapeWin.show(); scrapeWin.focus(); }
+    sendToDash('agent:status-update', buildStatus()); // scraper now visible → refresh Show/Hide label
     showPauseDialog(reason);
     awaitTimer = setTimeout(() => {
       if (awaitContinue) { awaitContinue = null; sendToDash('agent:awaiting', { waiting: false }); updateTray(); resolve('timeout'); }
@@ -141,7 +142,21 @@ function createScrapeWindow() {
   });
   wc.on('unresponsive', () => bus.emit('error', new Error('scraper window unresponsive')));
 
-  scrapeWin.on('closed', () => { scrapeWin = null; });
+  // Closing the scraper window must NOT kill an in-flight crawl. While a crawl is
+  // running we intercept the close and just HIDE the window — the crawl keeps going
+  // in the background (re-show it any time from the dashboard). When idle (or on a
+  // real app quit) we let it close normally so nothing lingers.
+  scrapeWin.on('close', (e) => {
+    const crawling = scheduler && scheduler.isRunning();
+    if (!isQuitting && crawling && scrapeWin && !scrapeWin.isDestroyed()) {
+      e.preventDefault();
+      scrapeWin.hide();
+      bus.emit('progress', 'scraper window hidden — crawl continues in the background');
+      sendToDash('agent:status-update', buildStatus());
+    }
+  });
+  scrapeWin.on('closed', () => { scrapeWin = null; sendToDash('agent:status-update', buildStatus()); });
+  sendToDash('agent:status-update', buildStatus()); // window now exists & visible → refresh Show/Hide label
   return scrapeWin;
 }
 
@@ -242,12 +257,15 @@ function requestQuit() {
 }
 
 function buildStatus() {
+  const scraperExists = !!(scrapeWin && !scrapeWin.isDestroyed());
   return {
     running: scheduler ? scheduler.isRunning() : false,
     nextRunAt: scheduler && cfg && cfg.runsPerDay > 0 && scheduler.nextRunTime
       ? scheduler.nextRunTime.toISOString() : null,
     lastResult: scheduler ? scheduler.lastResult : null,
     lastError,
+    scraperExists,
+    scraperVisible: scraperExists && scrapeWin.isVisible(),
   };
 }
 
@@ -384,8 +402,34 @@ app.whenReady().then(() => {
   // Creating a blank one on demand makes a hard-to-close empty window (esp.
   // under WSLg software rendering); the window opens automatically on a crawl.
   ipcMain.handle('agent:showScraper', () => {
-    if (scrapeWin && !scrapeWin.isDestroyed()) { scrapeWin.show(); scrapeWin.focus(); return { open: true }; }
-    return { open: false };
+    if (scrapeWin && !scrapeWin.isDestroyed()) {
+      scrapeWin.show(); scrapeWin.focus();
+      sendToDash('agent:status-update', buildStatus());
+      return { exists: true, visible: true };
+    }
+    return { exists: false, visible: false };
+  });
+  // Footer button: show ⇄ hide the scraper window. Hiding keeps the crawl running
+  // in the background; the window only exists while/after a crawl has opened it.
+  ipcMain.handle('agent:toggleScraper', () => {
+    if (!scrapeWin || scrapeWin.isDestroyed()) return { exists: false, visible: false };
+    if (scrapeWin.isVisible()) scrapeWin.hide();
+    else { scrapeWin.show(); scrapeWin.focus(); }
+    const visible = !scrapeWin.isDestroyed() && scrapeWin.isVisible();
+    sendToDash('agent:status-update', buildStatus());
+    return { exists: true, visible };
+  });
+  // Stop the current crawl. Sets the abort flag (honored at the next page/country
+  // boundary) and, if the crawl is paused waiting for Continue, unblocks it as a
+  // stop so it bails immediately instead of waiting out the pause.
+  ipcMain.handle('agent:stop', () => {
+    if (!scheduler || !scheduler.isRunning()) return { ok: false, error: 'no crawl running' };
+    crawlAborted = true;
+    const wasPaused = resolveContinue('stop');
+    bus.emit('progress', wasPaused
+      ? 'stop requested — halting the paused crawl'
+      : 'stop requested — halting after the current page');
+    return { ok: true };
   });
   // User clicked "Continue" after handling a challenge / sign-in in the window.
   ipcMain.handle('agent:continue', () => ({ ok: resolveContinue('manual') }));

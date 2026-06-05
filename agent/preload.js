@@ -25,7 +25,9 @@ contextBridge.exposeInMainWorld('agent', {
   saveConfig: (partial) => ipcRenderer.invoke('config:save', partial),
   getStatus: () => ipcRenderer.invoke('agent:status'),
   runNow: () => ipcRenderer.invoke('agent:runNow'),
+  stop: () => ipcRenderer.invoke('agent:stop'),
   showScraper: () => ipcRenderer.invoke('agent:showScraper'),
+  toggleScraper: () => ipcRenderer.invoke('agent:toggleScraper'),
   continue: () => ipcRenderer.invoke('agent:continue'),
   // subscriptions (return an unsubscribe fn)
   onLog: (cb) => subscribe(EVENT_CHANNELS.log, cb),

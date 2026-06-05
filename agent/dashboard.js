@@ -23,9 +23,12 @@ const els = {
   stErr: $('st-err'),
   log: $('log'),
   run: $('run'),
+  openScraper: $('open-scraper'),
   save: $('save'),
   toast: $('toast'),
 };
+
+let isRunning = false; // mirrors scheduler state; drives the Run/Stop toggle
 
 function fmtTime(iso) {
   if (!iso) return '—';
@@ -60,6 +63,15 @@ function renderStatus(s) {
   els.pill.className = 'pill ' + (s.lastError ? 'error' : s.running ? 'running' : 'idle');
   els.pill.textContent = s.lastError && !s.running ? 'error' : s.running ? 'running…' : 'idle';
   els.stNext.textContent = s.running ? 'running now' : fmtTime(s.nextRunAt);
+
+  // Run ⇄ Stop: while a crawl runs, the primary button stops it instead.
+  isRunning = !!s.running;
+  els.run.textContent = isRunning ? 'Stop crawl ■' : 'Run now';
+  els.run.classList.toggle('primary', !isRunning);
+  els.run.classList.toggle('danger', isRunning);
+
+  // Show ⇄ Hide scraper window, reflecting its real visibility.
+  els.openScraper.textContent = s.scraperVisible ? 'Hide scraper window' : 'Show scraper window';
   if (s.lastResult && typeof s.lastResult.received === 'number') {
     const r = s.lastResult;
     const batches = r.batches != null ? r.batches : '?';
@@ -107,26 +119,41 @@ els.save.addEventListener('click', async () => {
   }
 });
 
-els.run.addEventListener('click', async () => {
-  els.run.disabled = true;
-  els.run.textContent = 'Running…';
-  try {
-    const res = await window.agent.runNow();
-    if (res && res.ok === false) toast('Run failed: ' + res.error);
-  } catch (e) {
-    toast('Run failed: ' + e.message);
-  } finally {
-    els.run.disabled = false;
-    els.run.textContent = 'Run now';
+// Single button: Stop the crawl while running, otherwise start one. We do NOT
+// await runNow() (it resolves only when the whole crawl finishes) — status-updates
+// flip the label to "Stop crawl" and back, keeping the button live throughout.
+els.run.addEventListener('click', () => {
+  if (isRunning) {
+    window.agent.stop().then((r) => {
+      if (r && r.ok === false) toast(r.error || 'Nothing to stop');
+    }).catch((e) => toast('Stop failed: ' + e.message));
+  } else {
+    window.agent.runNow().then((res) => {
+      if (res && res.ok === false) toast('Run failed: ' + res.error);
+    }).catch((e) => toast('Run failed: ' + e.message));
   }
 });
 
-async function showScraper() {
+// Footer button: toggle the scraper window's visibility (it lives only while/after
+// a crawl has opened it). renderStatus keeps the label in sync with reality.
+els.openScraper.addEventListener('click', async () => {
+  try {
+    const res = await window.agent.toggleScraper();
+    if (res && res.exists === false) {
+      toast('The scraper window opens automatically when a crawl runs.');
+    } else if (res) {
+      els.openScraper.textContent = res.visible ? 'Hide scraper window' : 'Show scraper window';
+    }
+  } catch (e) {
+    toast('Could not toggle the scraper window: ' + e.message);
+  }
+});
+
+// Banner link: always SHOW the scraper window (so a pending challenge is reachable).
+$('show-scraper').addEventListener('click', async () => {
   const res = await window.agent.showScraper();
-  if (res && res.open === false) toast('The scraper window opens automatically when a crawl runs.');
-}
-$('open-scraper').addEventListener('click', showScraper);
-$('show-scraper').addEventListener('click', showScraper);
+  if (res && res.exists === false) toast('The scraper window opens automatically when a crawl runs.');
+});
 
 $('toggle-token').addEventListener('click', (e) => {
   const wasHidden = els.ingestToken.type === 'password';
