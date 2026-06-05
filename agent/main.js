@@ -36,6 +36,13 @@ const bus = require('./interference');
 // Pin the app name → stable userData → stable 'persist:cm' profile. (See header.)
 app.setName('concerts-metal-browser-poc');
 
+// Single-instance: a second launch must NOT spin up a rival process against the
+// same userData — that profile-lock collision can leave the new window unmapped.
+// Instead the second launch exits and the already-running instance surfaces.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) app.quit();
+app.on('second-instance', () => showDashboard());
+
 let scrapeWin = null;
 let dashWin = null;
 let scheduler = null;
@@ -43,6 +50,7 @@ let cfg = null;
 let lastError = null;
 let tray = null;
 let isQuitting = false; // true once a real quit is in progress (vs. minimize-to-tray)
+let crawlAborted = false; // set when the user picks "Stop this crawl" at a pause
 
 // Linux system trays (especially under WSLg) are unreliable, so only turn the
 // dashboard's close button into "minimize to tray" where the tray is
@@ -56,19 +64,45 @@ const HIDE_ON_CLOSE = process.platform !== 'linux';
 // only when the user clicks Continue in the dashboard (or after a long timeout).
 let awaitContinue = null; // resolver while paused
 let awaitTimer = null;
+let pauseToken = 0; // bumped per pause so a stale dialog's click is ignored
 
 function requestContinue(reason, timeoutMs = 900000) {
   // If somehow already waiting, release the previous one.
   if (awaitContinue) resolveContinue('superseded');
+  pauseToken += 1;
   return new Promise((resolve) => {
     awaitContinue = resolve;
     sendToDash('agent:awaiting', { waiting: true, reason });
     updateTray();
     if (scrapeWin && !scrapeWin.isDestroyed()) { scrapeWin.show(); scrapeWin.focus(); }
+    showPauseDialog(reason);
     awaitTimer = setTimeout(() => {
-      if (awaitContinue) { awaitContinue = null; sendToDash('agent:awaiting', { waiting: false }); resolve('timeout'); }
+      if (awaitContinue) { awaitContinue = null; sendToDash('agent:awaiting', { waiting: false }); updateTray(); resolve('timeout'); }
     }, timeoutMs);
   });
+}
+
+// A floating, always-reachable prompt shown on every pause so Continue isn't
+// buried behind the scraper window. Parentless → it does not block the scraper
+// window the user must interact with. The dashboard banner remains a secondary
+// path; resolveContinue() is idempotent, so whichever the user clicks wins.
+function showPauseDialog(reason) {
+  const myToken = pauseToken;
+  dialog.showMessageBox({
+    type: 'warning',
+    noLink: true,
+    buttons: ['Continue ▸', 'Stop this crawl'],
+    defaultId: 0,
+    cancelId: 1,
+    title: 'Scraper Agent — action needed',
+    message: 'Crawl paused',
+    detail: reason + '\n\nHandle it in the scraper window (solve the check, sign in, …), '
+      + 'then click Continue. Or stop this crawl.',
+  }).then(({ response }) => {
+    if (myToken !== pauseToken) return; // a newer pause superseded this dialog
+    if (response === 1) { crawlAborted = true; resolveContinue('stop'); }
+    else resolveContinue('manual');
+  }).catch(() => { /* dialog dismissed */ });
 }
 
 function resolveContinue(how) {
@@ -179,11 +213,9 @@ function createTray() {
       { type: 'separator' },
       { label: 'Quit', click: () => requestQuit() },
     ]));
-    // Windows: a tray click toggles the dashboard. Linux: the context menu is primary.
-    tray.on('click', () => {
-      if (dashWin && !dashWin.isDestroyed() && dashWin.isVisible() && !dashWin.isMinimized()) dashWin.hide();
-      else showDashboard();
-    });
+    // Clicking the tray always surfaces the dashboard (reliable across WMs;
+    // a stale isVisible() under WSLg could otherwise hide an off-screen window).
+    tray.on('click', () => showDashboard());
   } catch (e) {
     console.warn('[agent] could not create tray:', e && e.message);
     tray = null;
@@ -222,6 +254,7 @@ function buildStatus() {
 // ── one crawl + push cycle ──────────────────────────────────────────────────
 async function runScrapeAndPush() {
   lastError = null;
+  crawlAborted = false;
   updateTray();
   const win = ensureScrapeWindow();
   bus.emit('progress', `crawl start: ${cfg.countries.join(',')} (≤${cfg.maxPages} pages each)`);
@@ -231,6 +264,8 @@ async function runScrapeAndPush() {
     onProgress: (m) => bus.emit('progress', m),
     // Pause the crawl and wait for the user to act in the scraper window.
     waitForContinue: (reason) => requestContinue(reason),
+    // True once the user picks "Stop this crawl" — bails the whole crawl.
+    shouldAbort: () => crawlAborted,
   });
 
   // Local debug dump.
@@ -256,6 +291,7 @@ async function runScrapeAndPush() {
 
 // ── lifecycle ────────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
+  if (!gotSingleInstanceLock) return; // a prior instance owns this profile
   cfg = config.load();
   if (!cfg.ingestToken) {
     console.warn('[agent] WARNING: ingestToken not set (CM_INGEST_TOKEN or in the dashboard) — pushes will fail.');

@@ -156,8 +156,11 @@ async function getPage(win, url, hooks = {}) {
       : 'redirected — sign in / register in the scraper window, then Continue';
     if (hooks.onProgress) hooks.onProgress('paused — ' + reason);
     const how = await hooks.waitForContinue(reason);
-    if (how === 'timeout') {
-      return { isChallenge: false, count: 0, events: [], error: 'paused — timed out waiting for Continue' };
+    if (how === 'timeout' || how === 'stop') {
+      return {
+        isChallenge: false, count: 0, events: [],
+        error: how === 'stop' ? 'stopped by user' : 'paused — timed out waiting for Continue',
+      };
     }
     // loop: re-load the requested listing now that the user has acted
   }
@@ -167,7 +170,7 @@ async function getPage(win, url, hooks = {}) {
  * Crawl the configured countries/pages and return the combined concerts array.
  * @param {BrowserWindow} win
  * @param {{countries:string[], maxPages:number, pageDelayMs?:number}} cfg
- * @param {{onChallenge?:Function, onProgress?:(m:string)=>void}} hooks
+ * @param {{onChallenge?:Function, onProgress?:(m:string)=>void, shouldAbort?:()=>boolean}} hooks
  */
 async function crawl(win, cfg, hooks = {}) {
   const countries = cfg.countries || ['fr', 'ge', 'de', 'tr'];
@@ -175,11 +178,14 @@ async function crawl(win, cfg, hooks = {}) {
   const baseDelay = cfg.pageDelayMs || 2200;
   const all = [];
   const perCountry = {};
+  const aborted = () => !!(hooks.shouldAbort && hooks.shouldAbort());
 
   for (const cc of countries) {
+    if (aborted()) { if (hooks.onProgress) hooks.onProgress('crawl stopped by user'); break; }
     let page = 1;
     let total = 0;
     while (page <= maxPages) {
+      if (aborted()) break;
       const url = buildPageUrl(cc, page);
       if (hooks.onProgress) hooks.onProgress(`→ ${cc} p${page} …`);
       const res = await getPage(win, url, hooks);
