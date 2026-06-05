@@ -25,7 +25,7 @@ class ConcertDatabaseWriter:
 
     def __init__(self, db_path: Optional[str] = None, user_id: Optional[int] = None,
                  proxy_manager: Optional['ProxyManager'] = None, auto_add_mappings: bool = False,
-                 debug: bool = False) -> None:
+                 debug: bool = False, geocode: bool = True) -> None:
         """Initialize database writer
 
         Args:
@@ -34,13 +34,18 @@ class ConcertDatabaseWriter:
             proxy_manager: Optional ProxyManager for proxy rotation in geocoding APIs
             auto_add_mappings: If True, automatically add common manual city mappings
             debug: If True, enable verbose logging in normalizer
+            geocode: When False, city normalization makes NO external geocoding calls
+                (stores text-normalized mappings only; coords are backfilled later by
+                backfill_city_coords.py). The async per-page ingest path sets this so
+                the write side never touches a rate-limited API. Defaults True.
         """
         self.db_path = db_path
         self.user_id = user_id
         self.debug = debug
+        self.geocode = geocode
         self.proxy_manager = proxy_manager
         self.session = get_session(db_path)
-        self.normalizer = CityNormalizer(self.session, proxy_manager=proxy_manager, verbose=debug)
+        self.normalizer = CityNormalizer(self.session, proxy_manager=proxy_manager, verbose=debug, geocode=geocode)
         
         # Automatically add common manual mappings if enabled
         if auto_add_mappings:
@@ -294,6 +299,14 @@ class ConcertDatabaseWriter:
 
         # Create lookup dict for O(1) access
         existing_links_dict = {link.artistId: link for link in existing_links}
+        # Every artistId already linked to this concert — seeded from the DB, then
+        # extended as we add links in this loop. The set (not just the DB dict) is
+        # what dedupes WITHIN a single call: two performer names can resolve to the
+        # SAME Artist ("GOJIRA"/"Gojira", or a name repeated in the source). Without
+        # tracking the just-added ids, the second occurrence would add a duplicate
+        # ArtistConcert and the unique (artistId, concertId) constraint would abort
+        # the whole concert's transaction on commit — dropping a valid concert.
+        linked_ids = set(existing_links_dict.keys())
 
         # Phase 3: Create links using batch results
         for idx, artist_name, artist in artist_objects:
@@ -310,14 +323,13 @@ class ConcertDatabaseWriter:
                     role = "ADDITIONAL"
                 logger.debug(f"[{idx+1}/{len(matched_artists)}] {role}: {artist_name}")
 
-            # Check if link already exists (O(1) lookup instead of query)
-            existing_link = existing_links_dict.get(artist.id)
-
-            if existing_link:
+            # Skip if this artist is already linked — whether from a prior scan (DB)
+            # or earlier in THIS concert's performer list (intra-call duplicate).
+            if artist.id in linked_ids:
                 self.stats['artist_concert_links_skipped'] += 1
                 if self.debug:
-                    existing_primary_str = "PRIMARY" if existing_link.isPrimary else "ADDITIONAL"
-                    logger.debug(f"Link already exists (was {existing_primary_str})")
+                    where = "in DB" if artist.id in existing_links_dict else "earlier in this concert"
+                    logger.debug(f"Link already exists ({where}) — skipping duplicate")
                 continue
 
             # Create new link
@@ -328,6 +340,7 @@ class ConcertDatabaseWriter:
                 createdAt=int(datetime.now(timezone.utc).timestamp())
             )
             self.session.add(artist_concert)
+            linked_ids.add(artist.id)
             self.stats['artist_concert_links_created'] += 1
 
             if self.debug:
@@ -380,7 +393,8 @@ class ConcertDatabaseWriter:
         original_city = concert_data.get('city', '')
         country_name = concert_data.get('country', '')
         city_mapping = get_or_create_city_mapping(self.session, original_city, country_name,
-                                                   proxy_manager=self.proxy_manager, verbose=self.debug)
+                                                   proxy_manager=self.proxy_manager, verbose=self.debug,
+                                                   geocode=self.geocode)
         
         if city_mapping:
             city_mapping_id = city_mapping.id

@@ -82,7 +82,14 @@ def main() -> int:
     logger.info(f"Ingesting {received} concert(s) into the global tables (user_id=None)...")
 
     # GLOBAL population: user_id=None → writer skips UserConcert / UserArtist.
-    writer = ConcertDatabaseWriter(user_id=None, db_path=args.db_path, debug=args.debug)
+    # geocode=False: the async per-page ingest runs as many short-lived processes,
+    # each of which would reset the geocoder's 1 req/s clock and hammer Nominatim/
+    # Overpass into rate-limit (429) territory. So ingest writes city mappings
+    # OFFLINE (text-normalized, no coordinates) — fast, never rate-limited, never
+    # drops a concert — and backfill_city_coords.py fills coordinates afterward in a
+    # single, properly-paced pass. Set INGEST_GEOCODE=1 to force inline geocoding.
+    geocode_inline = os.getenv('INGEST_GEOCODE', '0') == '1'
+    writer = ConcertDatabaseWriter(user_id=None, db_path=args.db_path, debug=args.debug, geocode=geocode_inline)
     try:
         before = writer.session.query(Concert).count()
         writer.write_concerts(concerts)

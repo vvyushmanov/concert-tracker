@@ -151,6 +151,12 @@ window.agent.onAwaiting((s) => {
     els.pill.className = 'pill running';
     els.pill.textContent = 'waiting for you';
     els.continueBtn.disabled = false;
+  } else {
+    // Pause cleared (Continue / Stop / timeout). No status-update fires until the
+    // crawl finishes, so repaint the pill now from the real status — otherwise it
+    // stays frozen on "waiting for you" while the crawl is actually running again.
+    els.continueBtn.disabled = true;
+    window.agent.getStatus().then(renderStatus).catch(() => {});
   }
 });
 

@@ -82,6 +82,9 @@ export async function POST(request: Request) {
       select: { batchId: true, status: true, received: true },
     });
 
+    const dup = row.status !== 'PENDING' ? ` (duplicate — already ${row.status})` : '';
+    console.log(`[ingest] ⇣ enqueue ${row.batchId}${source ? ` [${source}]` : ''} — ${concerts.length} concert(s) → ${row.status}${dup}`);
+
     // 4. Nudge the worker (non-blocking); it drains PENDING rows at its own pace.
     kickWorker();
 
