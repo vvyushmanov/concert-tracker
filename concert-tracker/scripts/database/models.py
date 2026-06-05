@@ -37,6 +37,9 @@ class Artist(TimestampMixin, Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String, unique=True, nullable=False, index=True)
     mbid = Column(String, nullable=True)  # MusicBrainz ID
+    # Unix ts of the last MBID lookup that found nothing; null = never checked.
+    # Throttles re-querying MusicBrainz for artists it has no entry for.
+    mbidCheckedAt = Column(Integer, nullable=True)
     imageUrl = Column(String, nullable=True)  # Artist image from fanart.tv or Last.fm
 
     # Relationship

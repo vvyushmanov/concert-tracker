@@ -50,6 +50,20 @@ load_dotenv()
 LOCK_PATH = os.path.join(tempfile.gettempdir(), 'concert-tracker-metadata.lock')
 LOCK_STALE_SECONDS = 3 * 60 * 60  # 3h — longer than any realistic full pass
 
+# How long to wait before re-querying MusicBrainz for an artist it previously had
+# no entry for. Without this, every crawl re-runs the FULL no-MBID backlog through
+# MusicBrainz (~1 req/s) — thousands of obscure acts it will never have. They're
+# retried after this window in case MusicBrainz has since added them.
+MBID_RECHECK_SECONDS = 30 * 24 * 60 * 60  # 30 days
+
+
+def needs_mbid_lookup(artist, now: int) -> bool:
+    """True if the artist has no MBID and hasn't been checked within the recheck window."""
+    if artist.mbid:
+        return False
+    checked = artist.mbidCheckedAt
+    return checked is None or checked < now - MBID_RECHECK_SECONDS
+
 
 def acquire_lock() -> Optional[int]:
     """Atomically create the lock file. Returns its fd, or None if a live run holds it."""
@@ -160,23 +174,45 @@ class MetadataProcessor:
         Returns:
             Number of MBIDs repaired
         """
-        artists_missing_mbid = [a for a in all_artists if not a.mbid]
+        now = int(time.time())
+        without_mbid = [a for a in all_artists if not a.mbid]
+        # Skip artists we've already failed to resolve within the recheck window, so
+        # each crawl doesn't re-query the whole no-MBID backlog through MusicBrainz.
+        candidates = [a for a in without_mbid if needs_mbid_lookup(a, now)]
+        skipped = len(without_mbid) - len(candidates)
+        recheck_days = MBID_RECHECK_SECONDS // 86400
 
-        if not artists_missing_mbid:
+        if not candidates:
+            if skipped:
+                logger.info(
+                    f"PHASE 0: MBID Auto-Repair — nothing to query "
+                    f"({skipped} without MBID already checked within {recheck_days}d)\n"
+                )
             return 0
 
         logger.info("=" * 60)
-        logger.info(f"PHASE 0: MBID Auto-Repair ({len(artists_missing_mbid)} artists without MBID)")
+        msg = f"PHASE 0: MBID Auto-Repair ({len(candidates)} to query"
+        if skipped:
+            msg += f", {skipped} skipped — checked within {recheck_days}d"
+        logger.info(msg + ")")
         logger.info("=" * 60 + "\n")
 
-        # Bulk repair using the service (which tries MusicBrainz first)
+        # Bulk repair using the service (which tries MusicBrainz first, Last.fm next)
         mbid_repair_count = 0
         try:
             mbid_repair_count = self.metadata_service.bulk_repair_mbids(
-                self.session, artists_missing_mbid
+                self.session, candidates
             )
+            # Stamp the ones STILL without an MBID so we don't re-query them next
+            # crawl — both sources had nothing. Retried after the recheck window.
+            stamped = 0
+            for a in candidates:
+                if not a.mbid:
+                    a.mbidCheckedAt = now
+                    stamped += 1
             self.session.commit()
-            logger.info(f"\n✓ Auto-repaired {mbid_repair_count}/{len(artists_missing_mbid)} MBIDs\n")
+            tail = f"; marked {stamped} as checked (no MBID found — won't re-query for {recheck_days}d)" if stamped else ""
+            logger.info(f"\n✓ Auto-repaired {mbid_repair_count}/{len(candidates)} MBIDs{tail}\n")
         except Exception as e:
             logger.error(f"Error during MBID repair: {e}")
             self.session.rollback()

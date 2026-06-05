@@ -39,6 +39,11 @@ model Artist {
   id        Int       @id @default(autoincrement())
   name      String    @unique @db.VarChar(255)
   mbid      String?   @db.VarChar(255)
+  // Unix ts of the most recent MBID lookup that found NOTHING (MusicBrainz +
+  // Last.fm). null = never looked up. Lets the metadata pass skip artists it has
+  // already failed to resolve instead of re-querying the whole no-MBID backlog
+  // every crawl; they're retried only after a recheck window (MusicBrainz grows).
+  mbidCheckedAt Int?
   imageUrl  String?   @db.VarChar(500)
   createdAt Int       @default(0)
   updatedAt Int       @default(0)
