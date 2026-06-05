@@ -50,6 +50,11 @@ function createScheduler(cfg) {
   const jitterMinutes = cfg.jitterMinutes || 0;
   const log = cfg.log || (() => {});
   const rand = cfg.randomFn || Math.random;
+  // Fired on every observable state change (run start, run end, next-run armed) so
+  // the UI can refresh. Without notifying on run END, a finished crawl leaves the
+  // dashboard stuck on "running…" until the next event. Guarded so it never throws.
+  const onChange = typeof cfg.onChange === 'function' ? cfg.onChange : () => {};
+  const notify = () => { try { onChange(); } catch { /* UI refresh must never break the scheduler */ } };
 
   let timer = null;
   let running = false;
@@ -64,6 +69,7 @@ function createScheduler(cfg) {
     nextRunTime = new Date(Date.now() + delay);
     log(`next run ~ ${nextRunTime.toISOString()} (in ${Math.round(delay / 60000)}m)`);
     timer = setTimeout(() => { tick().catch(() => {}); }, delay);
+    notify(); // next-run time changed
   }
 
   async function tick() {
@@ -74,6 +80,7 @@ function createScheduler(cfg) {
 
   async function run() {
     running = true;
+    notify(); // crawl started
     try {
       lastResult = await runJob();
       return lastResult;
@@ -82,6 +89,7 @@ function createScheduler(cfg) {
       throw e;
     } finally {
       running = false;
+      notify(); // crawl ended (success or failure) — clears the "running…" state
     }
   }
 

@@ -346,6 +346,10 @@ app.whenReady().then(() => {
     jitterMinutes: cfg.jitterMinutes,
     runJob: runScrapeAndPush,
     log: (m) => bus.emit('progress', m),
+    // Push fresh status on every scheduler state change (run start/end, next-run
+    // armed) so the dashboard never gets stuck on "running…" after a crawl ends —
+    // covers scheduled ticks, runNow, and the tray "Run crawl now" alike.
+    onChange: () => { sendToDash('agent:status-update', buildStatus()); updateTray(); },
   });
 
   // Tray runs in the background (a real desktop install). Skip in headless

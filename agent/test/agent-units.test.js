@@ -44,6 +44,23 @@ function check(cond, msg) {
     'defaults (no opts) still yield a future run'
   );
 
+  console.log('\n— scheduler.onChange (state transitions, fixes stale "running…") —');
+  {
+    const { createScheduler } = require('../scheduler');
+    const states = [];
+    let release;
+    const sched = createScheduler({
+      runJob: () => new Promise((r) => { release = r; }),
+      onChange: () => states.push(sched.isRunning()),
+      log: () => {},
+    });
+    const p = sched.runNow();
+    check(states[0] === true, 'onChange fired running=true at crawl start');
+    release('ok');
+    await p;
+    check(states[states.length - 1] === false, 'onChange fired running=false at crawl end (clears "running…")');
+  }
+
   console.log('\n— scraper.buildPageUrl —');
   check(buildPageUrl('ge', 2) === 'https://en.concerts-metal.com/next_ge_p2.html', 'builds ge p2 URL');
   check(buildPageUrl('fr', 1) === 'https://en.concerts-metal.com/next_fr_p1.html', 'builds fr p1 URL');
