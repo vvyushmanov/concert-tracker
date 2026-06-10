@@ -7,28 +7,20 @@
 
 const $ = (id) => document.getElementById(id);
 
+// The dashboard is now status + activity + run controls only; all configuration
+// lives in the separate Settings window (settings.html / settings.js).
 const els = {
   pill: $('pill'),
   awaiting: $('awaiting'),
   awaitingReason: $('awaiting-reason'),
   continueBtn: $('continue-btn'),
-  ingestUrl: $('ingestUrl'),
-  ingestToken: $('ingestToken'),
-  loginEmail: $('loginEmail'),
-  loginPassword: $('loginPassword'),
-  loginMode: $('loginMode'),
-  loginSuccessMarker: $('loginSuccessMarker'),
-  countries: $('countries'),
-  maxPages: $('maxPages'),
-  runsPerDay: $('runsPerDay'),
-  autoStart: $('autoStartOnLaunch'),
   stNext: $('st-next'),
   stLast: $('st-last'),
   stErr: $('st-err'),
   log: $('log'),
   run: $('run'),
   openScraper: $('open-scraper'),
-  save: $('save'),
+  settings: $('settings'),
   toast: $('toast'),
 };
 
@@ -88,47 +80,9 @@ function renderStatus(s) {
   els.stErr.style.color = s.lastError ? 'var(--err)' : 'var(--muted)';
 }
 
-async function loadConfig() {
-  const c = await window.agent.getConfig();
-  els.ingestUrl.value = c.ingestUrl || '';
-  els.ingestToken.value = c.ingestToken || '';
-  els.loginEmail.value = c.loginEmail || '';
-  els.loginPassword.value = c.loginPassword || '';
-  els.loginMode.value = ['auto', 'fill', 'off'].includes(c.loginMode) ? c.loginMode : 'auto';
-  els.loginSuccessMarker.value = c.loginSuccessMarker || '';
-  els.countries.value = (c.countries || []).join(', ');
-  els.maxPages.value = c.maxPages != null ? c.maxPages : 3;
-  els.runsPerDay.value = String(c.runsPerDay != null ? c.runsPerDay : 2);
-  els.autoStart.checked = !!c.autoStartOnLaunch;
-}
-
-function gatherConfig() {
-  return {
-    ingestUrl: els.ingestUrl.value.trim(),
-    ingestToken: els.ingestToken.value.trim(),
-    loginEmail: els.loginEmail.value.trim(),
-    loginPassword: els.loginPassword.value,
-    loginMode: els.loginMode.value,
-    loginSuccessMarker: els.loginSuccessMarker.value.trim(),
-    countries: els.countries.value.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
-    maxPages: Math.max(1, parseInt(els.maxPages.value, 10) || 3),
-    runsPerDay: parseInt(els.runsPerDay.value, 10) || 0,
-    autoStartOnLaunch: els.autoStart.checked,
-  };
-}
-
 // ── wire up ──────────────────────────────────────────────────────────────
-els.save.addEventListener('click', async () => {
-  els.save.disabled = true;
-  try {
-    await window.agent.saveConfig(gatherConfig());
-    toast('Configuration saved');
-    appendLog({ level: 'ok', msg: 'configuration saved' });
-  } catch (e) {
-    toast('Save failed: ' + e.message);
-  } finally {
-    els.save.disabled = false;
-  }
+els.settings.addEventListener('click', () => {
+  window.agent.openSettings().catch((e) => toast('Could not open Settings: ' + e.message));
 });
 
 // Single button: Stop the crawl while running, otherwise start one. We do NOT
@@ -167,18 +121,6 @@ $('show-scraper').addEventListener('click', async () => {
   if (res && res.exists === false) toast('The scraper window opens automatically when a crawl runs.');
 });
 
-$('toggle-token').addEventListener('click', (e) => {
-  const wasHidden = els.ingestToken.type === 'password';
-  els.ingestToken.type = wasHidden ? 'text' : 'password';
-  e.target.textContent = wasHidden ? 'Hide' : 'Show';
-});
-
-$('toggle-loginPassword').addEventListener('click', (e) => {
-  const wasHidden = els.loginPassword.type === 'password';
-  els.loginPassword.type = wasHidden ? 'text' : 'password';
-  e.target.textContent = wasHidden ? 'Hide' : 'Show';
-});
-
 els.continueBtn.addEventListener('click', async () => {
   els.continueBtn.disabled = true;
   try { await window.agent.continue(); }
@@ -206,5 +148,4 @@ window.agent.onAwaiting((s) => {
 });
 
 // initial paint
-loadConfig().catch((e) => toast('Could not load config: ' + e.message));
 window.agent.getStatus().then(renderStatus).catch(() => {});

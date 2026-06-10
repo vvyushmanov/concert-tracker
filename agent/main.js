@@ -49,6 +49,7 @@ app.on('second-instance', () => showDashboard());
 
 let scrapeWin = null;
 let dashWin = null;
+let settingsWin = null;
 let scheduler = null;
 let cfg = null;
 let lastError = null;
@@ -319,6 +320,37 @@ function createDashboardWindow() {
   return dashWin;
 }
 
+// The tabbed Settings window (Connection / Sign-in / Crawl). Its own window so the
+// dashboard stays lean (status + activity + run controls). Reuses the dashboard
+// preload (window.agent) for config:get/save; the Countries widget resolves
+// names↔codes in-page via countries.js. Created lazily, singleton, focuses if open.
+function showSettings() {
+  if (settingsWin && !settingsWin.isDestroyed()) {
+    if (settingsWin.isMinimized()) settingsWin.restore();
+    settingsWin.show(); settingsWin.focus();
+    return settingsWin;
+  }
+  settingsWin = new BrowserWindow({
+    width: 620,
+    height: 660,
+    show: true,
+    parent: dashWin && !dashWin.isDestroyed() ? dashWin : undefined,
+    title: 'Scraper Agent — Settings',
+    backgroundColor: '#0a0c0f',
+    icon: path.join(__dirname, 'assets', 'tray.png'),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  settingsWin.setMenuBarVisibility(false);
+  settingsWin.loadFile(path.join(__dirname, 'settings.html'));
+  settingsWin.on('closed', () => { settingsWin = null; });
+  return settingsWin;
+}
+
 function sendToDash(channel, payload) {
   if (dashWin && !dashWin.isDestroyed()) dashWin.webContents.send(channel, payload);
 }
@@ -350,6 +382,7 @@ function createTray() {
     tray.setToolTip('Scraper Agent — idle');
     tray.setContextMenu(Menu.buildFromTemplate([
       { label: 'Open dashboard', click: () => showDashboard() },
+      { label: 'Settings…', click: () => showSettings() },
       { label: 'Show scraper window', click: () => { if (scrapeWin && !scrapeWin.isDestroyed()) { scrapeWin.show(); scrapeWin.focus(); } } },
       { type: 'separator' },
       { label: 'Run crawl now', click: () => { if (scheduler) scheduler.runNow().catch((e) => bus.emit('error', e)); } },
@@ -402,6 +435,14 @@ async function runScrapeAndPush() {
   lastError = null;
   crawlAborted = false;
   updateTray();
+  // Nothing ticked in Settings → nothing to crawl. Bail with a clear message
+  // instead of opening the scraper window for an empty loop.
+  if (!cfg.countries || cfg.countries.length === 0) {
+    bus.emit('progress', 'no active countries — tick at least one in Settings → Crawl');
+    const empty = { received: 0, scraped: 0, batches: 0, pushErrors: 0 };
+    bus.emit('done', empty);
+    return empty;
+  }
   const win = ensureScrapeWindow();
   bus.emit('progress', `crawl start: ${cfg.countries.join(',')} (≤${cfg.maxPages} pages each)`);
 
@@ -513,6 +554,7 @@ app.whenReady().then(() => {
     sendToDash('agent:status-update', buildStatus());
     return merged;
   });
+  ipcMain.handle('settings:open', () => { showSettings(); return { ok: true }; });
   ipcMain.handle('agent:status', () => buildStatus());
   ipcMain.handle('agent:runNow', async () => {
     sendToDash('agent:status-update', { ...buildStatus(), running: true });

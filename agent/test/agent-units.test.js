@@ -16,6 +16,7 @@ const {
   isLoginUrl, isLimitUrl, loginUrlFor, isLoggedInProfileUrl,
   buildLoginPageProbeScript, buildLoginAutofillScript,
 } = require('../loginAutofill');
+const { resolveCountry, countryName, allCountries, normalizeCountryState } = require('../countries');
 
 let passed = 0;
 let failed = 0;
@@ -163,6 +164,57 @@ function check(cond, msg) {
     vm.runInNewContext(buildLoginAutofillScript('', '', true)) === 'no-creds',
     'returns "no-creds" with submit=true and empty creds'
   );
+
+  console.log('\n— countries.resolveCountry (code OR name → canonical {code,name}) —');
+  const rc = (input, code) => {
+    const r = resolveCountry(input);
+    check(r && r.code === code, `resolve(${JSON.stringify(input)}) → ${code} (got ${r ? r.code : 'null'})`);
+  };
+  rc('fr', 'fr');                 // a plain ISO code
+  rc('FR', 'fr');                 // case-insensitive code
+  rc('  ge  ', 'ge');             // trimmed code (Georgia, not Germany)
+  rc('Germany', 'de');            // exact name
+  rc('germany', 'de');            // case-insensitive name
+  rc('Türkiye', 'tr');            // diacritic name
+  rc('Turkey', 'tr');             // alias for the diacritic name
+  rc('USA', 'us');                // alias
+  rc('United Kingdom', 'gb');     // multi-word name → canonical gb (not the CLDR alias uk)
+  rc('uk', 'gb');                 // the alias 'uk' canonicalises to gb
+  rc('Switzer', 'ch');            // unambiguous prefix
+  check(resolveCountry('zz') === null, 'resolve("zz") → null (junk 2-letter, no spurious substring match)');
+  check(resolveCountry('notacountry') === null, 'resolve("notacountry") → null');
+  check(resolveCountry('') === null, 'resolve("") → null');
+  check(resolveCountry('dd') === null, 'resolve("dd") → null (deprecated East-Germany code is denied)');
+
+  console.log('\n— countries.countryName / allCountries —');
+  check(countryName('de') === 'Germany', 'countryName("de") → Germany');
+  check(countryName('zz') === 'ZZ', 'countryName(unknown) → upper-cased code');
+  const all = allCountries();
+  check(all.length > 200, `allCountries() returns the full set (${all.length})`);
+  check(all.every((c, i) => i === 0 || all[i - 1].name.localeCompare(c.name) <= 0), 'allCountries() is sorted by name');
+  check(!all.some((c) => ['dd', 'uk', 'su', 'zz', 'eu'].includes(c.code)), 'allCountries() excludes deprecated/special codes');
+
+  console.log('\n— countries.normalizeCountryState (active codes ⊆ roster) —');
+  {
+    // Legacy config: only `countries`, no roster → roster derived, all active.
+    const a = normalizeCountryState(['fr', 'ge', 'de', 'tr'], undefined);
+    check(JSON.stringify(a.countries) === JSON.stringify(['fr', 'ge', 'de', 'tr']), 'legacy: active codes preserved in order');
+    check(a.countryRoster.length === 4 && a.countryRoster.every((e) => e.code && e.name), 'legacy: roster derived from active codes with names filled');
+
+    // De-selected entry: in the roster but NOT active → kept, not crawled.
+    const b = normalizeCountryState(['fr'], [{ code: 'fr', name: 'France' }, { code: 'de', name: 'Germany' }]);
+    check(JSON.stringify(b.countries) === JSON.stringify(['fr']), 'de-selected: only the active code is in countries');
+    check(b.countryRoster.length === 2, 'de-selected: roster still holds the skipped country');
+
+    // An active code missing from the roster is force-added (invariant repair).
+    const c = normalizeCountryState(['fr', 'ge'], [{ code: 'fr', name: 'France' }]);
+    check(c.countryRoster.some((e) => e.code === 'ge'), 'active code absent from roster is added to it');
+
+    // Dedupe + lower-case both fields.
+    const d = normalizeCountryState(['FR', 'fr'], [{ code: 'FR', name: 'France' }, { code: 'fr' }]);
+    check(d.countries.length === 1 && d.countries[0] === 'fr', 'duplicate/upper-case active codes collapse to one lower-case');
+    check(d.countryRoster.length === 1, 'duplicate roster codes collapse to one');
+  }
 
   console.log(`\nTotal: ${passed + failed}, Passed: ${passed}, Failed: ${failed}`);
   process.exit(failed === 0 ? 0 : 1);

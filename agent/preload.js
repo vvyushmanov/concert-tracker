@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('agent', {
   getConfig: () => ipcRenderer.invoke('config:get'),
   saveConfig: (partial) => ipcRenderer.invoke('config:save', partial),
   getStatus: () => ipcRenderer.invoke('agent:status'),
+  openSettings: () => ipcRenderer.invoke('settings:open'),
   runNow: () => ipcRenderer.invoke('agent:runNow'),
   stop: () => ipcRenderer.invoke('agent:stop'),
   showScraper: () => ipcRenderer.invoke('agent:showScraper'),

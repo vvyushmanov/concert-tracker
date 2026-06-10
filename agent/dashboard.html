@@ -92,21 +92,6 @@
       50%      { box-shadow: 0 0 0 4px rgba(245,158,11,.13); }
     }
 
-    /* ── config form ── */
-    .grid { display: grid; grid-template-columns: 150px 1fr; gap: 13px 14px; align-items: center; }
-    label { color: var(--muted); font-size: 13px; }
-    input[type=text], input[type=password], input[type=number], select {
-      width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line);
-      border-radius: 8px; padding: 9px 11px; font: inherit; outline: none;
-      transition: border-color .15s, box-shadow .15s;
-    }
-    input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(34,197,94,.16); }
-    select { appearance: none; cursor: pointer; }
-    .row { display: flex; gap: 8px; align-items: center; }
-    .hint { color: var(--muted); font-size: 11.5px; margin-top: 4px; }
-    .checkbox { display: flex; align-items: center; gap: 9px; }
-    .checkbox input { accent-color: var(--accent); width: 16px; height: 16px; }
-
     /* ── status tiles ── */
     .status-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
     .stat {
@@ -157,7 +142,6 @@
     }
     button.danger:hover { background: linear-gradient(180deg, #4a1a1a, #361414); border-color: #f87171; }
     button:disabled { opacity: .5; cursor: not-allowed; transform: none; }
-    #toggle-token { padding: 9px 12px; font-weight: 600; }
     .spacer { flex: 1; }
     .link { color: var(--blue); cursor: pointer; text-decoration: underline; }
 
@@ -187,75 +171,6 @@
     </div>
 
     <section class="card">
-      <h2>Configuration</h2>
-      <div class="body">
-        <div class="grid">
-          <label for="ingestUrl">Backend URL</label>
-          <div>
-            <input type="text" id="ingestUrl" placeholder="http://localhost:3000/api/ingest" />
-            <div class="hint">Where scraped concerts are POSTed.</div>
-          </div>
-
-          <label for="ingestToken">Ingest token</label>
-          <div class="row">
-            <input type="password" id="ingestToken" placeholder="bearer token (matches backend INGEST_TOKEN)" />
-            <button type="button" id="toggle-token">Show</button>
-          </div>
-
-          <label for="loginEmail">Sign-in email</label>
-          <div>
-            <input type="text" id="loginEmail" placeholder="concerts-metal.com account email" autocomplete="off" />
-            <div class="hint">Auto-filled when the scraper lands on the sign-in page.</div>
-          </div>
-
-          <label for="loginPassword">Sign-in password</label>
-          <div class="row">
-            <input type="password" id="loginPassword" placeholder="concerts-metal.com password" autocomplete="off" />
-            <button type="button" id="toggle-loginPassword">Show</button>
-          </div>
-
-          <label for="loginMode">Sign-in</label>
-          <div>
-            <select id="loginMode">
-              <option value="auto">Auto — open login from the limit page, fill &amp; click Sign in</option>
-              <option value="fill">Fill only — fill the form, I click Sign in</option>
-              <option value="off">Off — don't touch the sign-in form</option>
-            </select>
-            <div class="hint">Runs when the crawl hits the limit / sign-in page.</div>
-          </div>
-
-          <label for="loginSuccessMarker">Profile marker</label>
-          <div>
-            <input type="text" id="loginSuccessMarker" placeholder="u25849__Headbanger" />
-            <div class="hint">Landing on a URL containing this = signed in → resume the crawl. Your user ID (e.g. <code>u25849</code>) is enough; blank auto-detects any <code>/u…__</code> profile.</div>
-          </div>
-
-          <label for="countries">Countries</label>
-          <div>
-            <input type="text" id="countries" placeholder="fr, ge, de, tr" />
-            <div class="hint">Comma-separated ISO codes (concerts-metal country pages).</div>
-          </div>
-
-          <label for="maxPages">Pages / country</label>
-          <input type="number" id="maxPages" min="1" max="50" />
-
-          <label for="runsPerDay">Scheduled crawls</label>
-          <select id="runsPerDay">
-            <option value="0">Off (manual only)</option>
-            <option value="1">Once daily</option>
-            <option value="2">Twice daily</option>
-          </select>
-
-          <label>On launch</label>
-          <div class="checkbox">
-            <input type="checkbox" id="autoStartOnLaunch" />
-            <label for="autoStartOnLaunch" style="color:var(--text)">Run a crawl shortly after the app starts</label>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="card">
       <h2>Status</h2>
       <div class="body">
         <div class="status-grid">
@@ -278,7 +193,7 @@
     <button id="run" class="primary">Run now</button>
     <button id="open-scraper">Show scraper window</button>
     <div class="spacer"></div>
-    <button id="save" class="primary">Save configuration</button>
+    <button id="settings">&#9881;&nbsp; Settings</button>
   </footer>
 
   <div id="toast"></div>

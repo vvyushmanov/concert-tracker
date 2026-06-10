@@ -19,6 +19,8 @@ Grew out of the PoC ([git history of `main.js`]); now split into modules.
 | `scheduler.js`    | `nextRunAt()` cadence math + daily-with-jitter loop, no-overlap guard |
 | `interference.js` | shared event bus (`challenge`/`progress`/`pushed`/`done`/`error`) |
 | `loginAutofill.js`| pure helpers for the sign-in flow: detect limit/login/profile URLs + build the page-probe and the fill/submit scripts |
+| `countries.js`    | pure country code↔name helpers (ICU-backed), shared by `config.js` and the Settings renderer: `resolveCountry`, `allCountries`, `normalizeCountryState` |
+| `dashboard.*` / `settings.*` | the control window (status + activity + run) and the separate tabbed Settings window (Connection / Sign-in / Crawl) |
 
 ## ⚠️ The persistent profile IS the antibot bypass
 
@@ -63,8 +65,20 @@ npm start
 | `CM_LOGIN_SUCCESS_MARKER` | URL substring that means "signed in" (your member id/slug, e.g. `u25849`) | — (auto-detect) |
 
 Anything not set by env falls back to `agent-config.json` in `userData`, then built-in defaults.
-The sign-in email/password, mode, and profile marker are also editable in the dashboard and saved to
-`agent-config.json` — never to the repo (the password lives only in `userData`).
+All of this is editable in the **Settings** window (⚙ in the dashboard footer), split into three
+tabs — **Connection** (backend URL + ingest token), **Sign-in** (email / password / mode / profile
+marker), **Crawl** (countries, pages, schedule, launch). Saved to `agent-config.json` — never to the
+repo (the password lives only in `userData`).
+
+#### Countries (Settings → Crawl)
+
+Add a country by **name or ISO code** — type `Turkey` or `tr`, `Germany` or `de` — resolved via the
+platform's own Intl/ICU data (so `countries.js` keeps no hand-maintained list). Each country sits in a
+**roster** with a tick box: ticked → crawled; unticked → kept in the list but **skipped** this run; `✕`
+removes it. Two persisted fields back this (reconciled by `config.load` → `normalizeCountryState`):
+`countries` is the active code list the scraper consumes (`next_<cc>_…`), and `countryRoster` is the
+full `[{code,name}]` list including de-selected entries. `CM_COUNTRIES=fr,ge,…` still seeds the active
+set on a fresh profile.
 
 ### Sign-in automation
 

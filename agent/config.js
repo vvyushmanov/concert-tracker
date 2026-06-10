@@ -11,11 +11,20 @@
 const { app } = require('electron');
 const fs = require('fs');
 const path = require('path');
+const { normalizeCountryState } = require('./countries');
 
 const DEFAULTS = {
   ingestUrl: 'http://localhost:3000/api/ingest',
   ingestToken: '',          // REQUIRED to push; set via env CM_INGEST_TOKEN or agent-config.json
+  // `countries` is the ACTIVE crawl set (codes the scraper consumes).
+  // `countryRoster` is the full [{code,name}] list shown in Settings, including
+  // de-selected entries (a code in the roster but NOT in `countries` is kept but
+  // skipped). load() reconciles the two via normalizeCountryState. The default
+  // roster is left EMPTY on purpose: a fresh OR legacy config (which has only
+  // `countries`) then derives its roster straight from `countries` — so we don't
+  // bleed these default codes into a user who'd deliberately narrowed the list.
   countries: ['fr', 'ge', 'de', 'tr'],
+  countryRoster: [],
   maxPages: 3,
   runsPerDay: 2,            // 1 = once daily, 2 = twice daily
   anchorHour: 9,            // first daily slot (local hour)
@@ -69,7 +78,7 @@ function envOverrides() {
 // Keys the dashboard may persist. Anything else in an IPC payload is ignored,
 // so a buggy/hostile renderer can't write arbitrary keys into the config file.
 const PERSISTABLE_KEYS = [
-  'ingestUrl', 'ingestToken', 'countries', 'maxPages',
+  'ingestUrl', 'ingestToken', 'countries', 'countryRoster', 'maxPages',
   'runsPerDay', 'anchorHour', 'jitterMinutes', 'pageDelayMs', 'autoStartOnLaunch',
   'loginEmail', 'loginPassword', 'loginMode', 'loginSuccessMarker',
 ];
@@ -88,6 +97,12 @@ function load() {
   if (!LOGIN_MODES.includes(mode)) mode = DEFAULTS.loginMode;
   const cfg = { ...DEFAULTS, ...env, ...file, loginMode: mode };
   delete cfg.autofillLogin;
+  // Reconcile the active-codes list with the full roster into a coherent pair
+  // (dedupes, fills missing names, guarantees every active code is in the roster).
+  // Handles legacy configs (countries only) and env CM_COUNTRIES seeds alike.
+  const norm = normalizeCountryState(cfg.countries, cfg.countryRoster);
+  cfg.countries = norm.countries;
+  cfg.countryRoster = norm.countryRoster;
   return cfg;
 }
 
