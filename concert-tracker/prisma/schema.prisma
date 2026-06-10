@@ -45,6 +45,11 @@ model Artist {
   // every crawl; they're retried only after a recheck window (MusicBrainz grows).
   mbidCheckedAt Int?
   imageUrl  String?   @db.VarChar(500)
+  // Unix ts of the most recent fanart.tv image lookup that found NOTHING. Mirror
+  // of mbidCheckedAt for images: lets the metadata pass skip the huge "has MBID
+  // but no image" backlog instead of re-querying fanart.tv for the same imageless
+  // acts every crawl; they're retried only after a recheck window.
+  imageCheckedAt Int?
   createdAt Int       @default(0)
   updatedAt Int       @default(0)
   
@@ -93,6 +98,11 @@ model CityMapping {
   cityNormalized   CityNormalized   @relation(fields: [cityNormalizedId], references: [id])
   latitude         Float?
   longitude        Float?
+  // Unix ts of the most recent geocode attempt that found NOTHING (a clean
+  // Nominatim "no match" — NOT a rate-limit miss, which stays retryable). Mirror
+  // of mbidCheckedAt/imageCheckedAt: stops the backfill from re-geocoding cities
+  // Nominatim can't resolve on every pass; retried only after a recheck window.
+  coordsCheckedAt  Int?
   source           String           @db.VarChar(50) // 'manual' | 'geocoded' | 'text_normalized'
   createdAt        Int
   updatedAt        Int

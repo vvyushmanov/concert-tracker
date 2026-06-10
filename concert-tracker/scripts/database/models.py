@@ -41,6 +41,10 @@ class Artist(TimestampMixin, Base):
     # Throttles re-querying MusicBrainz for artists it has no entry for.
     mbidCheckedAt = Column(Integer, nullable=True)
     imageUrl = Column(String, nullable=True)  # Artist image from fanart.tv or Last.fm
+    # Unix ts of the last fanart.tv image lookup that found nothing; null = never
+    # checked. Throttles re-querying fanart.tv for artists it has no image for
+    # (mirror of mbidCheckedAt for the image backlog).
+    imageCheckedAt = Column(Integer, nullable=True)
 
     # Relationship
     concerts = relationship('ArtistConcert', back_populates='artist', cascade='all, delete-orphan')
@@ -98,6 +102,10 @@ class CityMapping(TimestampMixin, Base):
     cityNormalizedId = Column(Integer, ForeignKey('CityNormalized.id'), nullable=False, index=True)  # FK to CityNormalized
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
+    # Unix ts of the last geocode attempt that found nothing (clean Nominatim "no
+    # match" only — never a rate-limit miss, which stays retryable). Throttles
+    # re-geocoding cities Nominatim can't resolve (mirror of mbid/imageCheckedAt).
+    coordsCheckedAt = Column(Integer, nullable=True)
     source = Column(String, nullable=False)  # 'manual', 'geocoded', 'text_normalized'
 
     # Relationships

@@ -56,6 +56,12 @@ LOCK_STALE_SECONDS = 3 * 60 * 60  # 3h — longer than any realistic full pass
 # retried after this window in case MusicBrainz has since added them.
 MBID_RECHECK_SECONDS = 30 * 24 * 60 * 60  # 30 days
 
+# Mirror of MBID_RECHECK_SECONDS for fanart.tv images. Without this, every metadata
+# pass re-queries the FULL "has MBID but no image" backlog against fanart.tv —
+# thousands of obscure acts it has no image for, re-checked forever. Stamped on a
+# fruitless lookup and retried only after this window (in case fanart.tv added one).
+IMAGE_RECHECK_SECONDS = 30 * 24 * 60 * 60  # 30 days
+
 
 def needs_mbid_lookup(artist, now: int) -> bool:
     """True if the artist has no MBID and hasn't been checked within the recheck window."""
@@ -63,6 +69,15 @@ def needs_mbid_lookup(artist, now: int) -> bool:
         return False
     checked = artist.mbidCheckedAt
     return checked is None or checked < now - MBID_RECHECK_SECONDS
+
+
+def needs_image_lookup(artist, now: int) -> bool:
+    """True if the artist has an MBID, no image yet, and hasn't had a fruitless
+    fanart.tv check within the recheck window."""
+    if artist.imageUrl or not artist.mbid:
+        return False
+    checked = artist.imageCheckedAt
+    return checked is None or checked < now - IMAGE_RECHECK_SECONDS
 
 
 def acquire_lock() -> Optional[int]:
@@ -243,10 +258,19 @@ class MetadataProcessor:
         Returns:
             Tuple of (artists_without_mbid, artists_with_mbid)
         """
+        now = int(time.time())
+        recheck_days = IMAGE_RECHECK_SECONDS // 86400
+        # Artists with an MBID but no image that we checked recently and found
+        # nothing for — skipped this run (parity with the Phase 0 MBID throttle).
+        throttled_images = (
+            0 if force
+            else sum(1 for a in all_artists if a.mbid and not a.imageUrl and not needs_image_lookup(a, now))
+        )
+
         if refresh_playcounts and not force:
             logger.info(f"Refresh playcounts mode: Will update playcounts for all {len(all_artists)} artists")
             artists_without_mbid = [a for a in all_artists if not a.mbid]
-            artists_with_mbid = [a for a in all_artists if a.mbid and not a.imageUrl]
+            artists_with_mbid = [a for a in all_artists if needs_image_lookup(a, now)]
             if artists_with_mbid:
                 logger.info(f"  Also found {len(artists_with_mbid)} artists with MBID but missing images")
         else:
@@ -254,7 +278,7 @@ class MetadataProcessor:
                 logger.info("Force mode: Will re-fetch metadata for all artists")
 
             artists_without_mbid = [a for a in all_artists if not a.mbid]
-            artists_with_mbid = [a for a in all_artists if a.mbid and (force or not a.imageUrl)]
+            artists_with_mbid = [a for a in all_artists if a.mbid and (force or needs_image_lookup(a, now))]
 
             if limit:
                 total_artists = artists_without_mbid + artists_with_mbid
@@ -262,6 +286,12 @@ class MetadataProcessor:
                 remaining = limit - len(artists_without_mbid)
                 artists_with_mbid = [a for a in total_artists if a.mbid][:remaining] if remaining > 0 else []
                 logger.info(f"Limiting to {limit} artists total")
+
+        if throttled_images:
+            logger.info(
+                f"  Skipping {throttled_images} artists with MBID but no image — "
+                f"fanart.tv had nothing within the last {recheck_days}d (will retry after)"
+            )
 
         self.artists_without_mbid = artists_without_mbid
         self.artists_with_mbid = artists_with_mbid
@@ -322,6 +352,9 @@ class MetadataProcessor:
                     self.stats['images_found'] += 1
                 else:
                     logger.info(f"  ✗ No image found on fanart.tv")
+                    # Stamp so we don't re-query fanart.tv for this imageless artist
+                    # every crawl; retried only after IMAGE_RECHECK_SECONDS.
+                    artist.imageCheckedAt = int(time.time())
                     self.stats['images_not_found'] += 1
 
                 # Rate limit fanart.tv API calls
@@ -375,6 +408,9 @@ class MetadataProcessor:
                 self.stats['images_found'] += 1
             else:
                 logger.info(f"  ✗ No image found")
+                # Stamp so we don't re-query fanart.tv for this imageless artist
+                # every crawl; retried only after IMAGE_RECHECK_SECONDS.
+                artist.imageCheckedAt = int(time.time())
                 self.stats['images_not_found'] += 1
 
             self.stats['processed'] += 1

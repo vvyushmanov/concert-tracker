@@ -37,6 +37,7 @@ from typing import Optional
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from dotenv import load_dotenv
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import sessionmaker
 
 from database.config import get_engine
@@ -50,6 +51,22 @@ load_dotenv()
 LOCK_PATH = os.path.join(tempfile.gettempdir(), 'concert-tracker-coord-backfill.lock')
 LOCK_STALE_SECONDS = 1800  # a lock older than this is presumed orphaned (crash) and reclaimed
 EXIT_MORE_REMAIN = 10  # exit code telling the caller "I hit --limit; run me again to drain the rest"
+
+# How long to wait before re-geocoding a city Nominatim returned NO match for.
+# Without this, every backfill pass re-queries the same unresolvable cities forever
+# (mirror of fetch_metadata's MBID/image recheck throttles). Only CLEAN "no match"
+# misses are stamped — rate-limited misses stay immediately retryable.
+COORDS_RECHECK_SECONDS = 30 * 24 * 60 * 60  # 30 days
+
+
+def pending_coords_filter(now: int):
+    """SQLAlchemy filter for city mappings still worth geocoding: missing latitude
+    and not already checked-with-no-result within the recheck window."""
+    cutoff = now - COORDS_RECHECK_SECONDS
+    return and_(
+        CityMapping.latitude.is_(None),
+        or_(CityMapping.coordsCheckedAt.is_(None), CityMapping.coordsCheckedAt < cutoff),
+    )
 
 
 def acquire_lock() -> Optional[int]:
@@ -109,10 +126,12 @@ def main() -> int:
         Session = sessionmaker(bind=engine)
         session = Session()
 
-        # Only rows missing coordinates. Oldest first → fair, deterministic progress.
+        # Rows missing coordinates that we haven't already failed to resolve within
+        # the recheck window. Oldest first → fair, deterministic progress.
+        now = int(time.time())
         pending = (
             session.query(CityMapping)
-            .filter(CityMapping.latitude.is_(None))
+            .filter(pending_coords_filter(now))
             .order_by(CityMapping.id.asc())
             .limit(args.limit)
             .all()
@@ -142,6 +161,14 @@ def main() -> int:
                     f"Mapping id={mapping.id} ('{mapping.originalCity}') has no normalized city/country — skipping"
                 )
                 missed += 1
+                # Structurally un-geocodable (no city/country to query). Stamp so we
+                # don't re-examine it every pass; the recheck window still lets it
+                # retry later in case the normalized relation gets repaired.
+                mapping.coordsCheckedAt = int(time.time())
+                try:
+                    session.commit()
+                except Exception:
+                    session.rollback()
                 continue
 
             metadata = normalizer._geocode_city(normalized_city, country_name)
@@ -167,6 +194,7 @@ def main() -> int:
                 # resumes on the next pass once the limit clears. (Clean "no match"
                 # misses don't set this flag, so they never trip the breaker.)
                 if normalizer._last_was_rate_limited:
+                    # Transient — do NOT stamp; this city stays immediately retryable.
                     rl_strikes += 1
                     if rl_strikes >= 3:
                         logger.warning(
@@ -177,6 +205,13 @@ def main() -> int:
                         break
                 else:
                     rl_strikes = 0
+                    # Clean "no match" — stamp so we don't re-geocode this city every
+                    # pass; retried only after COORDS_RECHECK_SECONDS.
+                    mapping.coordsCheckedAt = int(time.time())
+                    try:
+                        session.commit()
+                    except Exception:
+                        session.rollback()
 
         logger.info(
             f"Backfill done: {filled} filled, {missed} still missing (retried next pass), "
@@ -188,7 +223,7 @@ def main() -> int:
         # another pass so the whole backlog drains over bounded, resumable chunks.
         # Exit 0 on a rate-limit block — don't hot-loop; the next scheduled pass picks up.
         if not circuit_broke and examined >= args.limit:
-            remaining = session.query(CityMapping).filter(CityMapping.latitude.is_(None)).count()
+            remaining = session.query(CityMapping).filter(pending_coords_filter(now)).count()
             if remaining > 0:
                 logger.info(f"{remaining} city mapping(s) still need coordinates — requesting another pass.")
                 return EXIT_MORE_REMAIN
