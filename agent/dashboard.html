@@ -202,6 +202,24 @@
             <button type="button" id="toggle-token">Show</button>
           </div>
 
+          <label for="loginEmail">Sign-in email</label>
+          <div>
+            <input type="text" id="loginEmail" placeholder="concerts-metal.com account email" autocomplete="off" />
+            <div class="hint">Auto-filled when the scraper lands on the sign-in page.</div>
+          </div>
+
+          <label for="loginPassword">Sign-in password</label>
+          <div class="row">
+            <input type="password" id="loginPassword" placeholder="concerts-metal.com password" autocomplete="off" />
+            <button type="button" id="toggle-loginPassword">Show</button>
+          </div>
+
+          <label>Auto-fill</label>
+          <div class="checkbox">
+            <input type="checkbox" id="autofillLogin" />
+            <label for="autofillLogin" style="color:var(--text)">Fill the sign-in form automatically on login.html</label>
+          </div>
+
           <label for="countries">Countries</label>
           <div>
             <input type="text" id="countries" placeholder="fr, ge, de, tr" />

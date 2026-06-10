@@ -14,6 +14,9 @@ const els = {
   continueBtn: $('continue-btn'),
   ingestUrl: $('ingestUrl'),
   ingestToken: $('ingestToken'),
+  loginEmail: $('loginEmail'),
+  loginPassword: $('loginPassword'),
+  autofillLogin: $('autofillLogin'),
   countries: $('countries'),
   maxPages: $('maxPages'),
   runsPerDay: $('runsPerDay'),
@@ -88,6 +91,9 @@ async function loadConfig() {
   const c = await window.agent.getConfig();
   els.ingestUrl.value = c.ingestUrl || '';
   els.ingestToken.value = c.ingestToken || '';
+  els.loginEmail.value = c.loginEmail || '';
+  els.loginPassword.value = c.loginPassword || '';
+  els.autofillLogin.checked = c.autofillLogin !== false;
   els.countries.value = (c.countries || []).join(', ');
   els.maxPages.value = c.maxPages != null ? c.maxPages : 3;
   els.runsPerDay.value = String(c.runsPerDay != null ? c.runsPerDay : 2);
@@ -98,6 +104,9 @@ function gatherConfig() {
   return {
     ingestUrl: els.ingestUrl.value.trim(),
     ingestToken: els.ingestToken.value.trim(),
+    loginEmail: els.loginEmail.value.trim(),
+    loginPassword: els.loginPassword.value,
+    autofillLogin: els.autofillLogin.checked,
     countries: els.countries.value.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
     maxPages: Math.max(1, parseInt(els.maxPages.value, 10) || 3),
     runsPerDay: parseInt(els.runsPerDay.value, 10) || 0,
@@ -158,6 +167,12 @@ $('show-scraper').addEventListener('click', async () => {
 $('toggle-token').addEventListener('click', (e) => {
   const wasHidden = els.ingestToken.type === 'password';
   els.ingestToken.type = wasHidden ? 'text' : 'password';
+  e.target.textContent = wasHidden ? 'Hide' : 'Show';
+});
+
+$('toggle-loginPassword').addEventListener('click', (e) => {
+  const wasHidden = els.loginPassword.type === 'password';
+  els.loginPassword.type = wasHidden ? 'text' : 'password';
   e.target.textContent = wasHidden ? 'Hide' : 'Show';
 });
 

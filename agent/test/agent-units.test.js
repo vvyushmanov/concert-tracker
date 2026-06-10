@@ -8,9 +8,11 @@
  * path against the live route is covered separately (ingest-client-live).
  */
 const assert = require('assert');
+const vm = require('vm');
 const { nextRunAt } = require('../scheduler');
 const { buildPageUrl } = require('../scraper');
 const { pushBatch, postConcerts } = require('../ingestClient');
+const { isLoginUrl, buildLoginAutofillScript } = require('../loginAutofill');
 
 let passed = 0;
 let failed = 0;
@@ -78,6 +80,33 @@ function check(cond, msg) {
   await throwsWith(() => pushBatch([], {}), 'ingestUrl not configured', 'missing url throws');
   await throwsWith(() => pushBatch([], { url: 'http://x' }), 'ingestToken not configured', 'missing token throws');
   await throwsWith(() => pushBatch('nope', { url: 'http://x', token: 't' }), 'must be an array', 'non-array payload throws');
+
+  console.log('\n— loginAutofill.isLoginUrl —');
+  check(isLoginUrl('https://en.concerts-metal.com/login.html'), 'matches the en sign-in page');
+  check(isLoginUrl('https://www.concerts-metal.com/login.html'), 'matches any host');
+  check(!isLoginUrl('https://en.concerts-metal.com/next_fr_p1.html'), 'rejects a listing page');
+  check(!isLoginUrl('https://en.concerts-metal.com/login.html.foo'), 'rejects a non-login path that contains login.html');
+  check(!isLoginUrl('not a url'), 'rejects a non-URL string');
+
+  console.log('\n— loginAutofill.buildLoginAutofillScript —');
+  // Compiling (without running) proves the generated source is valid JS.
+  check(
+    (() => { try { new vm.Script(buildLoginAutofillScript('a@b.com', 'pw')); return true; } catch { return false; } })(),
+    'generated script is syntactically valid JS'
+  );
+  // A password with quotes/backslashes/newlines must not break out of the string.
+  const nasty = `x"';\n\\</script>`;
+  const script = buildLoginAutofillScript('u@e.com', nasty);
+  check(
+    (() => { try { new vm.Script(script); return true; } catch { return false; } })(),
+    'embeds a quote/backslash/newline-laden password without breaking syntax'
+  );
+  check(script.includes(JSON.stringify(nasty)), 'password is embedded via JSON.stringify (escaped)');
+  // The no-creds branch returns before touching the DOM, so it runs in a bare sandbox.
+  check(
+    vm.runInNewContext(buildLoginAutofillScript('', '')) === 'no-creds',
+    'returns "no-creds" when both fields are empty'
+  );
 
   console.log(`\nTotal: ${passed + failed}, Passed: ${passed}, Failed: ${failed}`);
   process.exit(failed === 0 ? 0 : 1);

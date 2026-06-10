@@ -32,6 +32,7 @@ const scraper = require('./scraper');
 const ingest = require('./ingestClient');
 const { createScheduler } = require('./scheduler');
 const bus = require('./interference');
+const { isLoginUrl, buildLoginAutofillScript } = require('./loginAutofill');
 
 // Pin the app name → stable userData → stable 'persist:cm' profile. (See header.)
 app.setName('concerts-metal-browser-poc');
@@ -117,6 +118,28 @@ function resolveContinue(how) {
   return true;
 }
 
+// ── sign-in auto-fill ─────────────────────────────────────────────────────────
+// When the scraper lands on concerts-metal's sign-in page, drop the saved
+// credentials into the form so the user doesn't retype them on every challenge.
+// We FILL only (no auto-submit) — the user stays in control of the actual login,
+// which keeps any "remember me" / extra step on the page working as expected.
+// The pure detection/script helpers live in ./loginAutofill (unit-tested).
+function maybeAutofillLogin(wc) {
+  if (!cfg || cfg.autofillLogin === false) return;
+  if (!cfg.loginEmail && !cfg.loginPassword) return;
+  const url = (() => { try { return wc.getURL(); } catch { return ''; } })();
+  if (!isLoginUrl(url)) return;
+  wc.executeJavaScript(buildLoginAutofillScript(cfg.loginEmail, cfg.loginPassword), true)
+    .then((r) => {
+      if (typeof r === 'string' && r.indexOf('filled') === 0) {
+        bus.emit('progress', 'sign-in form auto-filled — review and submit in the scraper window');
+      } else if (r === 'no-form') {
+        bus.emit('progress', 'on login.html but no sign-in form found to auto-fill');
+      }
+    })
+    .catch((e) => bus.emit('progress', 'login auto-fill failed: ' + (e && e.message)));
+}
+
 // ── windows ────────────────────────────────────────────────────────────────
 function createScrapeWindow() {
   scrapeWin = new BrowserWindow({
@@ -134,6 +157,9 @@ function createScrapeWindow() {
   // other hosts / popups). So we do NOT restrict navigation or window.open here.
   // It's the user's own trusted browsing surface; the pause/Continue flow (below)
   // hands control to them when interference is needed.
+
+  // When a navigation settles on the sign-in page, auto-fill the saved creds.
+  wc.on('did-finish-load', () => maybeAutofillLogin(wc));
 
   // Surface (and recover from) a crashed/hung remote renderer.
   wc.on('render-process-gone', (_e, details) => {

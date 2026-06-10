@@ -18,6 +18,7 @@ Grew out of the PoC ([git history of `main.js`]); now split into modules.
 | `ingestClient.js` | `postConcerts()` → `POST /api/ingest` with `Authorization: Bearer` |
 | `scheduler.js`    | `nextRunAt()` cadence math + daily-with-jitter loop, no-overlap guard |
 | `interference.js` | shared event bus (`challenge`/`progress`/`pushed`/`done`/`error`) |
+| `loginAutofill.js`| pure helpers to detect login.html + build the sign-in auto-fill script |
 
 ## ⚠️ The persistent profile IS the antibot bypass
 
@@ -56,8 +57,21 @@ npm start
 | `CM_MAX_PAGES`     | pages per country | `3` |
 | `CM_RUNS_PER_DAY`  | `1` (once) or `2` (twice) daily | `2` |
 | `CM_RUN_ONCE`      | crawl once, push, then quit (no scheduling) | — |
+| `CM_LOGIN_EMAIL`   | concerts-metal sign-in email (auto-filled on login.html) | — |
+| `CM_LOGIN_PASSWORD`| concerts-metal sign-in password | — |
 
 Anything not set by env falls back to `agent-config.json` in `userData`, then built-in defaults.
+The sign-in email/password (and an **Auto-fill** toggle) are also editable in the dashboard and saved
+to `agent-config.json` — never to the repo (the password lives only in `userData`).
+
+### Sign-in auto-fill
+
+concerts-metal sometimes redirects the crawl to `login.html`. When that happens the agent **fills the
+saved email + password into the form** (it does **not** auto-submit — you review and click Sign in
+yourself, so any "remember me"/extra step still works). Field detection is heuristic (the live form
+is behind Cloudflare): password by `type=password`, the login field by `type=email` → a
+name/id/placeholder hint → the visible text input just before the password box. Toggle it off with the
+dashboard **Auto-fill** checkbox (or `autofillLogin:false`).
 
 ### What you'll see
 

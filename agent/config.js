@@ -22,6 +22,9 @@ const DEFAULTS = {
   jitterMinutes: 90,        // +/- spread around each scheduled slot
   pageDelayMs: 2200,        // base human-paced delay between pages
   autoStartOnLaunch: true,  // run a crawl shortly after launch
+  loginEmail: '',           // concerts-metal sign-in email (auto-filled on login.html)
+  loginPassword: '',        // concerts-metal sign-in password (stored in userData, never the repo)
+  autofillLogin: true,      // auto-fill the sign-in form when the scraper lands on login.html
 };
 
 function configPath() {
@@ -44,6 +47,8 @@ function envOverrides() {
   }
   if (process.env.CM_MAX_PAGES) env.maxPages = parseInt(process.env.CM_MAX_PAGES, 10);
   if (process.env.CM_RUNS_PER_DAY) env.runsPerDay = parseInt(process.env.CM_RUNS_PER_DAY, 10);
+  if (process.env.CM_LOGIN_EMAIL) env.loginEmail = process.env.CM_LOGIN_EMAIL;
+  if (process.env.CM_LOGIN_PASSWORD) env.loginPassword = process.env.CM_LOGIN_PASSWORD;
   return env;
 }
 
@@ -52,6 +57,7 @@ function envOverrides() {
 const PERSISTABLE_KEYS = [
   'ingestUrl', 'ingestToken', 'countries', 'maxPages',
   'runsPerDay', 'anchorHour', 'jitterMinutes', 'pageDelayMs', 'autoStartOnLaunch',
+  'loginEmail', 'loginPassword', 'autofillLogin',
 ];
 
 /** Effective config: DEFAULTS <- env (first-run seed) <- saved file (authoritative). */
