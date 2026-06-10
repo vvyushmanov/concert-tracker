@@ -18,7 +18,7 @@ Grew out of the PoC ([git history of `main.js`]); now split into modules.
 | `ingestClient.js` | `postConcerts()` → `POST /api/ingest` with `Authorization: Bearer` |
 | `scheduler.js`    | `nextRunAt()` cadence math + daily-with-jitter loop, no-overlap guard |
 | `interference.js` | shared event bus (`challenge`/`progress`/`pushed`/`done`/`error`) |
-| `loginAutofill.js`| pure helpers to detect login.html + build the sign-in auto-fill script |
+| `loginAutofill.js`| pure helpers for the sign-in flow: detect limit/login/profile URLs + build the page-probe and the fill/submit scripts |
 
 ## ⚠️ The persistent profile IS the antibot bypass
 
@@ -57,21 +57,45 @@ npm start
 | `CM_MAX_PAGES`     | pages per country | `3` |
 | `CM_RUNS_PER_DAY`  | `1` (once) or `2` (twice) daily | `2` |
 | `CM_RUN_ONCE`      | crawl once, push, then quit (no scheduling) | — |
-| `CM_LOGIN_EMAIL`   | concerts-metal sign-in email (auto-filled on login.html) | — |
+| `CM_LOGIN_EMAIL`   | concerts-metal sign-in email | — |
 | `CM_LOGIN_PASSWORD`| concerts-metal sign-in password | — |
+| `CM_LOGIN_MODE`    | `auto` / `fill` / `off` (see below) | `auto` |
+| `CM_LOGIN_SUCCESS_MARKER` | URL substring that means "signed in" (your member id/slug, e.g. `u25849`) | — (auto-detect) |
 
 Anything not set by env falls back to `agent-config.json` in `userData`, then built-in defaults.
-The sign-in email/password (and an **Auto-fill** toggle) are also editable in the dashboard and saved
-to `agent-config.json` — never to the repo (the password lives only in `userData`).
+The sign-in email/password, mode, and profile marker are also editable in the dashboard and saved to
+`agent-config.json` — never to the repo (the password lives only in `userData`).
 
-### Sign-in auto-fill
+### Sign-in automation
 
-concerts-metal sometimes redirects the crawl to `login.html`. When that happens the agent **fills the
-saved email + password into the form** (it does **not** auto-submit — you review and click Sign in
-yourself, so any "remember me"/extra step still works). Field detection is heuristic (the live form
-is behind Cloudflare): password by `type=password`, the login field by `type=email` → a
-name/id/placeholder hint → the visible text input just before the password box. Toggle it off with the
-dashboard **Auto-fill** checkbox (or `autofillLogin:false`).
+concerts-metal gates the crawl: once Cloudflare passes it can drop you on **`limit.html`**, and
+signing in unlocks the listings. The agent automates that whole chain. **Mode** (dashboard *Sign-in*
+select / `loginMode`):
+
+| mode | behaviour |
+|------|-----------|
+| `auto` *(default)* | on `limit.html` → open `login.html`; on `login.html` → fill creds **and click Sign in**; on landing back at your profile → **resume the crawl** |
+| `fill` | on `login.html` → fill creds only; you click Sign in (and Continue) |
+| `off`  | don't touch the sign-in form |
+
+Field detection is heuristic (the live form is behind Cloudflare, so exact names aren't known):
+password by `type=password`; the login field by `type=email` → a name/id/placeholder hint → the
+visible text input just before the password box; the Sign-in button by `type=submit` → a button
+labelled log in/sign in/connexion/valider/…. A **3-try cap** stops a wrong password from looping
+`limit → login → submit`; it resets once you're past the gate.
+
+**Cloudflare on `login.html`.** Opening the sign-in page can itself trip a *fresh* Cloudflare
+check. The agent never injects the autofill into that interstitial — a DOM script looping inside a
+live challenge can wedge it to a **blank/white screen** that only a reload clears. Instead it
+**probes** what rendered (`buildLoginPageProbeScript`) and branches: a real form → fill it; a
+human check (Cloudflare text, or a `challenges.cloudflare.com` / Turnstile iframe) → surface the
+window so **you can solve the captcha**, no injection; a blank render → one capped reload to summon
+the widget. So when a check is required you get the interactive challenge, not a dead white page.
+
+**Resume signal.** After a successful sign-in concerts-metal lands you on your member profile
+(e.g. `https://en.concerts-metal.com/u25849__Headbanger`). Set **Profile marker**
+(`loginSuccessMarker`) to your member id or slug (`u25849` is enough) so the agent recognises that
+page and auto-resumes a paused crawl. Leave it blank to auto-detect any `/u<digits>__…` profile path.
 
 ### What you'll see
 

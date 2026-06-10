@@ -12,7 +12,10 @@ const vm = require('vm');
 const { nextRunAt } = require('../scheduler');
 const { buildPageUrl } = require('../scraper');
 const { pushBatch, postConcerts } = require('../ingestClient');
-const { isLoginUrl, buildLoginAutofillScript } = require('../loginAutofill');
+const {
+  isLoginUrl, isLimitUrl, loginUrlFor, isLoggedInProfileUrl,
+  buildLoginPageProbeScript, buildLoginAutofillScript,
+} = require('../loginAutofill');
 
 let passed = 0;
 let failed = 0;
@@ -81,12 +84,57 @@ function check(cond, msg) {
   await throwsWith(() => pushBatch([], { url: 'http://x' }), 'ingestToken not configured', 'missing token throws');
   await throwsWith(() => pushBatch('nope', { url: 'http://x', token: 't' }), 'must be an array', 'non-array payload throws');
 
-  console.log('\n— loginAutofill.isLoginUrl —');
+  console.log('\n— loginAutofill.isLoginUrl / isLimitUrl —');
   check(isLoginUrl('https://en.concerts-metal.com/login.html'), 'matches the en sign-in page');
   check(isLoginUrl('https://www.concerts-metal.com/login.html'), 'matches any host');
   check(!isLoginUrl('https://en.concerts-metal.com/next_fr_p1.html'), 'rejects a listing page');
   check(!isLoginUrl('https://en.concerts-metal.com/login.html.foo'), 'rejects a non-login path that contains login.html');
   check(!isLoginUrl('not a url'), 'rejects a non-URL string');
+  check(isLimitUrl('https://en.concerts-metal.com/limit.html'), 'isLimitUrl matches the limit page');
+  check(!isLimitUrl('https://en.concerts-metal.com/login.html'), 'isLimitUrl rejects the login page');
+
+  console.log('\n— loginAutofill.loginUrlFor (preserves origin) —');
+  check(loginUrlFor('https://en.concerts-metal.com/limit.html') === 'https://en.concerts-metal.com/login.html', 'en limit → en login');
+  check(loginUrlFor('https://www.concerts-metal.com/limit.html') === 'https://www.concerts-metal.com/login.html', 'www limit → www login (same host)');
+  check(loginUrlFor('garbage') === 'https://en.concerts-metal.com/login.html', 'falls back to en host on a bad URL');
+
+  console.log('\n— loginAutofill.isLoggedInProfileUrl —');
+  check(isLoggedInProfileUrl('https://en.concerts-metal.com/u25849__Headbanger', 'u25849__Headbanger'), 'exact slug marker matches');
+  check(isLoggedInProfileUrl('https://en.concerts-metal.com/u25849__Headbanger', 'u25849'), 'id-only marker matches');
+  check(!isLoggedInProfileUrl('https://en.concerts-metal.com/u9999__Other', 'u25849'), 'different member id does not match the marker');
+  check(isLoggedInProfileUrl('https://en.concerts-metal.com/u25849__Headbanger', ''), 'blank marker auto-detects any /u…__ profile');
+  check(!isLoggedInProfileUrl('https://en.concerts-metal.com/next_fr_p1.html', ''), 'a listing page is not a profile');
+  check(!isLoggedInProfileUrl('https://en.concerts-metal.com/limit.html', ''), 'the limit page is not a profile');
+
+  console.log('\n— loginAutofill.buildLoginPageProbeScript —');
+  // Run the probe against a stub `document` so we can assert each classification
+  // without a browser. Mirrors only the DOM calls the probe makes.
+  function runProbe({ pwd = false, title = '', text = '', cfIframe = false, iframeCount = 0 } = {}) {
+    const document = {
+      title,
+      body: { innerText: text },
+      querySelector(sel) {
+        if (sel.indexOf('password') >= 0) return pwd ? {} : null;
+        if (sel.indexOf('iframe') >= 0) return cfIframe ? {} : null;
+        return null;
+      },
+      querySelectorAll(sel) { return { length: sel.indexOf('iframe') >= 0 ? iframeCount : 0 }; },
+    };
+    return vm.runInNewContext(buildLoginPageProbeScript(), { document });
+  }
+  check(
+    (() => { try { new vm.Script(buildLoginPageProbeScript()); return true; } catch { return false; } })(),
+    'probe script is syntactically valid JS'
+  );
+  check(runProbe({ pwd: true }) === 'form', 'a password field present → "form"');
+  // A real form wins even if challenge-ish words happen to be on the page.
+  check(runProbe({ pwd: true, title: 'Just a moment…' }) === 'form', 'password field wins over challenge text → "form"');
+  check(runProbe({ title: 'Just a moment...' }) === 'challenge', 'Cloudflare "Just a moment" title → "challenge"');
+  check(runProbe({ text: 'Verifying you are human. This may take a few seconds.' }) === 'challenge', 'human-verification body text → "challenge"');
+  check(runProbe({ cfIframe: true }) === 'challenge', 'a challenges.cloudflare.com iframe → "challenge"');
+  check(runProbe({ text: '', iframeCount: 0 }) === 'blank', 'empty body, no iframe → "blank" (white screen → reload)');
+  check(runProbe({ text: '', iframeCount: 1 }) === 'other', 'empty body but an iframe present → NOT blank (a live widget — never reload it)');
+  check(runProbe({ text: 'Some other page with plenty of text here.' }) === 'other', 'a populated non-form, non-check page → "other"');
 
   console.log('\n— loginAutofill.buildLoginAutofillScript —');
   // Compiling (without running) proves the generated source is valid JS.
@@ -102,10 +150,18 @@ function check(cond, msg) {
     'embeds a quote/backslash/newline-laden password without breaking syntax'
   );
   check(script.includes(JSON.stringify(nasty)), 'password is embedded via JSON.stringify (escaped)');
+  check(
+    (() => { try { new vm.Script(buildLoginAutofillScript('u@e.com', 'pw', true)); return true; } catch { return false; } })(),
+    'submit-mode script is also syntactically valid JS'
+  );
   // The no-creds branch returns before touching the DOM, so it runs in a bare sandbox.
   check(
     vm.runInNewContext(buildLoginAutofillScript('', '')) === 'no-creds',
     'returns "no-creds" when both fields are empty'
+  );
+  check(
+    vm.runInNewContext(buildLoginAutofillScript('', '', true)) === 'no-creds',
+    'returns "no-creds" with submit=true and empty creds'
   );
 
   console.log(`\nTotal: ${passed + failed}, Passed: ${passed}, Failed: ${failed}`);

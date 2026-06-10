@@ -22,10 +22,20 @@ const DEFAULTS = {
   jitterMinutes: 90,        // +/- spread around each scheduled slot
   pageDelayMs: 2200,        // base human-paced delay between pages
   autoStartOnLaunch: true,  // run a crawl shortly after launch
-  loginEmail: '',           // concerts-metal sign-in email (auto-filled on login.html)
+  loginEmail: '',           // concerts-metal sign-in email (stored in userData, never the repo)
   loginPassword: '',        // concerts-metal sign-in password (stored in userData, never the repo)
-  autofillLogin: true,      // auto-fill the sign-in form when the scraper lands on login.html
+  // Sign-in automation when the crawl hits concerts-metal's gate:
+  //   'auto' — navigate limit.html → login.html, fill the form, click Sign in
+  //   'fill' — only fill the form on login.html (you click Sign in)
+  //   'off'  — do nothing
+  loginMode: 'auto',
+  // Landing on a URL containing this marker (the member id/slug, e.g.
+  // "u25849__Headbanger") means sign-in succeeded → resume the crawl. Blank =
+  // auto-detect any /u<digits>__ profile path.
+  loginSuccessMarker: '',
 };
+
+const LOGIN_MODES = ['auto', 'fill', 'off'];
 
 function configPath() {
   return path.join(app.getPath('userData'), 'agent-config.json');
@@ -49,6 +59,10 @@ function envOverrides() {
   if (process.env.CM_RUNS_PER_DAY) env.runsPerDay = parseInt(process.env.CM_RUNS_PER_DAY, 10);
   if (process.env.CM_LOGIN_EMAIL) env.loginEmail = process.env.CM_LOGIN_EMAIL;
   if (process.env.CM_LOGIN_PASSWORD) env.loginPassword = process.env.CM_LOGIN_PASSWORD;
+  if (process.env.CM_LOGIN_MODE && LOGIN_MODES.includes(process.env.CM_LOGIN_MODE)) {
+    env.loginMode = process.env.CM_LOGIN_MODE;
+  }
+  if (process.env.CM_LOGIN_SUCCESS_MARKER) env.loginSuccessMarker = process.env.CM_LOGIN_SUCCESS_MARKER;
   return env;
 }
 
@@ -57,12 +71,24 @@ function envOverrides() {
 const PERSISTABLE_KEYS = [
   'ingestUrl', 'ingestToken', 'countries', 'maxPages',
   'runsPerDay', 'anchorHour', 'jitterMinutes', 'pageDelayMs', 'autoStartOnLaunch',
-  'loginEmail', 'loginPassword', 'autofillLogin',
+  'loginEmail', 'loginPassword', 'loginMode', 'loginSuccessMarker',
 ];
 
 /** Effective config: DEFAULTS <- env (first-run seed) <- saved file (authoritative). */
 function load() {
-  return { ...DEFAULTS, ...envOverrides(), ...readFileConfig() };
+  const file = readFileConfig();
+  const env = envOverrides();
+  // Resolve loginMode: an explicit new value (file or env) wins; else fall back to
+  // the legacy `autofillLogin` boolean if the saved file predates loginMode; else
+  // the default. Guard against any invalid persisted/env value.
+  let mode = file.loginMode !== undefined ? file.loginMode : env.loginMode;
+  if (mode === undefined && typeof file.autofillLogin === 'boolean') {
+    mode = file.autofillLogin ? 'auto' : 'off';
+  }
+  if (!LOGIN_MODES.includes(mode)) mode = DEFAULTS.loginMode;
+  const cfg = { ...DEFAULTS, ...env, ...file, loginMode: mode };
+  delete cfg.autofillLogin;
+  return cfg;
 }
 
 /** Persist a whitelisted partial update to agent-config.json. */
@@ -76,4 +102,4 @@ function save(partial) {
   return load();
 }
 
-module.exports = { DEFAULTS, configPath, load, save };
+module.exports = { DEFAULTS, LOGIN_MODES, configPath, load, save };

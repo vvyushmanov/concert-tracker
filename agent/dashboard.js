@@ -16,7 +16,8 @@ const els = {
   ingestToken: $('ingestToken'),
   loginEmail: $('loginEmail'),
   loginPassword: $('loginPassword'),
-  autofillLogin: $('autofillLogin'),
+  loginMode: $('loginMode'),
+  loginSuccessMarker: $('loginSuccessMarker'),
   countries: $('countries'),
   maxPages: $('maxPages'),
   runsPerDay: $('runsPerDay'),
@@ -93,7 +94,8 @@ async function loadConfig() {
   els.ingestToken.value = c.ingestToken || '';
   els.loginEmail.value = c.loginEmail || '';
   els.loginPassword.value = c.loginPassword || '';
-  els.autofillLogin.checked = c.autofillLogin !== false;
+  els.loginMode.value = ['auto', 'fill', 'off'].includes(c.loginMode) ? c.loginMode : 'auto';
+  els.loginSuccessMarker.value = c.loginSuccessMarker || '';
   els.countries.value = (c.countries || []).join(', ');
   els.maxPages.value = c.maxPages != null ? c.maxPages : 3;
   els.runsPerDay.value = String(c.runsPerDay != null ? c.runsPerDay : 2);
@@ -106,7 +108,8 @@ function gatherConfig() {
     ingestToken: els.ingestToken.value.trim(),
     loginEmail: els.loginEmail.value.trim(),
     loginPassword: els.loginPassword.value,
-    autofillLogin: els.autofillLogin.checked,
+    loginMode: els.loginMode.value,
+    loginSuccessMarker: els.loginSuccessMarker.value.trim(),
     countries: els.countries.value.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
     maxPages: Math.max(1, parseInt(els.maxPages.value, 10) || 3),
     runsPerDay: parseInt(els.runsPerDay.value, 10) || 0,

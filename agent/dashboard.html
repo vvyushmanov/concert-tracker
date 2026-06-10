@@ -214,10 +214,20 @@
             <button type="button" id="toggle-loginPassword">Show</button>
           </div>
 
-          <label>Auto-fill</label>
-          <div class="checkbox">
-            <input type="checkbox" id="autofillLogin" />
-            <label for="autofillLogin" style="color:var(--text)">Fill the sign-in form automatically on login.html</label>
+          <label for="loginMode">Sign-in</label>
+          <div>
+            <select id="loginMode">
+              <option value="auto">Auto — open login from the limit page, fill &amp; click Sign in</option>
+              <option value="fill">Fill only — fill the form, I click Sign in</option>
+              <option value="off">Off — don't touch the sign-in form</option>
+            </select>
+            <div class="hint">Runs when the crawl hits the limit / sign-in page.</div>
+          </div>
+
+          <label for="loginSuccessMarker">Profile marker</label>
+          <div>
+            <input type="text" id="loginSuccessMarker" placeholder="u25849__Headbanger" />
+            <div class="hint">Landing on a URL containing this = signed in → resume the crawl. Your user ID (e.g. <code>u25849</code>) is enough; blank auto-detects any <code>/u…__</code> profile.</div>
           </div>
 
           <label for="countries">Countries</label>

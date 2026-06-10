@@ -32,7 +32,10 @@ const scraper = require('./scraper');
 const ingest = require('./ingestClient');
 const { createScheduler } = require('./scheduler');
 const bus = require('./interference');
-const { isLoginUrl, buildLoginAutofillScript } = require('./loginAutofill');
+const {
+  isLoginUrl, isLimitUrl, loginUrlFor, isLoggedInProfileUrl,
+  buildLoginPageProbeScript, buildLoginAutofillScript,
+} = require('./loginAutofill');
 
 // Pin the app name → stable userData → stable 'persist:cm' profile. (See header.)
 app.setName('concerts-metal-browser-poc');
@@ -62,82 +65,181 @@ const HIDE_ON_CLOSE = process.platform !== 'linux';
 // ── manual "Continue" gate ───────────────────────────────────────────────────
 // When a crawl is redirected to a challenge / sign-in / register page, the agent
 // PAUSES and hands the (full-navigation) scraper window to the user. It resumes
-// only when the user clicks Continue in the dashboard (or after a long timeout).
+// when the user clicks Continue (dashboard banner or the floating prompt), when a
+// sign-in auto-resumes it, or after a long timeout.
 let awaitContinue = null; // resolver while paused
 let awaitTimer = null;
-let pauseToken = 0; // bumped per pause so a stale dialog's click is ignored
+let pauseWin = null;      // floating "Crawl paused" prompt (closable, unlike a native dialog)
 
 function requestContinue(reason, timeoutMs = 900000) {
   // If somehow already waiting, release the previous one.
   if (awaitContinue) resolveContinue('superseded');
-  pauseToken += 1;
   return new Promise((resolve) => {
     awaitContinue = resolve;
     sendToDash('agent:awaiting', { waiting: true, reason });
     updateTray();
     if (scrapeWin && !scrapeWin.isDestroyed()) { scrapeWin.show(); scrapeWin.focus(); }
     sendToDash('agent:status-update', buildStatus()); // scraper now visible → refresh Show/Hide label
-    showPauseDialog(reason);
-    awaitTimer = setTimeout(() => {
-      if (awaitContinue) { awaitContinue = null; sendToDash('agent:awaiting', { waiting: false }); updateTray(); resolve('timeout'); }
-    }, timeoutMs);
+    showPauseWindow(reason);
+    // All resolution paths (incl. timeout) funnel through resolveContinue so the
+    // prompt window is always torn down and the await never dangles.
+    awaitTimer = setTimeout(() => resolveContinue('timeout'), timeoutMs);
   });
 }
 
 // A floating, always-reachable prompt shown on every pause so Continue isn't
-// buried behind the scraper window. Parentless → it does not block the scraper
-// window the user must interact with. The dashboard banner remains a secondary
-// path; resolveContinue() is idempotent, so whichever the user clicks wins.
-function showPauseDialog(reason) {
-  const myToken = pauseToken;
-  dialog.showMessageBox({
-    type: 'warning',
-    noLink: true,
-    buttons: ['Continue ▸', 'Stop this crawl'],
-    defaultId: 0,
-    cancelId: 1,
+// buried behind the scraper window. Its own BrowserWindow (not a native
+// dialog.showMessageBox) precisely BECAUSE we must be able to close it
+// programmatically — e.g. when sign-in auto-resumes the crawl. alwaysOnTop +
+// parentless → it floats above the scraper window without blocking the
+// interaction the user needs there. Buttons reuse the dashboard's continue/stop
+// IPC (see pause.js); resolveContinue() is idempotent, so whichever path wins.
+function showPauseWindow(reason) {
+  if (pauseWin && !pauseWin.isDestroyed()) {
+    try { pauseWin.show(); pauseWin.focus(); return; } catch { /* recreate below */ }
+  }
+  pauseWin = new BrowserWindow({
+    width: 470,
+    height: 250,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    alwaysOnTop: true,
     title: 'Scraper Agent — action needed',
-    message: 'Crawl paused',
-    detail: reason + '\n\nHandle it in the scraper window (solve the check, sign in, …), '
-      + 'then click Continue. Or stop this crawl.',
-  }).then(({ response }) => {
-    if (myToken !== pauseToken) return; // a newer pause superseded this dialog
-    if (response === 1) { crawlAborted = true; resolveContinue('stop'); }
-    else resolveContinue('manual');
-  }).catch(() => { /* dialog dismissed */ });
+    backgroundColor: '#0b0d10',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  pauseWin.setMenuBarVisibility(false);
+  pauseWin.loadFile(path.join(__dirname, 'pause.html'), { query: { reason: reason || '' } });
+  // Capture this instance: if a later pause already swapped in a new prompt, a
+  // stale 'closed' from the old one must NOT null the live reference.
+  const mine = pauseWin;
+  mine.on('closed', () => { if (pauseWin === mine) pauseWin = null; });
+}
+
+function closePauseWindow() {
+  if (pauseWin && !pauseWin.isDestroyed()) { try { pauseWin.destroy(); } catch { /* noop */ } }
+  pauseWin = null;
 }
 
 function resolveContinue(how) {
   if (!awaitContinue) return false;
-  if (awaitTimer) clearTimeout(awaitTimer);
+  if (awaitTimer) { clearTimeout(awaitTimer); awaitTimer = null; }
   const r = awaitContinue;
   awaitContinue = null;
+  closePauseWindow(); // tear down the floating prompt so it never lingers post-resume
   sendToDash('agent:awaiting', { waiting: false });
   updateTray();
   r(how);
   return true;
 }
 
-// ── sign-in auto-fill ─────────────────────────────────────────────────────────
-// When the scraper lands on concerts-metal's sign-in page, drop the saved
-// credentials into the form so the user doesn't retype them on every challenge.
-// We FILL only (no auto-submit) — the user stays in control of the actual login,
-// which keeps any "remember me" / extra step on the page working as expected.
-// The pure detection/script helpers live in ./loginAutofill (unit-tested).
-function maybeAutofillLogin(wc) {
-  if (!cfg || cfg.autofillLogin === false) return;
-  if (!cfg.loginEmail && !cfg.loginPassword) return;
+// ── sign-in automation ────────────────────────────────────────────────────────
+// concerts-metal gates the crawl: once Cloudflare passes it can drop us on
+// limit.html, from which signing in unlocks the listings. Depending on loginMode:
+//   'auto' — on limit.html navigate to login.html; on login.html fill the saved
+//            creds and click Sign in (fully hands-off).
+//   'fill' — on login.html fill the creds only; the user clicks Sign in.
+//   'off'  — do nothing.
+// Small attempt caps stop a wrong password (or a bouncing gate) from looping
+// limit→login→submit forever; all reset the moment we land past the gate (any
+// non-limit/non-login page). The pure detection/script helpers live in
+// ./loginAutofill (unit-tested).
+//
+// login.html itself can trip a FRESH Cloudflare check. We must NOT inject the
+// autofill script into that interstitial — a DOM script looping inside a live
+// Cloudflare challenge can wedge it to a blank/white screen that only a manual
+// reload clears. So handleLoginPage PROBES first and only fills the real form;
+// on a check it surfaces the window for the human; on a blank render it nudges
+// Cloudflare with a single reload to summon the interactive widget.
+const AUTOLOGIN_MAX = 3;
+const LOGIN_RELOAD_MAX = 2; // blank-screen reload nudges before we just surface it
+let autoLoginAttempts = 0;
+let limitNavs = 0;          // limit→login navigations (cap even if we never reach a form)
+let loginReloads = 0;       // blank-login-page reload nudges
+
+function haveLoginCreds() { return !!(cfg && (cfg.loginEmail || cfg.loginPassword)); }
+function loginMode() { return (cfg && cfg.loginMode) || 'auto'; }
+function surfaceScraper() {
+  if (scrapeWin && !scrapeWin.isDestroyed()) { scrapeWin.show(); scrapeWin.focus(); }
+}
+
+// Bound to the scraper window's did-finish-load — runs on every settled nav.
+function onScraperLoaded(wc) {
   const url = (() => { try { return wc.getURL(); } catch { return ''; } })();
-  if (!isLoginUrl(url)) return;
-  wc.executeJavaScript(buildLoginAutofillScript(cfg.loginEmail, cfg.loginPassword), true)
-    .then((r) => {
-      if (typeof r === 'string' && r.indexOf('filled') === 0) {
-        bus.emit('progress', 'sign-in form auto-filled — review and submit in the scraper window');
-      } else if (r === 'no-form') {
-        bus.emit('progress', 'on login.html but no sign-in form found to auto-fill');
+  if (!url) return;
+  if (isLimitUrl(url)) { handleLimitPage(wc, url); return; }
+  if (isLoginUrl(url)) { handleLoginPage(wc); return; }
+  // Past the gate. Reset every loop guard, then — if we landed on the member's
+  // profile page — treat it as a successful sign-in and resume the paused crawl.
+  // (Skipped in 'off' = full-manual.)
+  autoLoginAttempts = 0; limitNavs = 0; loginReloads = 0;
+  if (loginMode() !== 'off' && isLoggedInProfileUrl(url, cfg && cfg.loginSuccessMarker)) {
+    if (resolveContinue('manual')) bus.emit('progress', 'signed in — resuming crawl');
+  }
+}
+
+function handleLimitPage(wc, url) {
+  if (loginMode() !== 'auto' || !haveLoginCreds()) return;
+  if (limitNavs >= AUTOLOGIN_MAX || autoLoginAttempts >= AUTOLOGIN_MAX) {
+    surfaceScraper();
+    bus.emit('progress', `auto sign-in gave up after ${AUTOLOGIN_MAX} tries — sign in manually in the scraper window, then Continue`);
+    return;
+  }
+  limitNavs += 1;
+  bus.emit('progress', 'limit page reached → opening the sign-in page');
+  wc.loadURL(loginUrlFor(url)).catch(() => {});
+}
+
+// Decide what to do on login.html from what ACTUALLY rendered there (form vs.
+// Cloudflare check vs. blank), so we never inject into a challenge.
+function handleLoginPage(wc) {
+  const mode = loginMode();
+  if (mode === 'off' || !haveLoginCreds()) return;
+  wc.executeJavaScript(buildLoginPageProbeScript(), true)
+    .then((state) => {
+      if (state === 'form') { fillLoginForm(wc, mode); return; }
+      if (state === 'challenge') {
+        // A human check stands between us and the form — hand it to the user.
+        // (bus 'challenge' surfaces + focuses the window and logs "solve it".)
+        bus.emit('challenge');
+        bus.emit('progress', 'sign-in needs a human check — solve it in the scraper window, then Continue');
+        return;
       }
+      if (state === 'blank' && loginReloads < LOGIN_RELOAD_MAX) {
+        // The check rendered as a white screen — a reload usually makes
+        // Cloudflare draw the interactive widget. Nudge it (capped).
+        loginReloads += 1;
+        bus.emit('progress', `sign-in page came up blank — reloading to summon the check (${loginReloads}/${LOGIN_RELOAD_MAX})`);
+        surfaceScraper();
+        setTimeout(() => { try { if (!wc.isDestroyed()) wc.reload(); } catch { /* gone */ } }, 600);
+        return;
+      }
+      // 'other' / 'error' / reloads exhausted: surface the window for the user.
+      surfaceScraper();
     })
-    .catch((e) => bus.emit('progress', 'login auto-fill failed: ' + (e && e.message)));
+    .catch((e) => { surfaceScraper(); bus.emit('progress', 'sign-in probe failed: ' + (e && e.message)); });
+}
+
+// The real form is present — fill it (and, in 'auto', click Sign in). Counts each
+// auto-submit so a bad password can't loop limit→login→submit endlessly.
+function fillLoginForm(wc, mode) {
+  loginReloads = 0; // a real form means Cloudflare cleared
+  const submit = mode === 'auto' && autoLoginAttempts < AUTOLOGIN_MAX;
+  if (submit) autoLoginAttempts += 1;
+  wc.executeJavaScript(buildLoginAutofillScript(cfg.loginEmail, cfg.loginPassword, submit), true)
+    .then((r) => {
+      if (r === 'submitted') bus.emit('progress', `sign-in submitted (attempt ${autoLoginAttempts}/${AUTOLOGIN_MAX})`);
+      else if (typeof r === 'string' && r.indexOf('filled') === 0) { surfaceScraper(); bus.emit('progress', 'sign-in form filled — click Sign in in the scraper window'); }
+      else if (r === 'no-form') bus.emit('progress', 'on login.html but found no sign-in form to fill');
+    })
+    .catch((e) => bus.emit('progress', 'sign-in auto-fill failed: ' + (e && e.message)));
 }
 
 // ── windows ────────────────────────────────────────────────────────────────
@@ -158,8 +260,8 @@ function createScrapeWindow() {
   // It's the user's own trusted browsing surface; the pause/Continue flow (below)
   // hands control to them when interference is needed.
 
-  // When a navigation settles on the sign-in page, auto-fill the saved creds.
-  wc.on('did-finish-load', () => maybeAutofillLogin(wc));
+  // Drive the sign-in flow (limit → login → fill → submit) as the window navigates.
+  wc.on('did-finish-load', () => onScraperLoaded(wc));
 
   // Surface (and recover from) a crashed/hung remote renderer.
   wc.on('render-process-gone', (_e, details) => {
