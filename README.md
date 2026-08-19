@@ -1,9 +1,7 @@
-# lastfm-parser
+# concert-tracker
 
 Tracks upcoming concerts for the artists you care about: date, city, venue, and
-where each one sits on a map. The app is called concert-tracker; the repository
-kept the name it started with, from when Last.fm was the only way to get artists
-into it.
+where each one sits on a map.
 
 Give it a list of artists, or connect a Last.fm account and let it import
 everything you play above a threshold (default: 40 plays). Either source is
