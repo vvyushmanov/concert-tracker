@@ -1,5 +1,5 @@
-import { prisma } from '@/lib/prisma';
 import { auth } from '@/auth';
+import { getRelevantConcerts } from '@/lib/concerts';
 import CalendarView from './CalendarView';
 
 export const dynamic = 'force-dynamic';
@@ -25,53 +25,9 @@ export default async function CalendarPage() {
 
   const userId = parseInt(session.user.id);
 
-  // Get only concerts linked to this user via UserConcert
-  const userConcerts = await prisma.userConcert.findMany({
-    where: { userId },
-    include: {
-      concert: {
-        include: {
-          cityMapping: {
-            select: {
-              id: true,
-              originalCity: true,
-              cityNormalized: {
-                select: {
-                  normalizedCity: true,
-                }
-              }
-            }
-          },
-          artists: {
-            include: {
-              artist: true,
-            },
-            orderBy: {
-              isPrimary: 'desc',
-            },
-          },
-          countryObj: true,
-        }
-      }
-    },
-    orderBy: {
-      concert: {
-        dateStart: 'asc'
-      }
-    }
-  });
-
-  // Extract concerts with user data and derive primary artist
-  const concertsWithUserData = userConcerts.map((uc: any) => {
-    const primaryArtistLink = uc.concert.artists.find((ac: any) => ac.isPrimary) || uc.concert.artists[0];
-    return {
-      ...uc.concert,
-      interested: uc.interested,
-      notes: uc.notes,
-      artistId: primaryArtistLink?.artistId,
-      artist: primaryArtistLink?.artist,
-    };
-  });
+  // Personalized read: global concerts filtered by the user's followed artists
+  // and active countries (see lib/concerts.ts). No re-scan needed on pref change.
+  const { concerts: concertsWithUserData } = await getRelevantConcerts(userId);
 
   // Get unique artists from user's concerts
   const uniqueArtistIds = new Set(concertsWithUserData.map((c: any) => c.artistId).filter(Boolean));
@@ -109,15 +65,15 @@ export default async function CalendarPage() {
 
         {concertsWithUserData.length === 0 ? (
           <div className="text-center py-16 bg-white dark:bg-gray-800 rounded-lg shadow">
-            <h2 className="text-2xl font-semibold mb-4">No concerts added yet</h2>
+            <h2 className="text-2xl font-semibold mb-4">No matching concerts yet</h2>
             <p className="text-gray-600 dark:text-gray-400 mb-6">
-              Please run the scanner to discover concerts! 🎵
+              Follow some artists (or sync your Last.fm) and pick your countries to see relevant concerts. 🎵
             </p>
             <a
-              href="/scanner"
+              href="/artists"
               className="inline-block px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
             >
-              Go to Scanner
+              Manage Artists
             </a>
           </div>
         ) : (

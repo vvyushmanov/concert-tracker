@@ -146,7 +146,7 @@ export default function SettingsClient({ isAdmin, userId }: { isAdmin: boolean; 
           {activeTab === 'global' 
             ? 'Configure system-wide settings (admin only)' 
             : activeTab === 'countries'
-            ? 'Manage countries for your concert scanner'
+            ? 'Choose which countries’ concerts you want to see'
             : activeTab === 'privacy'
             ? 'Control who can see your concerts on the map'
             : activeTab === 'audit'

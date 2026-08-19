@@ -1,6 +1,9 @@
 import { spawn } from 'child_process';
 import { scannerState, broadcastLog, broadcastState } from './state';
 
+// Scanning always populates the GLOBAL concert table (--no-filter, user_id=None).
+// `userId` here is just the admin who triggered it — used only to key scanner
+// session state (logs/SSE), never to materialize per-user rows.
 export async function startScan(userId: number, debug: boolean = false) {
   // Check if user already has a scan running or stopping
   const existingState = scannerState.get(userId);
@@ -34,33 +37,34 @@ export async function startScan(userId: number, debug: boolean = false) {
   
   try {
     const { prisma } = await import('@/lib/prisma');
-    
-    // Count concerts associated with user via UserConcert
-    const beforeCount = await prisma.userConcert.count({
-      where: { userId }
-    });
-    
-    broadcastLog(userId, `Starting scan${debug ? ' (DEBUG MODE)' : ''}... Current concerts: ${beforeCount}`, 'log');
-    
+
+    // Count GLOBAL concerts (the table this scan populates). UserConcert is
+    // user-state now and is never created by scanning.
+    const beforeCount = await prisma.concert.count();
+
+    const scanMode = debug ? ' (GLOBAL SCAN - DEBUG)' : ' (GLOBAL SCAN - NO FILTER)';
+    broadcastLog(userId, `Starting scan${scanMode}... Current concerts: ${beforeCount}`, 'log');
+
     // Path to Python script (inside Docker container)
     const pythonScript = '/app/scripts/parse_concerts.py';
-    
-    // Build arguments array
+
+    // Always a global, unfiltered population (user_id=None → writer skips
+    // UserConcert/UserArtist).
     const args = [
-      '-u', 
-      pythonScript, 
-      '--user-id', userId.toString(),
-      '--output', 'db', 
+      '-u',
+      pythonScript,
+      '--output', 'db',
       '--use-proxies', 'webshare',
       '--no-color-log',
+      '--no-filter',
     ];
-    
+
     // Add debug flag if enabled
     if (debug) {
       args.push('--debug');
     }
     
-    // Execute Python parser with user ID for per-user settings
+    // Execute Python parser in global (--no-filter) mode.
     // -u flag for unbuffered output so we see logs in real-time
     const process = spawn('python3', args, {
       cwd: '/app/scripts',
@@ -90,13 +94,11 @@ export async function startScan(userId: number, debug: boolean = false) {
     process.on('close', async (code) => {
       console.log(`✅ Concert Parser [User ${userId}] exited with code ${code}`);
       
-      // Get counts after scan - concerts associated with user via UserConcert
-      const afterCount = await prisma.userConcert.count({
-        where: { userId }
-      });
+      // Get counts after scan - global Concert table
+      const afterCount = await prisma.concert.count();
       const newConcerts = afterCount - beforeCount;
-      
-      console.log(`📊 Concert count for user ${userId}: ${afterCount} (+${newConcerts})`);
+
+      console.log(`📊 Global concert count: ${afterCount} (+${newConcerts})`);
       
       const stats = {
         before: beforeCount,

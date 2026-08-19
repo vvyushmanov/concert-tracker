@@ -3,22 +3,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 
-interface ScannerClientProps {
-  isAdmin: boolean;
-  userSettings: {
-    minPlaycount: number;
-    lastfmUser: string | null;
-  };
-  activeCountries: string[];
-}
-
 interface ScannerStatus {
   isScanning: boolean;
   isStopping: boolean;
   stats: { before: number; after: number; new: number } | null;
 }
 
-export default function ScannerClient({ isAdmin, userSettings, activeCountries }: ScannerClientProps) {
+export default function ScannerClient() {
   // Server state received via SSE
   const [serverStatus, setServerStatus] = useState<ScannerStatus>({ isScanning: false, isStopping: false, stats: null });
   const [debugMode, setDebugMode] = useState(false);
@@ -122,11 +113,11 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
       // Clear old stats when starting new scan
       setServerStatus(prev => ({ ...prev, stats: null }));
       setShowStats(false); // Hide stats panel until new scan completes
-      
+
       const currentDebugMode = debugMode;
       setDebugMode(false);
-      
-      const res = await fetch('/api/scanner/start', { 
+
+      const res = await fetch('/api/scanner/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ debug: currentDebugMode })
@@ -134,7 +125,7 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
       const data = await res.json();
       
       if (data.success) {
-        showToast(currentDebugMode ? 'Scan started in DEBUG mode!' : 'Scan started!', 'success');
+        showToast(data.message || 'Scan started!', 'success');
         // Status polling will detect the scan and connect to logs
       } else {
         showToast(data.error || 'Failed to start scan', 'error');
@@ -174,7 +165,7 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
             <h1 className="text-3xl font-bold mb-2 text-green-300">
               {'>'} CONCERT SCANNER_
             </h1>
-            <p className="text-green-600">Real-time concert data synchronization</p>
+            <p className="text-green-600">Global concert population (admin maintenance)</p>
           </div>
           <button
             onClick={() => router.push('/')}
@@ -184,30 +175,15 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
           </button>
         </div>
 
-        {/* User Settings Info */}
-        <div className="mb-6 bg-green-950/20 border border-green-800 p-4">
-          <div className="text-green-600 text-sm mb-2">SCANNER CONFIGURATION</div>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <span className="text-green-700">Last.fm User:</span>{' '}
-              <span className="text-green-300">{userSettings.lastfmUser || 'Not configured'}</span>
-            </div>
-            <div>
-              <span className="text-green-700">Min Playcount:</span>{' '}
-              <span className="text-green-300">{userSettings.minPlaycount}</span>
-            </div>
-            <div className="col-span-2">
-              <span className="text-green-700">Active Countries ({activeCountries.length}):</span>{' '}
-              <span className="text-green-300">
-                {activeCountries.length > 0 ? activeCountries.join(', ') : 'None configured'}
-              </span>
-            </div>
-          </div>
-          {(!userSettings.lastfmUser || activeCountries.length === 0) && (
-            <div className="mt-3 text-yellow-500 text-sm">
-              ⚠️ Configure your Last.fm credentials and activate countries in Settings before scanning
-            </div>
-          )}
+        {/* Info */}
+        <div className="mb-6 bg-green-950/20 border border-green-800 p-4 text-sm">
+          <div className="text-green-600 mb-1">GLOBAL POPULATION</div>
+          <p className="text-green-400">
+            This scan fetches <span className="text-green-300">all</span> concerts for every active
+            country and stores them globally — it does not filter by any user&apos;s artists. Users
+            then see only what&apos;s relevant to them (their followed artists × active countries) at
+            read time. No per-user data is written here.
+          </p>
         </div>
 
         {/* Stats */}
@@ -254,7 +230,7 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
               ⏳ Graceful shutdown in progress...
             </div>
           )}
-          {isAdmin && !serverStatus.isScanning && (
+          {!serverStatus.isScanning && (
             <label className="flex items-center gap-2 text-green-400 cursor-pointer">
               <input
                 type="checkbox"
@@ -262,7 +238,7 @@ export default function ScannerClient({ isAdmin, userSettings, activeCountries }
                 onChange={(e) => setDebugMode(e.target.checked)}
                 className="w-4 h-4"
               />
-              <span className="text-sm">Debug Mode (Admin)</span>
+              <span className="text-sm">Debug Mode (verbose logging)</span>
             </label>
           )}
           {!serverStatus.isScanning && !serverStatus.isStopping && (

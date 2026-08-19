@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self';" />
+  <title>Scraper Agent — action needed</title>
+  <style>
+    :root { color-scheme: dark; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: #0b0d10; color: #e8eaed;
+      font: 14px/1.5 system-ui, "Segoe UI", Roboto, sans-serif;
+      display: flex; flex-direction: column; box-sizing: border-box;
+      padding: 18px 20px;
+    }
+    h1 { font-size: 15px; margin: 0 0 8px; color: #ffd166; }
+    p { margin: 0 0 12px; }
+    .reason { color: #e8eaed; white-space: pre-wrap; }
+    .hint { color: #aab0ba; }
+    .row { margin-top: auto; display: flex; gap: 10px; justify-content: flex-end; }
+    button { font: inherit; padding: 8px 16px; border-radius: 8px; border: 1px solid #2a2f37; cursor: pointer; }
+    button.primary { background: #2563eb; border-color: #2563eb; color: #fff; }
+    button.ghost { background: #16191e; color: #e8eaed; }
+    button:disabled { opacity: .5; cursor: default; }
+  </style>
+</head>
+<body>
+  <h1>Crawl paused</h1>
+  <p class="reason" id="reason"></p>
+  <p class="hint">Handle it in the scraper window (solve the check, sign in, …), then click Continue. Or stop this crawl.</p>
+  <div class="row">
+    <button class="ghost" id="stop">Stop this crawl</button>
+    <button class="primary" id="continue">Continue &#9656;</button>
+  </div>
+  <script src="./pause.js"></script>
+</body>
+</html>

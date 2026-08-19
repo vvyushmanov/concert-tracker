@@ -45,6 +45,7 @@ from database import ConcertDatabaseWriter
 def finalize_and_cleanup(
     db_writer: Optional['ConcertDatabaseWriter'],
     args: argparse.Namespace,
+    proxy_manager: Optional['ProxyManager'] = None,
 ) -> None:
     """
     Finalize database writes and optionally trigger metadata enrichment.
@@ -52,6 +53,7 @@ def finalize_and_cleanup(
     Args:
         db_writer: Database writer instance (None if using JSON output)
         args: Command line arguments with user settings
+        proxy_manager: Optional ProxyManager for proxy rotation in metadata APIs
 
     Side Effects:
         - Prints database statistics (if db_writer provided)
@@ -76,7 +78,9 @@ def finalize_and_cleanup(
         try:
             # Note: fetch_artist_metadata reads Last.fm config from ConfigManager
             # It will use MusicBrainz as primary source and Last.fm as fallback if configured
-            result = fetch_artist_metadata(args.db_path, silent=False, user_id=args.user_id)
+            # Pass proxy_manager for MusicBrainz API requests
+            result = fetch_artist_metadata(args.db_path, silent=False, user_id=args.user_id,
+                                          proxy_manager=proxy_manager)
             if result == 0:
                 logger.info("Metadata fetch completed")
             else:
@@ -180,6 +184,11 @@ def main():
         action='store_true',
         help='Disable colored output in logs (useful for log files or CI/CD)'
     )
+    parser.add_argument(
+        '--use-flaresolverr',
+        action='store_true',
+        help='Use FlareSolverr to bypass Cloudflare/Turnstile protection (requires FLARESOLVERR_URL in .env)'
+    )
 
     args = parser.parse_args()
 
@@ -195,32 +204,10 @@ def main():
         logger.info("Useful for testing proxies, delays, and parsing logic.")
         logger.info("=" * 60)
 
-    
-    # Initialize database writer if needed (skip in dry run)
-    db_writer = None
-    if not args.dry_run and args.output in ['db']:
-        if args.db_path:
-            logger.info(f"Local database output mode: SQLite at {args.db_path}")
-        else:
-            logger.info("Using configured database")
-        if args.user_id:
-            logger.info(f"User-specific mode: Writing to UserArtist and UserConcert for user ID {args.user_id}")
-        db_writer = ConcertDatabaseWriter(args.db_path, user_id=args.user_id, debug=args.debug)
-    
-    # Get normalizer for display purposes
-    # In normal mode: use db_writer's normalizer
-    # In dry-run mode: create a temporary in-memory normalizer
-    if db_writer:
-        display_normalizer = db_writer.normalizer
-    else:
-        from database.models import get_session
-        from database.normalizers import CityNormalizer
-        display_session = get_session(':memory:')
-        display_normalizer = CityNormalizer(display_session, verbose=args.debug)
-    
+
     # Use graceful shutdown handler for the entire main function
     with GracefulShutdown() as shutdown:
-        # Initialize proxy manager if needed
+        # Initialize proxy manager if needed (MUST be done before db_writer)
         proxy_manager = None
         if args.use_proxies:
             logger.info("=" * 60)
@@ -270,7 +257,31 @@ def main():
             logger.info("To avoid IP bans, use:")
             logger.info("  --use-proxies webshare  (add WEBSHARE_PROXY_URL to .env)")
             logger.info("  --use-proxies custom    (create proxies.txt)")
-        
+
+        # Initialize database writer if needed (skip in dry run)
+        # MUST be after proxy_manager initialization to pass it to CityNormalizer
+        db_writer = None
+        display_normalizer = None
+        if not args.dry_run and args.output in ['db']:
+            if args.db_path:
+                logger.info(f"Local database output mode: SQLite at {args.db_path}")
+            else:
+                logger.info("Using configured database")
+            if args.user_id:
+                logger.info(f"User-specific mode: Writing to UserArtist and UserConcert for user ID {args.user_id}")
+
+            # Pass proxy_manager to database writer (will be used for geocoding APIs)
+            db_writer = ConcertDatabaseWriter(args.db_path, user_id=args.user_id,
+                                             proxy_manager=proxy_manager, debug=args.debug)
+            display_normalizer = db_writer.normalizer
+
+        # Get normalizer for display purposes in dry-run mode
+        if not display_normalizer:
+            from database.models import get_session
+            from database.normalizers import CityNormalizer
+            display_session = get_session(':memory:')
+            display_normalizer = CityNormalizer(display_session, proxy_manager=proxy_manager, verbose=args.debug)
+
         # Load credentials using centralized loader
         # Supports both user-specific mode (with --user-id) and global mode (without --user-id)
         credentials, validation = load_credentials(
@@ -394,77 +405,81 @@ def main():
                 logger.info("=" * 80)
                 logger.info(f"Processing country: {country_code.upper()}")
                 logger.info("=" * 80)
-        
-                concert_parser = CountryConcertParser(
+
+                # Use context manager to ensure cleanup (FlareSolverr session, etc.)
+                with CountryConcertParser(
                     country_code,
                     max_pages=args.max_pages,
                     delay=args.delay,
                     lastfm_artists=filtering_artists,
                     proxy_manager=proxy_manager,
                     debug=args.debug,
-                    shutdown_flag=shutdown
-                )
-        
-                # Define callback wrapper for incremental saving
-                def save_callback(all_concerts_so_far, filtered_concerts_so_far, page_num):
-                    # Skip all saves in dry run mode
-                    if args.dry_run:
-                        logger.info(f"[DRY RUN] Would save progress here (page {page_num})")
-                        return
+                    shutdown_flag=shutdown,
+                    use_flaresolverr=args.use_flaresolverr
+                ) as concert_parser:
 
-                    # Save based on frequency setting
-                    should_save = False
+                    # Define callback wrapper for incremental saving
+                    def save_callback(all_concerts_so_far, filtered_concerts_so_far, page_num):
+                        # Skip all saves in dry run mode
+                        if args.dry_run:
+                            logger.info(f"[DRY RUN] Would save progress here (page {page_num})")
+                            return
 
-                    if args.save_frequency == 'page':
-                        should_save = True
-                    elif args.save_frequency == 'auto':
-                        # Save every PAGES_PER_SAVE pages
-                        should_save = (page_num % CountryConcertParser.PAGES_PER_SAVE == 0)
+                        # Save based on frequency setting
+                        should_save = False
 
-                    if should_save:
+                        if args.save_frequency == 'page':
+                            should_save = True
+                        elif args.save_frequency == 'auto':
+                            # Save every PAGES_PER_SAVE pages
+                            should_save = (page_num % CountryConcertParser.PAGES_PER_SAVE == 0)
+
+                        if should_save:
+                            # Save to database if needed
+                            if args.output in ['db'] and db_writer:
+                                data_to_write = filtered_concerts_so_far if filtering_artists else all_concerts_so_far
+                                db_writer.write_concerts(data_to_write, artist_playcounts, artist_playcounts_12month, recent_artists, artist_mbids)
+
+                            logger.info(f"Progress saved (page {page_num})")
+
+                    # Parse all pages for this country
+                    # Use callback for 'page' and 'auto' modes
+                    callback = save_callback if args.save_frequency in ['page', 'auto'] else None
+                    detect_pages = not args.no_page_detection
+                    concert_parser.parse_all_pages(on_page_complete=callback, detect_total_pages=detect_pages)
+
+                    # Collect final results from this country
+                    all_concerts.extend(concert_parser.concerts)
+                    all_filtered_concerts.extend(concert_parser.filtered_concerts)
+
+                    # Save after country completion (for 'country' mode or final save for 'auto')
+                    if not args.dry_run and args.save_frequency in ['country', 'auto']:
+
                         # Save to database if needed
                         if args.output in ['db'] and db_writer:
-                            data_to_write = filtered_concerts_so_far if filtering_artists else all_concerts_so_far
+                            data_to_write = concert_parser.filtered_concerts if filtering_artists else concert_parser.concerts
                             db_writer.write_concerts(data_to_write, artist_playcounts, artist_playcounts_12month, recent_artists, artist_mbids)
 
-                        logger.info(f"Progress saved (page {page_num})")
-        
-                # Parse all pages for this country
-                # Use callback for 'page' and 'auto' modes
-                callback = save_callback if args.save_frequency in ['page', 'auto'] else None
-                detect_pages = not args.no_page_detection
-                concert_parser.parse_all_pages(on_page_complete=callback, detect_total_pages=detect_pages)
-                
-                # Collect final results from this country
-                all_concerts.extend(concert_parser.concerts)
-                all_filtered_concerts.extend(concert_parser.filtered_concerts)
-        
-                # Save after country completion (for 'country' mode or final save for 'auto')
-                if not args.dry_run and args.save_frequency in ['country', 'auto']:
-                    
-                    # Save to database if needed
-                    if args.output in ['db'] and db_writer:
-                        data_to_write = concert_parser.filtered_concerts if filtering_artists else concert_parser.concerts
-                        db_writer.write_concerts(data_to_write, artist_playcounts, artist_playcounts_12month, recent_artists, artist_mbids)
-        
-                data_to_save = all_filtered_concerts if filtering_artists else all_concerts
-                if args.dry_run:
-                    logger.info(f"[DRY RUN] Country complete: {len(data_to_save)} total concerts parsed (not saved)")
-                else:
-                    logger.info(f"Country complete: {len(data_to_save)} total concerts saved to database")
-                
-                # Accumulate proxy stats
-                total_proxy_successes += concert_parser.proxy_successes
-                total_proxy_failures += concert_parser.proxy_failures
-                
-                # Print country summary
-                if not args.no_summary:
-                    # Pass normalizer to show normalization preview
-                    concert_parser.print_statistics(country_code, normalizer=display_normalizer)
+                    data_to_save = all_filtered_concerts if filtering_artists else all_concerts
+                    if args.dry_run:
+                        logger.info(f"[DRY RUN] Country complete: {len(data_to_save)} total concerts parsed (not saved)")
+                    else:
+                        logger.info(f"Country complete: {len(data_to_save)} total concerts saved to database")
+
+                    # Accumulate proxy stats
+                    total_proxy_successes += concert_parser.proxy_successes
+                    total_proxy_failures += concert_parser.proxy_failures
+
+                    # Print country summary
+                    if not args.no_summary:
+                        # Pass normalizer to show normalization preview
+                        concert_parser.print_statistics(country_code, normalizer=display_normalizer)
+
+                # FlareSolverr session automatically destroyed here when exiting 'with' block
         
         finally:
             # Always execute cleanup, even on interruption
-            finalize_and_cleanup(db_writer, args)
+            finalize_and_cleanup(db_writer, args, proxy_manager)
     
     # Print overall summary
     logger.info("=" * 80)

@@ -13,16 +13,19 @@ This module coordinates:
 
 import re
 import time
-from typing import Optional, Tuple, Dict
+from typing import Optional, Tuple, Dict, TYPE_CHECKING
 from datetime import datetime, timezone
-import requests
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from database.models import CityMapping, CityNormalized
 from database.normalizers.country import get_or_create_country
 from services.city_text_normalizer import CityTextNormalizer
+from services.http_client import HTTPClient
 from utils import get_logger
 from utils.geo_distance import haversine_distance
+
+if TYPE_CHECKING:
+    from services.proxy import ProxyManager
 
 logger = get_logger(__name__)
 
@@ -46,27 +49,50 @@ class CityNormalizer:
     GEOCODING_ENABLED = True
     GEOCODING_PROVIDER = 'nominatim'
     RATE_LIMIT = 1.1  # requests per second
-    TIMEOUT = 5  # seconds
+    TIMEOUT = 30  # seconds (increased from 10s - APIs can be slow during peak loads)
     CLUSTER_RADIUS_KM = 35  # cities within this radius are considered same metro area
     MIN_MAJOR_CITY_POPULATION = 400000  # cities above this population won't be clustered
-    USER_AGENT = 'concert-tracker/1.0 (https://github.com/yourusername/concert-tracker)'
+    NOMINATIM_USER_AGENT = 'concert-tracker/1.0 (vyushmanov lastfm-parser; contact via github.com/vyushmanov)'
+    OVERPASS_USER_AGENT = 'concert-tracker/1.0 (vyushmanov lastfm-parser; contact via github.com/vyushmanov)'
 
-    def __init__(self, db_session: Session, verbose: bool = False):
+    def __init__(self, db_session: Session, proxy_manager: Optional['ProxyManager'] = None, verbose: bool = False,
+                 geocode: bool = True):
         """
         Initialize normalizer with database session and services.
 
         Args:
             db_session: SQLAlchemy session for database operations
+            proxy_manager: Optional ProxyManager for proxy rotation
             verbose: Enable verbose logging for debugging
+            geocode: When False, normalize() never calls the external geocoding /
+                clustering APIs — it stores a text-normalized mapping (no coords)
+                only. Used by the async per-page ingest path so the write side
+                makes ZERO rate-limited external calls (each per-page run is its own
+                process, which would otherwise reset the 1 req/s clock and hammer
+                Nominatim/Overpass). Coordinates are filled later by the dedicated
+                single-process backfill (backfill_city_coords.py). Defaults True so
+                the long-lived parse_concerts.py path is unchanged.
         """
         self.db = db_session
+        self.geocode_enabled = geocode
         self.last_geocode_time = 0
         self.last_overpass_time = 0
+        # Set by _geocode_city() when its LAST call failed due to rate limiting (429
+        # / no response), distinct from a clean "no match". Lets a batch caller (the
+        # coordinate backfill) detect a block and stop early instead of hammering.
+        self._last_was_rate_limited = False
         self._geocode_cache = {}  # In-memory cache for current session
         self.verbose = verbose
 
         # Initialize text normalizer service
         self._text_normalizer = CityTextNormalizer()
+
+        # Initialize HTTP client for API requests (no FlareSolverr for geocoding APIs)
+        self.http_client = HTTPClient(
+            timeout=self.TIMEOUT,
+            proxy_manager=proxy_manager,
+            use_flaresolverr=False  # Never use FlareSolverr for geocoding APIs
+        )
         
     def normalize(self, city: str, country: str) -> str:
         """Normalize a city name using hybrid approach
@@ -96,15 +122,27 @@ class CityNormalizer:
         normalized = self._text_normalizer.normalize(city)
         logger.debug(f"Text normalized: '{city}' -> '{normalized}'")
 
-        # Step 3: Try geocoding and clustering
-        logger.debug("Attempting geocoding and clustering...")
-        geocoded_result = self._geocode_and_cluster(city, country, normalized)
-        if geocoded_result:
-            logger.debug(f"Geocoding result: '{normalized}' -> '{geocoded_result}'")
-            return geocoded_result
+        # Step 3: Try geocoding and clustering — UNLESS geocoding is disabled (async
+        # ingest path), in which case we go straight to the offline text-normalized
+        # mapping and let the backfill pass attach coordinates later.
+        if self.geocode_enabled:
+            logger.debug("Attempting geocoding and clustering...")
+            geocoded_result = self._geocode_and_cluster(city, country, normalized)
+            if geocoded_result:
+                logger.debug(f"Geocoding result: '{normalized}' -> '{geocoded_result}'")
+                return geocoded_result
+        else:
+            logger.debug(f"Geocoding disabled — storing offline text-normalized mapping for '{city}'")
 
-        # Step 4: No geocoding result, return text normalized version
-        logger.debug(f"No geocoding result, returning text normalized: '{normalized}'")
+        # Step 4: Geocoding failed (tiny/misspelled town, or a rate-limited API).
+        # Persist a BEST-EFFORT text-normalized mapping with no coordinates so the
+        # concert is still SAVED instead of dropped. Without this, the caller
+        # (get_or_create_city_mapping) re-queries, finds nothing, and the writer
+        # raises ValueError → the whole concert is lost just because one obscure
+        # place name didn't geocode. Coordinates can be backfilled later; until
+        # then the only consequence is the map can't pin this concert yet.
+        logger.debug(f"No geocoding result — storing best-effort text-normalized mapping: '{normalized}'")
+        self._store_mapping(city, country, normalized, None, None, 'text_normalized')
         return normalized
     
     def _check_manual_mapping(self, city: str, country: str) -> Optional[CityMapping]:
@@ -249,14 +287,14 @@ class CityNormalizer:
         # Retry logic with exponential backoff
         max_retries = 3
         retry_delay = 2  # seconds
+        self._last_was_rate_limited = False  # reset; set below if this call is throttled
 
         for attempt in range(max_retries):
-            # Rate limiting (only on first attempt, not on retries)
-            if attempt == 0:
-                elapsed = time.time() - self.last_geocode_time
-                if elapsed < self.RATE_LIMIT:
-                    logger.debug(f"Rate limiting: waiting {self.RATE_LIMIT - elapsed:.2f}s")
-                    time.sleep(self.RATE_LIMIT - elapsed)
+            # Rate limiting (apply to all attempts including retries)
+            elapsed = time.time() - self.last_geocode_time
+            if elapsed < self.RATE_LIMIT:
+                logger.debug(f"Rate limiting: waiting {self.RATE_LIMIT - elapsed:.2f}s")
+                time.sleep(self.RATE_LIMIT - elapsed)
 
             try:
                 url = 'https://nominatim.openstreetmap.org/search'
@@ -268,7 +306,7 @@ class CityNormalizer:
                     'extratags': 1
                 }
                 headers = {
-                    'User-Agent': self.USER_AGENT
+                    'User-Agent': self.NOMINATIM_USER_AGENT
                 }
 
                 if attempt == 0:
@@ -276,18 +314,30 @@ class CityNormalizer:
                 else:
                     logger.warning(f"Retry attempt {attempt + 1}/{max_retries}...")
 
-                response = requests.get(url, params=params, headers=headers, timeout=self.TIMEOUT)
+                # Use HTTPClient with custom headers (includes proxy support)
+                response = self.http_client.get(
+                    url,
+                    max_retries=1,  # We handle retries in this method
+                    headers=headers,
+                    params=params
+                )
                 self.last_geocode_time = time.time()
 
-                if response.status_code == 200:
+                if response and response.status_code == 200:
                     data = response.json()
                     if data:
-                        result = data[0]
+                        result = data[0] or {}
+                        if 'lat' not in result or 'lon' not in result:
+                            logger.info(f"Nominatim result for '{city}, {country}' has no lat/lon — no coordinates (will stay null)")
+                            return None  # malformed entry, not retryable
                         lat, lon = float(result['lat']), float(result['lon'])
 
-                        # Extract metadata for smart clustering
-                        address = result.get('address', {})
-                        extratags = result.get('extratags', {})
+                        # Extract metadata for smart clustering. NOTE: `.get(k, {})`
+                        # only defaults when the key is MISSING — Nominatim sometimes
+                        # returns "address": null / "extratags": null, so use `or {}`
+                        # to also coerce an explicit null (else `None.get(...)` throws).
+                        address = result.get('address') or {}
+                        extratags = result.get('extratags') or {}
 
                         municipality = address.get('municipality') or address.get('city')
                         population = extratags.get('population', '0')
@@ -316,22 +366,39 @@ class CityNormalizer:
 
                         return metadata
                     else:
-                        logger.warning("No results found")
+                        logger.info(f"Nominatim has no match for '{city}, {country}' — no coordinates (will stay null)")
                         return None  # No results, don't retry
-                else:
-                    logger.error(f"API error: status {response.status_code}")
-
-                    # Retry on server errors (5xx) or rate limiting (429)
+                elif response:
+                    # 429/5xx are transient (rate limit / server). Say so explicitly,
+                    # name the city, and note this is non-fatal (coords stay null).
+                    kind = 'rate-limited (429)' if response.status_code == 429 else f'HTTP {response.status_code}'
+                    if response.status_code == 429:
+                        self._last_was_rate_limited = True
                     if response.status_code >= 500 or response.status_code == 429:
                         if attempt < max_retries - 1:
                             wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
-                            logger.warning(f"Retrying in {wait_time}s...")
+                            logger.warning(f"Geocoding '{city}, {country}' {kind} — retrying in {wait_time}s ({attempt + 2}/{max_retries})")
                             time.sleep(wait_time)
                             continue
+                        logger.warning(f"Geocoding '{city}, {country}' {kind} after {max_retries} attempt(s) — leaving coordinates null")
+                    else:
+                        logger.warning(f"Geocoding '{city}, {country}' returned {kind} — leaving coordinates null")
+                    return None
+                else:
+                    # HTTPClient returned None (its own retries exhausted). In
+                    # practice this is how a 429 surfaces here — the client swallows
+                    # the status and returns None — so treat it as rate-limited.
+                    self._last_was_rate_limited = True
+                    if attempt < max_retries - 1:
+                        wait_time = retry_delay * (2 ** attempt)
+                        logger.warning(f"Geocoding '{city}, {country}' failed (no response) — retrying in {wait_time}s ({attempt + 2}/{max_retries})")
+                        time.sleep(wait_time)
+                        continue
+                    logger.warning(f"Geocoding '{city}, {country}' failed (no response) after {max_retries} attempt(s) — leaving coordinates null")
                     return None
 
             except Exception as e:
-                logger.error(f"Geocoding error on attempt {attempt + 1}: {e}")
+                logger.warning(f"Geocoding '{city}, {country}' errored on attempt {attempt + 1}/{max_retries}: {e}")
 
                 # Retry on exceptions (timeouts, connection errors)
                 if attempt < max_retries - 1:
@@ -474,27 +541,50 @@ class CityNormalizer:
         out tags center;
         """
         
-        # Retry logic with exponential backoff
-        max_retries = 3
+        # Overpass clustering is a best-effort nicety (group a small town under its
+        # nearest metro for the map). The public instance is frequently 429/504 and
+        # rarely recovers within a few seconds, so retrying just hammers it and slows
+        # the drain. One attempt: on failure we fall through to the municipality /
+        # standalone fallback (which still stores a mapping — the concert is safe).
+        max_retries = 1
         retry_delay = 2  # seconds
-        
+
         for attempt in range(max_retries):
-            # Rate limiting (only on first attempt, not on retries)
-            if attempt == 0:
-                elapsed = time.time() - self.last_overpass_time
-                if elapsed < self.RATE_LIMIT:
-                    logger.debug(f"Rate limiting: waiting {self.RATE_LIMIT - elapsed:.2f}s")
-                    time.sleep(self.RATE_LIMIT - elapsed)
+            # Rate limiting (apply to all attempts including retries)
+            elapsed = time.time() - self.last_overpass_time
+            if elapsed < self.RATE_LIMIT:
+                logger.debug(f"Rate limiting: waiting {self.RATE_LIMIT - elapsed:.2f}s")
+                time.sleep(self.RATE_LIMIT - elapsed)
 
             try:
                 if attempt == 0:
-                    logger.debug(f"Querying for cities within {self.CLUSTER_RADIUS_KM} km...")
+                    logger.debug(f"Querying Overpass for cities within {self.CLUSTER_RADIUS_KM} km...")
                 else:
                     logger.debug(f"Retry attempt {attempt + 1}/{max_retries}...")
 
                 url = 'https://overpass-api.de/api/interpreter'
-                response = requests.post(url, data={'data': query}, timeout=30)
+                headers = {
+                    'User-Agent': self.OVERPASS_USER_AGENT
+                }
+
+                # Use HTTPClient.post for POST requests (with proxy support and logging)
+                response = self.http_client.post(
+                    url,
+                    max_retries=1,  # We handle retries in this method
+                    headers=headers,
+                    data={'data': query}
+                )
                 self.last_overpass_time = time.time()
+
+                if not response:
+                    # HTTPClient returned None (failed after retries)
+                    logger.debug(f"Request failed (HTTPClient returned None)")
+                    if attempt < max_retries - 1:
+                        wait_time = retry_delay * (2 ** attempt)
+                        logger.debug(f"Retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                        continue
+                    return None
 
                 if response.status_code != 200:
                     logger.debug(f"API error: status {response.status_code}")
@@ -717,20 +807,25 @@ class CityNormalizer:
         self._store_mapping(original_city, country, normalized_city, latitude, longitude, 'manual')
 
 
-def get_or_create_city_mapping(session: Session, original_city: str, country: str, verbose: bool = False) -> Optional[CityMapping]:
+def get_or_create_city_mapping(session: Session, original_city: str, country: str,
+                               proxy_manager: Optional['ProxyManager'] = None, verbose: bool = False,
+                               geocode: bool = True) -> Optional[CityMapping]:
     """Get or create a city mapping for the given city and country.
-    
+
     This is the main entry point for getting city mappings. It will:
     1. Check if mapping exists in database
     2. If not, normalize the city name and create a new mapping
     3. Link to CityNormalized table
-    
+
     Args:
         session: SQLAlchemy session
         original_city: Original city name (with diacritics preserved)
         country: Country name
+        proxy_manager: Optional ProxyManager for proxy rotation
         verbose: Enable verbose logging
-        
+        geocode: When False, skip external geocoding and store a text-normalized
+            mapping only (coords filled later by the backfill). See CityNormalizer.
+
     Returns:
         CityMapping object or None if country not found
     """
@@ -738,24 +833,24 @@ def get_or_create_city_mapping(session: Session, original_city: str, country: st
     country_obj = get_or_create_country(session, country, verbose=verbose)
     if not country_obj:
         return None
-    
+
     # Check if mapping already exists
     existing = session.query(CityMapping).filter(
         CityMapping.originalCity == original_city,
         CityMapping.countryId == country_obj.id
     ).first()
-    
+
     if existing:
         return existing
-    
+
     # Create new mapping using normalizer
-    normalizer = CityNormalizer(session, verbose=verbose)
+    normalizer = CityNormalizer(session, proxy_manager=proxy_manager, verbose=verbose, geocode=geocode)
     normalized_city = normalizer.normalize(original_city, country)
-    
+
     # Query again in case normalizer created it
     mapping = session.query(CityMapping).filter(
         CityMapping.originalCity == original_city,
         CityMapping.countryId == country_obj.id
     ).first()
-    
+
     return mapping

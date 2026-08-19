@@ -20,6 +20,9 @@ Usage:
 """
 
 import argparse
+import atexit
+import os
+import tempfile
 import time
 from typing import List, Dict, Tuple, Optional
 from dotenv import load_dotenv
@@ -38,6 +41,78 @@ logger = get_logger(__name__)
 
 # Load environment variables
 load_dotenv()
+
+# Single-flight lock: the ingest worker spawns this after every drain-with-new, and
+# a full MBID+image pass over thousands of artists can run well over an hour at
+# MusicBrainz's ~1 req/s. Without a lock, a second scan mid-run would spawn an
+# overlapping process and double the API load on the same artist set. The stale
+# threshold is deliberately long so a legitimately slow run is never reclaimed.
+LOCK_PATH = os.path.join(tempfile.gettempdir(), 'concert-tracker-metadata.lock')
+LOCK_STALE_SECONDS = 3 * 60 * 60  # 3h — longer than any realistic full pass
+
+# How long to wait before re-querying MusicBrainz for an artist it previously had
+# no entry for. Without this, every crawl re-runs the FULL no-MBID backlog through
+# MusicBrainz (~1 req/s) — thousands of obscure acts it will never have. They're
+# retried after this window in case MusicBrainz has since added them.
+MBID_RECHECK_SECONDS = 30 * 24 * 60 * 60  # 30 days
+
+# Mirror of MBID_RECHECK_SECONDS for fanart.tv images. Without this, every metadata
+# pass re-queries the FULL "has MBID but no image" backlog against fanart.tv —
+# thousands of obscure acts it has no image for, re-checked forever. Stamped on a
+# fruitless lookup and retried only after this window (in case fanart.tv added one).
+IMAGE_RECHECK_SECONDS = 30 * 24 * 60 * 60  # 30 days
+
+
+def needs_mbid_lookup(artist, now: int) -> bool:
+    """True if the artist has no MBID and hasn't been checked within the recheck window."""
+    if artist.mbid:
+        return False
+    checked = artist.mbidCheckedAt
+    return checked is None or checked < now - MBID_RECHECK_SECONDS
+
+
+def needs_image_lookup(artist, now: int) -> bool:
+    """True if the artist has an MBID, no image yet, and hasn't had a fruitless
+    fanart.tv check within the recheck window."""
+    if artist.imageUrl or not artist.mbid:
+        return False
+    checked = artist.imageCheckedAt
+    return checked is None or checked < now - IMAGE_RECHECK_SECONDS
+
+
+def acquire_lock() -> Optional[int]:
+    """Atomically create the lock file. Returns its fd, or None if a live run holds it."""
+    for _ in range(2):
+        try:
+            fd = os.open(LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, f"{os.getpid()} {int(time.time())}\n".encode())
+            return fd
+        except FileExistsError:
+            try:
+                age = time.time() - os.path.getmtime(LOCK_PATH)
+            except OSError:
+                return None
+            if age > LOCK_STALE_SECONDS:
+                logger.warning(f"Removing stale metadata lock ({age:.0f}s old)")
+                try:
+                    os.unlink(LOCK_PATH)
+                except OSError:
+                    return None
+                continue
+            return None
+    return None
+
+
+def release_lock(fd: Optional[int]) -> None:
+    if fd is not None:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+    try:
+        os.unlink(LOCK_PATH)
+    except OSError:
+        pass
 
 
 class MetadataProcessor:
@@ -114,23 +189,45 @@ class MetadataProcessor:
         Returns:
             Number of MBIDs repaired
         """
-        artists_missing_mbid = [a for a in all_artists if not a.mbid]
+        now = int(time.time())
+        without_mbid = [a for a in all_artists if not a.mbid]
+        # Skip artists we've already failed to resolve within the recheck window, so
+        # each crawl doesn't re-query the whole no-MBID backlog through MusicBrainz.
+        candidates = [a for a in without_mbid if needs_mbid_lookup(a, now)]
+        skipped = len(without_mbid) - len(candidates)
+        recheck_days = MBID_RECHECK_SECONDS // 86400
 
-        if not artists_missing_mbid:
+        if not candidates:
+            if skipped:
+                logger.info(
+                    f"PHASE 0: MBID Auto-Repair — nothing to query "
+                    f"({skipped} without MBID already checked within {recheck_days}d)\n"
+                )
             return 0
 
         logger.info("=" * 60)
-        logger.info(f"PHASE 0: MBID Auto-Repair ({len(artists_missing_mbid)} artists without MBID)")
+        msg = f"PHASE 0: MBID Auto-Repair ({len(candidates)} to query"
+        if skipped:
+            msg += f", {skipped} skipped — checked within {recheck_days}d"
+        logger.info(msg + ")")
         logger.info("=" * 60 + "\n")
 
-        # Bulk repair using the service (which tries MusicBrainz first)
+        # Bulk repair using the service (which tries MusicBrainz first, Last.fm next)
         mbid_repair_count = 0
         try:
             mbid_repair_count = self.metadata_service.bulk_repair_mbids(
-                self.session, artists_missing_mbid
+                self.session, candidates
             )
+            # Stamp the ones STILL without an MBID so we don't re-query them next
+            # crawl — both sources had nothing. Retried after the recheck window.
+            stamped = 0
+            for a in candidates:
+                if not a.mbid:
+                    a.mbidCheckedAt = now
+                    stamped += 1
             self.session.commit()
-            logger.info(f"\n✓ Auto-repaired {mbid_repair_count}/{len(artists_missing_mbid)} MBIDs\n")
+            tail = f"; marked {stamped} as checked (no MBID found — won't re-query for {recheck_days}d)" if stamped else ""
+            logger.info(f"\n✓ Auto-repaired {mbid_repair_count}/{len(candidates)} MBIDs{tail}\n")
         except Exception as e:
             logger.error(f"Error during MBID repair: {e}")
             self.session.rollback()
@@ -161,10 +258,19 @@ class MetadataProcessor:
         Returns:
             Tuple of (artists_without_mbid, artists_with_mbid)
         """
+        now = int(time.time())
+        recheck_days = IMAGE_RECHECK_SECONDS // 86400
+        # Artists with an MBID but no image that we checked recently and found
+        # nothing for — skipped this run (parity with the Phase 0 MBID throttle).
+        throttled_images = (
+            0 if force
+            else sum(1 for a in all_artists if a.mbid and not a.imageUrl and not needs_image_lookup(a, now))
+        )
+
         if refresh_playcounts and not force:
             logger.info(f"Refresh playcounts mode: Will update playcounts for all {len(all_artists)} artists")
             artists_without_mbid = [a for a in all_artists if not a.mbid]
-            artists_with_mbid = [a for a in all_artists if a.mbid and not a.imageUrl]
+            artists_with_mbid = [a for a in all_artists if needs_image_lookup(a, now)]
             if artists_with_mbid:
                 logger.info(f"  Also found {len(artists_with_mbid)} artists with MBID but missing images")
         else:
@@ -172,7 +278,7 @@ class MetadataProcessor:
                 logger.info("Force mode: Will re-fetch metadata for all artists")
 
             artists_without_mbid = [a for a in all_artists if not a.mbid]
-            artists_with_mbid = [a for a in all_artists if a.mbid and (force or not a.imageUrl)]
+            artists_with_mbid = [a for a in all_artists if a.mbid and (force or needs_image_lookup(a, now))]
 
             if limit:
                 total_artists = artists_without_mbid + artists_with_mbid
@@ -180,6 +286,12 @@ class MetadataProcessor:
                 remaining = limit - len(artists_without_mbid)
                 artists_with_mbid = [a for a in total_artists if a.mbid][:remaining] if remaining > 0 else []
                 logger.info(f"Limiting to {limit} artists total")
+
+        if throttled_images:
+            logger.info(
+                f"  Skipping {throttled_images} artists with MBID but no image — "
+                f"fanart.tv had nothing within the last {recheck_days}d (will retry after)"
+            )
 
         self.artists_without_mbid = artists_without_mbid
         self.artists_with_mbid = artists_with_mbid
@@ -240,6 +352,9 @@ class MetadataProcessor:
                     self.stats['images_found'] += 1
                 else:
                     logger.info(f"  ✗ No image found on fanart.tv")
+                    # Stamp so we don't re-query fanart.tv for this imageless artist
+                    # every crawl; retried only after IMAGE_RECHECK_SECONDS.
+                    artist.imageCheckedAt = int(time.time())
                     self.stats['images_not_found'] += 1
 
                 # Rate limit fanart.tv API calls
@@ -293,6 +408,9 @@ class MetadataProcessor:
                 self.stats['images_found'] += 1
             else:
                 logger.info(f"  ✗ No image found")
+                # Stamp so we don't re-query fanart.tv for this imageless artist
+                # every crawl; retried only after IMAGE_RECHECK_SECONDS.
+                artist.imageCheckedAt = int(time.time())
                 self.stats['images_not_found'] += 1
 
             self.stats['processed'] += 1
@@ -419,6 +537,11 @@ def main():
         help='User ID for per-user playcount updates (recommended)'
     )
     parser.add_argument(
+        '--artist-id',
+        type=int,
+        help='Process a single artist by ID (e.g. to enrich a newly added artist)'
+    )
+    parser.add_argument(
         '--limit',
         type=int,
         help='Limit number of artists to process (for testing)'
@@ -444,9 +567,23 @@ def main():
         action='store_true',
         help='Enable verbose logging'
     )
+    parser.add_argument(
+        '--no-color-log',
+        action='store_true',
+        help='Disable colored log output (for non-TTY callers)'
+    )
 
     args = parser.parse_args()
-    setup_logging(verbose=args.verbose)
+    setup_logging(verbose=args.verbose, use_colors=not args.no_color_log)
+
+    # Single-flight: bail if another metadata pass is already running (the worker
+    # re-triggers this after every drain; overlapping runs would double MusicBrainz
+    # load on the same artists). Released on exit via atexit, covering every return.
+    lock_fd = acquire_lock()
+    if lock_fd is None:
+        logger.info("Another metadata pass is already running — exiting.")
+        return 0
+    atexit.register(release_lock, lock_fd)
 
     # Load credentials using centralized loader
     credentials, validation = load_credentials(
@@ -522,8 +659,14 @@ def main():
     Session = sessionmaker(bind=engine)
     session = Session()
 
-    # Query artists - filter by user if user_id provided
-    if args.user_id:
+    # Query artists - single artist, per-user, or global (in priority order)
+    if args.artist_id:
+        all_artists = session.query(Artist).filter(Artist.id == args.artist_id).all()
+        if not all_artists:
+            logger.info(f"No artist found with ID {args.artist_id}")
+            return 0
+        logger.info(f"Processing single artist ID {args.artist_id} ({all_artists[0].name})")
+    elif args.user_id:
         user_artist_ids = session.query(UserArtist.artistId).filter_by(userId=args.user_id).distinct().all()
         user_artist_ids = [id[0] for id in user_artist_ids]
 

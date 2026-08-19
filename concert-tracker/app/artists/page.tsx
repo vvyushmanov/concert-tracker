@@ -1,6 +1,8 @@
 import { prisma } from '@/lib/prisma';
 import { auth } from '@/auth';
+import { getRelevantConcerts } from '@/lib/concerts';
 import ArtistsList from './ArtistsList';
+import ArtistManager from './ArtistManager';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,74 +26,66 @@ export default async function ArtistsPage() {
   }
 
   const userId = parseInt(session.user.id);
-  const now = Math.floor(Date.now() / 1000);
 
-  // Get user's concerts
-  const userConcertIds = new Set(
-    (await prisma.userConcert.findMany({
-      where: { userId },
-      select: { concertId: true }
-    })).map(uc => uc.concertId)
-  );
+  // Personalized read: relevant (upcoming) concerts for this user, then group by
+  // the user's FOLLOWED artists that appear on them (see lib/concerts.ts).
+  const { concerts, followedArtistIds } = await getRelevantConcerts(userId);
+  const followedSet = new Set(followedArtistIds);
 
-  // Get all artist-concert links for user's concerts
-  const artistConcerts = await prisma.artistConcert.findMany({
-    where: {
-      concertId: { in: Array.from(userConcertIds) }
-    },
-    include: {
-      artist: true,
-      concert: {
-        include: {
-          countryObj: true,
-        }
+  const artistMap = new Map<number, { artist: any; concerts: any[] }>();
+  for (const concert of concerts) {
+    for (const ac of concert.artists) {
+      if (!followedSet.has(ac.artistId)) continue;
+      if (!artistMap.has(ac.artistId)) {
+        artistMap.set(ac.artistId, { artist: ac.artist, concerts: [] });
       }
+      artistMap.get(ac.artistId)!.concerts.push(concert);
     }
-  });
+  }
 
-  // Group concerts by artist (now includes all performances, not just primary)
-  const artistMap = new Map();
-  artistConcerts.forEach((ac: any) => {
-    if (!artistMap.has(ac.artistId)) {
-      artistMap.set(ac.artistId, {
-        artist: ac.artist,
-        concerts: []
-      });
-    }
-    artistMap.get(ac.artistId).concerts.push(ac.concert);
-  });
-
-  // Get user-specific artist stats from UserArtist table
-  const userArtistStats = await prisma.userArtist.findMany({
-    where: { 
-      userId,
-      artistId: { in: Array.from(artistMap.keys()) }
-    }
-  });
-
-  const userArtistStatsMap = new Map(
-    userArtistStats.map(ua => [ua.artistId, ua])
-  );
-
-  // Calculate stats with upcoming concerts only
-  const artistsWithStats = Array.from(artistMap.entries()).map(([artistId, data]) => {
-    const upcomingConcerts = data.concerts.filter((c: any) => c.dateStart >= now);
-    const uniqueCountries = new Set(upcomingConcerts.map((c: any) => c.countryObj?.name || 'Unknown'));
-    const userStats = userArtistStatsMap.get(artistId);
-    
-    return {
-      id: data.artist.id,
-      name: data.artist.name,
-      imageUrl: data.artist.imageUrl,
-      playcount: userStats?.playcount || 0,
-      playcount12month: userStats?.playcount12month || 0,
-      recent: userStats?.recent || false,
-      upcomingConcertCount: upcomingConcerts.length,
-      countryCount: uniqueCountries.size,
-      countries: Array.from(uniqueCountries) as string[],
-    };
-  }).filter(artist => artist.upcomingConcertCount > 0) // Only show artists with upcoming concerts
+  // Per-artist stats (helper already restricted to upcoming + relevant concerts).
+  const artistsWithStats = Array.from(artistMap.values())
+    .map((data) => {
+      const uniqueCountries = new Set(
+        data.concerts.map((c: any) => c.countryObj?.name || 'Unknown')
+      );
+      return {
+        id: data.artist.id,
+        name: data.artist.name,
+        imageUrl: data.artist.imageUrl,
+        playcount: data.artist.playcount || 0,
+        playcount12month: data.artist.playcount12month || 0,
+        recent: data.artist.recent || false,
+        upcomingConcertCount: data.concerts.length,
+        countryCount: uniqueCountries.size,
+        countries: Array.from(uniqueCountries) as string[],
+      };
+    })
+    .filter((artist) => artist.upcomingConcertCount > 0)
     .sort((a, b) => b.playcount - a.playcount); // Sort by playcount descending
+
+  // Full followed list with stats (incl. artists with no upcoming concerts) so
+  // the grid can toggle between "with concerts" and "all followed".
+  const upcomingStatsMap = new Map(artistsWithStats.map((a) => [a.id, a]));
+  const followedRows = await prisma.userArtist.findMany({
+    where: { userId },
+    include: { artist: { select: { id: true, name: true, imageUrl: true } } },
+    orderBy: { playcount: 'desc' },
+  });
+  const allFollowed = followedRows.map((r) => {
+    const up = upcomingStatsMap.get(r.artist.id);
+    return {
+      id: r.artist.id,
+      name: r.artist.name,
+      imageUrl: r.artist.imageUrl,
+      playcount: r.playcount,
+      playcount12month: r.playcount12month,
+      recent: r.recent,
+      upcomingConcertCount: up?.upcomingConcertCount ?? 0,
+      countryCount: up?.countryCount ?? 0,
+      countries: up?.countries ?? [],
+    };
+  });
 
   return (
     <div className="min-h-screen p-8 bg-gray-50 dark:bg-gray-900">
@@ -99,25 +93,21 @@ export default async function ArtistsPage() {
         <div className="mb-6">
           <h1 className="text-3xl font-bold mb-2">Artists</h1>
           <p className="text-gray-600 dark:text-gray-400">
-            {artistsWithStats.length} artists with upcoming concerts
+            {artistsWithStats.length} with upcoming concerts · {allFollowed.length} followed
           </p>
         </div>
 
-        {artistsWithStats.length === 0 ? (
-          <div className="text-center py-16 bg-white dark:bg-gray-800 rounded-lg shadow">
-            <h2 className="text-2xl font-semibold mb-4">No artists found</h2>
-            <p className="text-gray-600 dark:text-gray-400 mb-6">
-              Please run the scanner to discover concerts! 🎵
+        <ArtistManager followedCount={allFollowed.length} />
+
+        {allFollowed.length === 0 ? (
+          <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow">
+            <h2 className="text-xl font-semibold mb-2">You&apos;re not following any artists yet</h2>
+            <p className="text-gray-600 dark:text-gray-400">
+              Sync from Last.fm or search to follow artists above, then pick your countries in Settings. 🎵
             </p>
-            <a
-              href="/scanner"
-              className="inline-block px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-            >
-              Go to Scanner
-            </a>
           </div>
         ) : (
-          <ArtistsList artists={artistsWithStats} />
+          <ArtistsList artists={allFollowed} />
         )}
       </main>
     </div>

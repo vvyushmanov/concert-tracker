@@ -90,6 +90,10 @@ export async function GET(
         artist: {
           ...ac.artist,
           playcount: artistStatsMap.get(ac.artistId)?.playcount || 0,
+          // Read-time "your artist" signal: the user has a UserArtist row for
+          // this artist (follows it), independent of playcount. Mirrors
+          // getRelevantConcerts() so the "Your Artists" chips are consistent.
+          followed: artistStatsMap.has(ac.artistId),
         },
       })),
     };
@@ -213,6 +217,16 @@ export async function PATCH(
 
     const userInteraction = concert.userInteractions[0];
 
+    // User's artist stats, so the "Your Artists" chips keep their playcount +
+    // followed flags after a PATCH re-render (parity with GET).
+    const artistIds = concert.artists.map((ac: any) => ac.artistId);
+    const userArtistStats = await prisma.userArtist.findMany({
+      where: { userId, artistId: { in: artistIds } },
+    });
+    const artistStatsMap = new Map(
+      userArtistStats.map((ua: any) => [ua.artistId, ua])
+    );
+
     // Parse JSON fields and transform artists array
     const concertWithParsedData = {
       ...concert,
@@ -228,7 +242,11 @@ export async function PATCH(
         artistId: ac.artistId,
         concertId: ac.concertId,
         isPrimary: ac.isPrimary,
-        artist: ac.artist,
+        artist: {
+          ...ac.artist,
+          playcount: artistStatsMap.get(ac.artistId)?.playcount || 0,
+          followed: artistStatsMap.has(ac.artistId),
+        },
       })),
     };
 

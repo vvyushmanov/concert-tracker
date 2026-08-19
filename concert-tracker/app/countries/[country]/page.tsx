@@ -1,5 +1,5 @@
-import { prisma } from '@/lib/prisma';
 import { auth } from '@/auth';
+import { getRelevantConcerts } from '@/lib/concerts';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import CountryConcerts from './CountryConcerts';
@@ -11,117 +11,27 @@ export default async function CountryDetailPage({ params }: { params: Promise<{ 
   const country = decodeURIComponent(countryParam);
   
   const session = await auth();
-  const userId = session?.user?.id ? parseInt(session.user.id) : null;
+  if (!session) {
+    notFound();
+  }
+  const userId = parseInt(session.user.id);
 
-  const concerts = await prisma.concert.findMany({
-    where: {
-      countryObj: {
-        name: country
-      }
-    },
-    include: {
-      cityMapping: {
-        select: {
-          id: true,
-          originalCity: true,
-          cityNormalized: {
-            select: {
-              normalizedCity: true,
-            }
-          }
-        }
-      },
-      countryObj: {
-        select: {
-          id: true,
-          name: true,
-          code: true,
-        }
-      },
-      artists: {
-        include: {
-          artist: {
-            select: {
-              id: true,
-              name: true,
-              userStats: userId ? {
-                where: {
-                  userId: userId
-                },
-                select: {
-                  playcount: true,
-                  playcount12month: true,
-                  recent: true,
-                }
-              } : false,
-            },
-          },
-        },
-        orderBy: {
-          isPrimary: 'desc',
-        },
-      },
-      userInteractions: userId ? {
-        where: {
-          userId: userId
-        },
-        select: {
-          interested: true,
-          notes: true,
-        }
-      } : false,
-    },
-    orderBy: [
-      { dateStart: 'asc' },
-    ],
-  });
+  // Personalized read: this country's upcoming concerts relevant to the user
+  // (followed artists in active countries), via the shared helper.
+  const { concerts: transformedConcerts } = await getRelevantConcerts(userId, { countryName: country });
 
-  if (concerts.length === 0) {
+  if (transformedConcerts.length === 0) {
     notFound();
   }
 
-  // Transform data to flatten user-specific fields and derive primary artist
-  const transformedConcerts = concerts
-    .map((concert: any) => {
-      const primaryArtistLink = concert.artists.find((ac: any) => ac.isPrimary) || concert.artists[0];
-      const primaryArtist = primaryArtistLink?.artist;
-      
-      return {
-        ...concert,
-        artistId: primaryArtistLink?.artistId,
-        artist: primaryArtist ? {
-          id: primaryArtist.id,
-          name: primaryArtist.name,
-          playcount: primaryArtist.userStats?.[0]?.playcount || 0,
-          playcount12month: primaryArtist.userStats?.[0]?.playcount12month || 0,
-          recent: primaryArtist.userStats?.[0]?.recent || false,
-        } : null,
-        // Transform artists array with user stats
-        artists: concert.artists.map((ac: any) => ({
-          id: ac.id,
-          artistId: ac.artistId,
-          concertId: ac.concertId,
-          isPrimary: ac.isPrimary,
-          artist: {
-            ...ac.artist,
-            playcount: ac.artist.userStats?.[0]?.playcount || 0,
-          },
-        })),
-        interested: concert.userInteractions?.[0]?.interested || false,
-        notes: concert.userInteractions?.[0]?.notes || null,
-      };
-    })
-    // Filter out concerts where user doesn't track any artists (all playcounts are 0)
-    .filter((concert: any) => 
-      concert.artists.some((ac: any) => ac.artist.playcount > 0)
-    );
-
   // Get unique normalized cities and artists
   const cities = [...new Set(transformedConcerts
-    .map(c => c.cityMapping?.cityNormalized?.normalizedCity)
-    .filter((city): city is string => city !== undefined)
+    .map((c: any) => c.cityMapping?.cityNormalized?.normalizedCity)
+    .filter((city: any): city is string => typeof city === 'string')
   )];
-  const artists = new Set(transformedConcerts.map(c => c.artist.name)).size;
+  const artists = new Set(
+    transformedConcerts.map((c: any) => c.artist?.name).filter(Boolean)
+  ).size;
 
   return (
     <div className="min-h-screen p-8 bg-gray-50 dark:bg-gray-900">
@@ -144,7 +54,7 @@ export default async function CountryDetailPage({ params }: { params: Promise<{ 
           <div className="flex flex-wrap gap-6 text-gray-600 dark:text-gray-400">
             <div className="flex items-center gap-2">
               <span className="text-xl">🎤</span>
-              <span>{concerts.length} {concerts.length === 1 ? 'concert' : 'concerts'}</span>
+              <span>{transformedConcerts.length} {transformedConcerts.length === 1 ? 'concert' : 'concerts'}</span>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xl">📍</span>

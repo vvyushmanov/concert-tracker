@@ -6,7 +6,7 @@ Handles MBID repair, image fetching, and playcount updates.
 """
 
 import requests
-from typing import Optional, Tuple, Dict, List, Any
+from typing import Optional, Tuple, Dict, List, Any, TYPE_CHECKING
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
@@ -15,22 +15,28 @@ from services.lastfm_service import LastFMService
 from services.fanart_service import FanartService
 from utils import get_logger
 
+if TYPE_CHECKING:
+    from services.proxy import ProxyManager
+
 logger = get_logger(__name__)
 
 class ArtistMetadataService:
     """Service for fetching and updating artist metadata"""
 
-    def __init__(self, lastfm_api_key: Optional[str] = None, fanart_api_key: Optional[str] = None, lastfm_user: Optional[str] = None) -> None:
+    def __init__(self, lastfm_api_key: Optional[str] = None, fanart_api_key: Optional[str] = None,
+                 lastfm_user: Optional[str] = None, proxy_manager: Optional['ProxyManager'] = None) -> None:
         """Initialize metadata service
 
         Args:
             lastfm_api_key: Last.fm API key (optional)
             fanart_api_key: Fanart.tv API key (optional)
             lastfm_user: Last.fm username (optional, for playcount fetching)
+            proxy_manager: Optional ProxyManager for proxy rotation
         """
         self.lastfm_service = LastFMService(lastfm_api_key) if lastfm_api_key else None
         self.fanart_service = FanartService(fanart_api_key) if fanart_api_key else None
         self.lastfm_user = lastfm_user
+        self.proxy_manager = proxy_manager
         self.musicbrainz_service = None  # Lazy initialization
 
     def has_lastfm(self) -> bool:
@@ -45,7 +51,7 @@ class ArtistMetadataService:
         """Lazy initialize MusicBrainz service"""
         if self.musicbrainz_service is None:
             from services.musicbrainz_service import MusicBrainzService
-            self.musicbrainz_service = MusicBrainzService()
+            self.musicbrainz_service = MusicBrainzService(proxy_manager=self.proxy_manager)
         return self.musicbrainz_service
     
     def repair_mbid(self, artist: Artist, overall_dict: Optional[Dict[str, Any]] = None, month12_dict: Optional[Dict[str, Any]] = None) -> Optional[str]:
@@ -290,7 +296,8 @@ def fetch_artist_metadata(
     db_path: Optional[str] = None,
     silent: bool = False,
     user_id: Optional[int] = None,
-    batch_size: int = 5
+    batch_size: int = 5,
+    proxy_manager: Optional['ProxyManager'] = None
 ) -> int:
     """
     Convenience function for post-parser metadata enrichment.
@@ -372,7 +379,8 @@ def fetch_artist_metadata(
     metadata_service = ArtistMetadataService(
         lastfm_api_key=lastfm_api_key,
         fanart_api_key=fanart_api_key,
-        lastfm_user=lastfm_user
+        lastfm_user=lastfm_user,
+        proxy_manager=proxy_manager
     )
 
     # Connect to database

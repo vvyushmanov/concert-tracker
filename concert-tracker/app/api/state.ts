@@ -82,3 +82,10 @@ export const metadataRefreshState = new Map<number, {
   process: ChildProcess | null;
   startTime: number;
 }>();
+
+// Global (all-artists) metadata refresh state - admin only, single-flight
+export const globalMetadataRefreshState: {
+  isRefreshing: boolean;
+  process: ChildProcess | null;
+  startTime: number;
+} = { isRefreshing: false, process: null, startTime: 0 };

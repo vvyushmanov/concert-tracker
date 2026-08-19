@@ -4,3 +4,10 @@ vpn/
 __pycache__
 *.db*
 data/*
+poc/
+backups/
+
+# Scraper agent (Electron) — track source, ignore deps / scrape dumps / build output
+agent/node_modules/
+agent/out/
+agent/dist/

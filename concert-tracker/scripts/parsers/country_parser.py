@@ -53,7 +53,8 @@ class CountryConcertParser:
     
     def __init__(self, country_code: str, max_pages: Optional[int] = None, delay: float = 1.0,
                  lastfm_artists: Optional[Set[str]] = None, proxy_manager: Optional[ProxyManager] = None,
-                 debug: bool = False, shutdown_flag: Optional['GracefulShutdown'] = None) -> None:
+                 debug: bool = False, shutdown_flag: Optional['GracefulShutdown'] = None,
+                 use_flaresolverr: bool = False) -> None:
         self.country_code = country_code.lower()
         self.base_url = self.BASE_URL
         self.max_pages = max_pages
@@ -69,10 +70,10 @@ class CountryConcertParser:
         self.proxy_manager = proxy_manager
         self.proxy_failures = 0
         self.proxy_successes = 0
-        
+
         # Create concert parser for filtering
         self.concert_parser = ConcertParser(self.lastfm_artists, self.BASE_URL)
-        
+
         # Create HTTP client for requests
         # Use system CA bundle instead of certifi (fixes Cloudflare certificate chain issues)
         self.http_client = HTTPClient(
@@ -80,7 +81,8 @@ class CountryConcertParser:
             use_system_ca=True,  # System CA bundle has complete Cloudflare chain
             proxy_manager=proxy_manager,
             pool_connections=1,
-            pool_maxsize=1
+            pool_maxsize=1,
+            use_flaresolverr=use_flaresolverr  # Enable FlareSolverr if requested
         )
         
         # Create rate limiter with shutdown flag for interruptible waits
@@ -89,8 +91,22 @@ class CountryConcertParser:
             randomness=self.DELAY_RANDOMNESS,
             shutdown_flag=self.shutdown_flag
         )
-    
-        
+
+    def cleanup(self) -> None:
+        """Clean up resources (HTTP client, FlareSolverr session, etc.)"""
+        if hasattr(self, 'http_client') and self.http_client:
+            self.http_client.close()
+            logger.debug("HTTP client closed and FlareSolverr session destroyed")
+
+    def __enter__(self) -> 'CountryConcertParser':
+        """Context manager entry"""
+        return self
+
+    def __exit__(self, exc_type: Optional[type], exc_val: Optional[BaseException], exc_tb: Optional[Any]) -> bool:
+        """Context manager exit - ensures cleanup even on exception"""
+        self.cleanup()
+        return False  # Don't suppress exceptions
+
     def get_page_url(self, page_num: int) -> str:
         """Generate URL for a specific page number"""
         if page_num == 1:

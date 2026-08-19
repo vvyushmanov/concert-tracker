@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
@@ -24,69 +24,32 @@ type ArtistsListProps = {
 export default function ArtistsList({ artists }: ArtistsListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'playcount' | 'playcount12month' | 'concerts'>('playcount12month');
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showAll, setShowAll] = useState(false); // false = only artists with upcoming concerts
+  const [unfollowingId, setUnfollowingId] = useState<number | null>(null);
   const router = useRouter();
 
-  // Poll for refresh status
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
+  const withConcertsCount = useMemo(() => artists.filter((a) => a.upcomingConcertCount > 0).length, [artists]);
 
-    const checkStatus = async () => {
-      try {
-        const response = await fetch('/api/metadata/status');
-        const data = await response.json();
-        
-        if (data.isRefreshing !== isRefreshing) {
-          setIsRefreshing(data.isRefreshing);
-          
-          // If refresh just completed, reload the page data
-          if (!data.isRefreshing && isRefreshing) {
-            router.refresh();
-          }
-        }
-      } catch (error) {
-        console.error('Error checking refresh status:', error);
-      }
-    };
-
-    if (isRefreshing) {
-      interval = setInterval(checkStatus, 2000); // Poll every 2 seconds
-    }
-
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isRefreshing, router]);
-
-  const handleRefreshMetadata = async () => {
+  const handleUnfollow = async (e: React.MouseEvent, artistId: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setUnfollowingId(artistId);
     try {
-      setIsRefreshing(true);
-      const response = await fetch('/api/metadata/refresh', {
-        method: 'POST',
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        console.error('Failed to start metadata refresh:', error);
-        setIsRefreshing(false);
-      }
-    } catch (error) {
-      console.error('Error starting metadata refresh:', error);
-      setIsRefreshing(false);
+      await fetch(`/api/user-artists?artistId=${artistId}`, { method: 'DELETE' });
+      router.refresh();
+    } finally {
+      setUnfollowingId(null);
     }
   };
 
   // Filter and sort artists
   const filteredArtists = useMemo(() => {
-    let filtered = artists.filter(artist => {
-      if (searchQuery) {
-        const query = searchQuery.toLowerCase();
-        return artist.name.toLowerCase().includes(query);
-      }
+    const filtered = artists.filter((artist) => {
+      if (!showAll && artist.upcomingConcertCount === 0) return false;
+      if (searchQuery) return artist.name.toLowerCase().includes(searchQuery.toLowerCase());
       return true;
     });
 
-    // Sort
     filtered.sort((a, b) => {
       switch (sortBy) {
         case 'name':
@@ -101,16 +64,14 @@ export default function ArtistsList({ artists }: ArtistsListProps) {
           return 0;
       }
     });
-
     return filtered;
-  }, [artists, searchQuery, sortBy]);
+  }, [artists, searchQuery, sortBy, showAll]);
 
   return (
     <div className="space-y-6">
       {/* Search and Sort Panel */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-          {/* Search Bar */}
           <div className="md:col-span-2">
             <label className="block text-sm font-medium mb-2">Search Artists</label>
             <input
@@ -122,7 +83,6 @@ export default function ArtistsList({ artists }: ArtistsListProps) {
             />
           </div>
 
-          {/* Sort */}
           <div>
             <label className="block text-sm font-medium mb-2">Sort By</label>
             <select
@@ -131,49 +91,40 @@ export default function ArtistsList({ artists }: ArtistsListProps) {
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"
             >
               <option value="playcount12month">12-Month Plays</option>
-              <option value="playcount">All-Time Plays</option>              
+              <option value="playcount">All-Time Plays</option>
               <option value="concerts">Upcoming Concerts</option>
               <option value="name">Artist Name</option>
             </select>
           </div>
         </div>
 
+        {/* Show-all toggle */}
+        <div className="mt-4 inline-flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden text-sm">
+          <button
+            onClick={() => setShowAll(false)}
+            className={`px-4 py-2 transition-colors ${!showAll ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
+          >
+            With concerts ({withConcertsCount})
+          </button>
+          <button
+            onClick={() => setShowAll(true)}
+            className={`px-4 py-2 transition-colors ${showAll ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
+          >
+            All followed ({artists.length})
+          </button>
+        </div>
+
         {/* Stats Row */}
         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
           <div className="text-sm text-gray-600 dark:text-gray-400">
-            Showing <span className="font-semibold text-gray-900 dark:text-gray-100">{filteredArtists.length}</span> of <span className="font-semibold text-gray-900 dark:text-gray-100">{artists.length}</span> artists
+            Showing <span className="font-semibold text-gray-900 dark:text-gray-100">{filteredArtists.length}</span> of{' '}
+            <span className="font-semibold text-gray-900 dark:text-gray-100">{showAll ? artists.length : withConcertsCount}</span> artists
           </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleRefreshMetadata}
-              disabled={isRefreshing}
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                isRefreshing
-                  ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
-                  : 'bg-blue-600 hover:bg-blue-700 text-white'
-              }`}
-            >
-              {isRefreshing ? (
-                <span className="flex items-center gap-2">
-                  <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Refreshing...
-                </span>
-              ) : (
-                '🔄 Refresh Metadata'
-              )}
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} className="text-sm text-blue-600 dark:text-blue-400 hover:underline">
+              Clear search
             </button>
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
-              >
-                Clear search
-              </button>
-            )}
-          </div>
+          )}
         </div>
       </div>
 
@@ -181,15 +132,29 @@ export default function ArtistsList({ artists }: ArtistsListProps) {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredArtists.length === 0 ? (
           <div className="col-span-full text-center py-12 text-gray-500 dark:text-gray-400">
-            No artists found matching your search.
+            {!showAll && withConcertsCount === 0 && artists.length > 0 ? (
+              <>None of your followed artists have upcoming concerts. Switch to <button onClick={() => setShowAll(true)} className="text-blue-600 dark:text-blue-400 hover:underline">All followed</button> to manage them.</>
+            ) : (
+              'No artists found matching your search.'
+            )}
           </div>
         ) : (
           filteredArtists.map((artist) => (
             <Link
               key={artist.id}
               href={`/artists/${artist.id}`}
-              className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow"
+              className="relative bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow"
             >
+              {/* Unfollow button */}
+              <button
+                onClick={(e) => handleUnfollow(e, artist.id)}
+                disabled={unfollowingId === artist.id}
+                title="Unfollow this artist"
+                className="absolute top-2 right-2 z-10 px-3 py-1 rounded-full text-xs font-medium bg-white/95 dark:bg-gray-900/90 text-red-600 dark:text-red-400 border border-red-300 dark:border-red-700 shadow-sm hover:bg-red-600 hover:text-white hover:border-red-600 transition-colors disabled:opacity-50"
+              >
+                {unfollowingId === artist.id ? '…' : '✕ Unfollow'}
+              </button>
+
               {artist.imageUrl && (
                 <div className="w-full h-48 bg-gray-200 dark:bg-gray-700 relative">
                   <Image
@@ -201,19 +166,15 @@ export default function ArtistsList({ artists }: ArtistsListProps) {
                   />
                 </div>
               )}
-              
+
               <div className="p-6">
                 <div className="flex items-start justify-between mb-3">
-                  <h2 className="text-xl font-bold flex-1">
-                    {artist.name}
-                  </h2>
+                  <h2 className="text-xl font-bold flex-1 pr-6">{artist.name}</h2>
                   {artist.recent && (
-                    <span className="text-xs bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 px-2 py-1 rounded-full">
-                      Recent
-                    </span>
+                    <span className="text-xs bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 px-2 py-1 rounded-full">Recent</span>
                   )}
                 </div>
-              
+
                 <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
                   <div className="flex items-center gap-2">
                     <span className="text-base">🎧</span>
@@ -223,31 +184,35 @@ export default function ArtistsList({ artists }: ArtistsListProps) {
                     <span className="text-base">🔊</span>
                     <span>{artist.playcount.toLocaleString()} all-time plays</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-base">🎤</span>
-                    <span>{artist.upcomingConcertCount} upcoming {artist.upcomingConcertCount === 1 ? 'concert' : 'concerts'}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-base">🌍</span>
-                    <span>{artist.countryCount} {artist.countryCount === 1 ? 'country' : 'countries'}</span>
-                  </div>
+                  {artist.upcomingConcertCount > 0 ? (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">🎤</span>
+                        <span>{artist.upcomingConcertCount} upcoming {artist.upcomingConcertCount === 1 ? 'concert' : 'concerts'}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">🌍</span>
+                        <span>{artist.countryCount} {artist.countryCount === 1 ? 'country' : 'countries'}</span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex items-center gap-2 text-gray-400 dark:text-gray-500">
+                      <span className="text-base">🎤</span>
+                      <span>No upcoming concerts in your countries</span>
+                    </div>
+                  )}
                 </div>
 
                 {artist.countries.length > 0 && (
                   <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
                     <div className="flex flex-wrap gap-2">
                       {artist.countries.slice(0, 5).map((country) => (
-                        <span
-                          key={country}
-                          className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2 py-1 rounded"
-                        >
+                        <span key={country} className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2 py-1 rounded">
                           {country}
                         </span>
                       ))}
                       {artist.countries.length > 5 && (
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                          +{artist.countries.length - 5} more
-                        </span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">+{artist.countries.length - 5} more</span>
                       )}
                     </div>
                   </div>

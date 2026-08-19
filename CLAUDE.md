@@ -97,10 +97,9 @@ lastfm-parser/
 │   │   │   └── rate_limiter.py     # Rate limiting with graceful shutdown
 │   │   ├── tests/                  # Integration tests
 │   │   ├── requirements.txt        # Python dependencies
-│   │   ├── startup.sh              # Docker initialization
-│   │   └── switch_db.sh            # Database switching utility
+│   │   └── startup.sh              # Docker initialization (generate client, migrate, seed, start)
 │   ├── prisma/                     # Database ORM
-│   │   ├── schema.prisma           # Prisma schema
+│   │   ├── schema.prisma           # Prisma schema (single source of truth, MySQL)
 │   │   └── migrations/             # Database migrations
 │   ├── lib/                        # Shared utilities
 │   │   └── prisma.ts               # Prisma client singleton
@@ -131,7 +130,7 @@ lastfm-parser/
 ### Backend
 - **Next.js API Routes**: TypeScript-based REST API
 - **Prisma 5.22**: ORM with automatic migrations
-- **MySQL 8.0** or **SQLite**: Dual-database support
+- **MySQL 8.0**: the single database backend (`prisma/schema.prisma`)
 - **NextAuth**: Credential-based authentication
 
 ### Python Scripts
@@ -418,11 +417,11 @@ Notifications
 
 ## Key Implementation Patterns
 
-### 1. Database Switching
-- Prisma schema dynamically switches between MySQL and SQLite
-- `startup.sh` runs `switch_db.sh` before app starts
-- Environment variable: `DB_TYPE` (mysql | sqlite)
-- `DATABASE_URL` auto-generated or read from env
+### 1. Database (MySQL only)
+- `prisma/schema.prisma` is the single source of truth (no more dual MySQL/SQLite templates or `switch_db.sh`)
+- `startup.sh`: `prisma generate` → wait for DB → `prisma migrate deploy` → seed → start
+- `DATABASE_URL` (MySQL) is read from env by both Prisma and the Python `get_engine()`
+- Python tests can still pass `--db-path` for a throwaway SQLite scratch DB
 
 ### 2. Configuration Management (Python)
 ```
@@ -652,11 +651,11 @@ cp .env.example .env
 docker compose -f docker-compose.dev.yml up
 
 # 3. What happens automatically:
-#    - Switch database schema (MySQL/SQLite)
 #    - Install npm dependencies
 #    - Generate Prisma client
 #    - Wait for MySQL health
-#    - Apply migrations
+#    - Apply migrations (prisma migrate deploy)
+#    - Seed (default admin/countries/settings)
 #    - Start Next.js dev server (port 3000)
 #    - Hot reload on file changes
 
@@ -722,12 +721,11 @@ python invalidate_cache.py LASTFM_API_KEY   # Invalidate specific key
 - `COUNTRY_DELAY_MULTIPLIER = 3` - Longer delay between countries
 - `PAGES_PER_SAVE = 5` - Auto-save frequency
 
-### Database Switching
+### Schema changes
 ```bash
-# Edit .env
-DB_TYPE=mysql  # or sqlite
-
-# Restart web container
+# Edit prisma/schema.prisma, then inside the web container:
+docker compose -f docker-compose.dev.yml exec web npx prisma migrate dev --name <desc>
+# (the running dev server holds the old client in memory — restart web to load the new one)
 docker compose -f docker-compose.dev.yml restart web
 ```
 
@@ -760,11 +758,10 @@ See `.env.example` for all options:
 
 ## Important Architecture Decisions
 
-### 1. Dual Database Support
-- Allows single SQLite for quick testing
-- Scales to MySQL for production
-- Single ORM (Prisma) for both
-- Python scripts use SQLAlchemy (mirrors schema)
+### 1. MySQL (single database)
+- MySQL 8.0 is the only backend; `prisma/schema.prisma` is the single source of truth
+- Prisma (Next.js) and SQLAlchemy (Python) both read `DATABASE_URL`
+- (SQLite/`DB_TYPE`/`switch_db.sh` were removed — they were dev friction; Python keeps an optional `--db-path` for isolated tests)
 
 ### 2. Per-User Concert Tracking
 - Each user has independent scanner session

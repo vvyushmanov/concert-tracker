@@ -37,17 +37,19 @@ services:
       - ./.env:/app/.env:ro
     environment:
       - NODE_ENV=development
-      - DB_TYPE=${DB_TYPE:-mysql}
       - DATABASE_URL=${DATABASE_URL:-mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@db:3306/${MYSQL_DATABASE}}
       - MYSQL_HOST=db
       - MYSQL_PORT=3306
       - MYSQL_DATABASE=${MYSQL_DATABASE}
       - MYSQL_USER=${MYSQL_USER}
       - MYSQL_PASSWORD=${MYSQL_PASSWORD}
-      - SQLITE_DB_PATH=${SQLITE_DB_PATH:-file:/app/data/concerts.db}
       - LASTFM_API_KEY=${LASTFM_API_KEY}
       - LASTFM_USER=${LASTFM_USER}
       - FANART_API_KEY=${FANART_API_KEY}
+      # Bearer token for POST /api/ingest (desktop scraper agent). Read by the
+      # Next.js process env here — the mounted /app/.env is only seen by Python's
+      # load_dotenv, not Node, so this MUST be in the environment block.
+      - INGEST_TOKEN=${INGEST_TOKEN}
       - WATCHPACK_POLLING=true
     command: sh scripts/startup.sh
     user: "1000:1000"
