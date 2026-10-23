@@ -19,8 +19,14 @@ build
 # Debug
 *.log
 
-# Local env files
-.env*.local
+# Local env files (secrets reach the container at runtime, never baked in)
+.env
+.env.*
+**/.env
+
+# Python
+**/__pycache__
+**/*.pyc
 
 # Vercel
 .vercel

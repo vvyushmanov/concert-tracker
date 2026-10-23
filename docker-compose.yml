@@ -8,10 +8,14 @@ services:
       MYSQL_DATABASE: concerts
       MYSQL_USER: ${MYSQL_USER:-concertuser}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-concertpass}
+    # Loopback only — the app reaches it over the compose network; this is just
+    # for local admin tools (mysqldump, Workbench) on the host itself.
     ports:
-      - "3306:3306"
+      - "127.0.0.1:3306:3306"
     volumes:
-      - ./data/db:/var/lib/mysql
+      # Named volume, not ./data/db: a host bind mount fights the mysql user's
+      # ownership on macOS (Colima/virtiofs). Back up with mysqldump.
+      - db-data:/var/lib/mysql
       - ./concert-tracker/scripts/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpassword}"]
@@ -19,26 +23,46 @@ services:
       timeout: 5s
       retries: 5
 
+  # One-shot: prisma migrate deploy + seed, then exits. web waits for it.
+  migrate:
+    build:
+      context: ./concert-tracker
+      target: migrate
+    # Seed reads COUNTRY_CODES / API keys from here
+    env_file: .env
+    environment:
+      - DATABASE_URL=mysql://${MYSQL_USER:-concertuser}:${MYSQL_PASSWORD:-concertpass}@db:3306/concerts
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+
   # Next.js production server
   web:
     build:
-      context: .
-      dockerfile: ./concert-tracker/Dockerfile
+      context: ./concert-tracker
+      target: runner
     ports:
       - "3000:3000"
     volumes:
       # Mount shared data directory (for backups/exports)
       - ./data:/app/data
-      # Mount .env for Python parser to access API keys and proxy config
+      # Mount .env for the Python scripts' load_dotenv (API keys, proxy config).
+      # Node never reads this file — its config is the environment block below.
       - ./.env:/app/scripts/.env:ro
     environment:
       - NODE_ENV=production
       - DATABASE_URL=mysql://${MYSQL_USER:-concertuser}:${MYSQL_PASSWORD:-concertpass}@db:3306/concerts
-      - PRISMA_QUERY_ENGINE_LIBRARY=/app/node_modules/.prisma/client/libquery_engine-linux-musl-openssl-3.0.x.so.node
-      - PRISMA_QUERY_ENGINE_BINARY=/app/node_modules/.prisma/client/query-engine-linux-musl-openssl-3.0.x
+      # NextAuth: production refuses to start without a secret, and rejects any
+      # Host it doesn't trust (we're reached via LAN/Tailscale, not one fixed URL)
+      - AUTH_SECRET=${AUTH_SECRET}
+      - AUTH_TRUST_HOST=true
+      # Bearer token for POST /api/ingest (desktop scraper agent)
+      - INGEST_TOKEN=${INGEST_TOKEN}
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      # /login, not / — middleware redirects unauthenticated requests
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/login', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -46,6 +70,11 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  db-data:
 
 networks:
   default:
