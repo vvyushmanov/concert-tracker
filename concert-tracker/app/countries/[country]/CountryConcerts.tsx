@@ -35,6 +35,10 @@ type Concert = {
     playcount12month: number;
     recent: boolean;
   };
+  artists?: {
+    artistId: number;
+    artist: { id: number; name: string; followed?: boolean };
+  }[];
 };
 
 type CountryConcertsProps = {

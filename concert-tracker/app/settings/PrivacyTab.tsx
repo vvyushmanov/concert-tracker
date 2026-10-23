@@ -111,7 +111,7 @@ export default function PrivacyTab() {
               </h4>
               <p className="text-sm text-gray-600">
                 When enabled, none of your concerts will be visible to your friends on the concert map.
-                You can still see your friends' concerts if they haven't hidden theirs.
+                You can still see your friends&apos; concerts if they haven&apos;t hidden theirs.
               </p>
             </div>
           </div>

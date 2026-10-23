@@ -14,7 +14,7 @@
  *   - 200 + parsed INGEST_RESULT stats on an empty array (real subprocess, no DB mutation).
  *   - 409 single-flight: two concurrent valid posts → exactly one 200 and one 409.
  */
-const URL = 'http://localhost:3000/api/ingest';
+const INGEST_URL = 'http://localhost:3000/api/ingest';
 const TOKEN = process.env.INGEST_TOKEN;
 
 let passed = 0;
@@ -28,7 +28,7 @@ function post(opts: { token?: string | null; body?: string; json?: unknown }) {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (opts.token) headers['Authorization'] = `Bearer ${opts.token}`;
   const body = opts.body !== undefined ? opts.body : JSON.stringify(opts.json ?? []);
-  return fetch(URL, { method: 'POST', headers, body });
+  return fetch(INGEST_URL, { method: 'POST', headers, body });
 }
 
 async function waitForServer() {
@@ -36,7 +36,7 @@ async function waitForServer() {
   for (let i = 0; i < 90; i++) {
     try {
       // Unauthenticated POST — any HTTP response means the route is serving.
-      const r = await fetch(URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '[]' });
+      const r = await fetch(INGEST_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '[]' });
       if (r.status > 0) return;
     } catch {
       // connection refused — server not up yet

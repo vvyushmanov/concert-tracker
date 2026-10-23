@@ -50,7 +50,7 @@ export default function ArtistConcerts({ concerts }: ArtistConcertsProps) {
   // Group by country
   const groupByCountry = (concertList: Concert[]) => {
     return concertList.reduce((acc, concert) => {
-      const countryName = concert.countryObj?.name;
+      const countryName = concert.countryObj?.name ?? 'Unknown';
       if (!acc[countryName]) {
         acc[countryName] = [];
       }

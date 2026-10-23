@@ -253,7 +253,7 @@ export default function ConcertMap({ concerts, currentUserId, selectedFriendIds,
       return;
     }
 
-    const bounds: L.LatLngBoundsExpression[] = [];
+    const bounds: L.LatLngTuple[] = [];
 
     concerts.forEach((concert) => {
       if (!concert.coordinates) return;

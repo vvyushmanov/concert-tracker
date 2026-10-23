@@ -195,9 +195,9 @@ async function main() {
   check(xyaForA?.interested === false, 'A: XYA shows interested=false (no UserConcert row, defaulted)');
 
   console.log('\n— Per-artist followed flag + playcount merge —');
-  const xPerf = xaForA?.artists.find((a) => a.artistId === artistX);
+  const xPerf = xaForA?.artists.find((a: any) => a.artistId === artistX);
   check(xPerf?.artist.followed === true && xPerf?.artist.playcount === 100, 'A: ArtistX marked followed with playcount 100');
-  const yPerf = xyaForA?.artists.find((a) => a.artistId === artistY);
+  const yPerf = xyaForA?.artists.find((a: any) => a.artistId === artistY);
   check(yPerf?.artist.followed === false, 'A: co-performer ArtistY (not followed by A) marked followed=false');
 
   console.log('\n— Preference change without re-scrape: A starts following ArtistZ —');
