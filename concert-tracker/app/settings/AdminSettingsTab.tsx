@@ -378,7 +378,7 @@ export default function AdminSettingsTab() {
         <h2 className="text-2xl font-semibold text-gray-900 mb-2">Global Country Management</h2>
         <p className="text-sm text-gray-600 mb-6">
           Control which countries are available globally for concert scanning.
-          Inactive countries can still be activated by individual users, but won't be scanned in global mode.
+          Inactive countries can still be activated by individual users, but won&apos;t be scanned in global mode.
         </p>
 
         {/* Add Country Section */}

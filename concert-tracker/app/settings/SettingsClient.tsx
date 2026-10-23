@@ -269,8 +269,6 @@ export default function SettingsClient({ isAdmin, userId }: { isAdmin: boolean; 
                     <span className="block text-xs text-gray-500 mt-1">
                       {activeTab === 'user' && setting.key === 'MIN_PLAYCOUNT' && 'Minimum playcount to include artists'}
                       {activeTab === 'user' && setting.key === 'LASTFM_USER' && 'Your Last.fm username for tracking'}
-                      {activeTab === 'global' && setting.key === 'FANART_API_KEY' && 'API key for fetching artist images'}
-                      {activeTab === 'global' && setting.key === 'WEBSHARE_PROXY_URL' && 'Proxy URL for web requests'}
                     </span>
                   </label>
                   {renderInput(setting)}

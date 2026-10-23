@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { auth } from '@/auth';
 import { getRelevantConcerts } from '@/lib/concerts';
 import ConcertGrid from './ConcertGrid';
@@ -64,12 +65,12 @@ export default async function Home() {
             <p className="text-gray-600 dark:text-gray-400 mb-6">
               Follow some artists (or sync your Last.fm) and pick your countries to see relevant concerts. 🎵
             </p>
-            <a
+            <Link
               href="/artists"
               className="inline-block px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
             >
               Manage Artists
-            </a>
+            </Link>
           </div>
         ) : (
           <ConcertGrid

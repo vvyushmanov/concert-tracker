@@ -36,6 +36,10 @@ type Concert = {
     id: number;
     name: string;
   };
+  artists?: {
+    artistId: number;
+    artist: { id: number; name: string; followed?: boolean };
+  }[];
 };
 
 type CalendarViewProps = {
