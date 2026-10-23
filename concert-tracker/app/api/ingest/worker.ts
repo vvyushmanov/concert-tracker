@@ -28,6 +28,7 @@ const MAX_ATTEMPTS = 4; // batch → ERROR (dead-letter) after this many failed 
 const STALE_MS = 10 * 60 * 1000; // a PROCESSING row older than this is presumed orphaned (crash) and reclaimed
 const SAFETY_INTERVAL_MS = 60 * 1000; // periodic kick: catches retries + batches enqueued while the worker was idle
 const METADATA_DEBOUNCE_MS = 20 * 1000; // run fetch_metadata.py once, this long after the queue settles
+const DONE_RETENTION_S = 30 * 24 * 3600; // DONE rows (payload already cleared) are kept this long for status history
 
 interface WorkerState {
   draining: boolean;
@@ -195,7 +196,8 @@ async function processBatch(batch: ClaimedBatch, deferred: Set<number>): Promise
     const result = await runIngest(inputPath, label);
     await prisma.ingestBatch.update({
       where: { id: batch.id },
-      data: { status: 'DONE', result: JSON.stringify(result), finishedAt: nowSec(), error: null },
+      // Payload is dead weight once written (~25 KB/page, ~250 pages/day); ERROR rows keep theirs for replay
+      data: { status: 'DONE', result: JSON.stringify(result), finishedAt: nowSec(), error: null, payload: '' },
     });
     const errs = typeof result.errors === 'number' ? result.errors : 0;
     console.log(
@@ -254,7 +256,12 @@ async function drainLoop(): Promise<void> {
       await processBatch(batch, deferred);
       processed += 1;
     }
-    if (processed > 0) console.log(`[ingest-worker] drain pass complete — ${processed} batch(es) processed`);
+    if (processed > 0) {
+      console.log(`[ingest-worker] drain pass complete — ${processed} batch(es) processed`);
+      await prisma.ingestBatch.deleteMany({
+        where: { status: 'DONE', finishedAt: { lt: nowSec() - DONE_RETENTION_S } },
+      });
+    }
     scheduleMetadata();
   } catch (e) {
     console.error('[ingest-worker] drain loop error:', e);
