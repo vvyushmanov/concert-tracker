@@ -39,7 +39,11 @@ export default function TopBar({ onMobileMenuToggle, isSidebarExpanded = false }
   }, [session]);
 
   const handleLogout = async () => {
-    await signOut({ callbackUrl: '/login' });
+    // Relative client-side redirect: the server-built URL is the container's
+    // bind address (0.0.0.0:3000) when there's no proxy in front, not our host
+    await signOut({ redirect: false });
+    router.push('/login');
+    router.refresh();
   };
 
   const leftOffset = isSidebarExpanded ? 'lg:left-64' : 'lg:left-16';
