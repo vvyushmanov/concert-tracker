@@ -4,11 +4,35 @@
 # builder-only base images. Only the running images (web + mariadb) stay.
 #
 #   ./deploy.sh
+#   BUILD_MEMORY=2 ./deploy.sh   # Colima only: build with 2 GiB, then back
+#
+# A full build fits in a 1 GiB Colima VM (measured), so BUILD_MEMORY is only a
+# fallback if dependencies ever outgrow it. It restarts the VM twice (the stack
+# is down meanwhile), because a VM never hands touched memory back to macOS —
+# only a restart at the smaller size does.
 set -euo pipefail
 cd "$(dirname "$0")"
 
+colima_memory() { awk '/^memory:/ {print $2}' "$HOME/.colima/default/colima.yaml"; }
+colima_resize() {
+  colima stop
+  colima start --memory "$1"
+}
+
+if [ -n "${BUILD_MEMORY:-}" ] && command -v colima >/dev/null 2>&1; then
+  RUN_MEMORY=$(colima_memory)
+  # Keep the boot watchdog (deploy/macos) from restarting the VM under us
+  PAUSE="$HOME/.concert-tracker-pause"
+  touch "$PAUSE"
+  trap 'colima_resize "$RUN_MEMORY"; rm -f "$PAUSE"' EXIT
+  colima_resize "$BUILD_MEMORY"
+fi
+
 # --pull: pick up base-image security fixes on every deploy
-docker compose build --pull web
+if ! docker compose build --pull web; then
+  echo "Build failed. If it was killed for memory (exit 137), retry with: BUILD_MEMORY=2 ./deploy.sh" >&2
+  exit 1
+fi
 docker compose up -d --remove-orphans
 
 docker image prune -f
