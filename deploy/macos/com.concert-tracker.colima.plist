@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Starts the concert-tracker Colima VM at boot (no GUI login needed) and checks
+  it every 5 minutes. Runs as the unprivileged stack user, never as root.
+
+  Install (admin, once) — see deploy/macos/README.md:
+    sudo cp com.concert-tracker.colima.plist /Library/LaunchDaemons/
+    sudo chown root:wheel /Library/LaunchDaemons/com.concert-tracker.colima.plist
+    sudo chmod 644 /Library/LaunchDaemons/com.concert-tracker.colima.plist
+    sudo launchctl bootstrap system /Library/LaunchDaemons/com.concert-tracker.colima.plist
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.concert-tracker.colima</string>
+
+  <key>UserName</key>
+  <string>claw-vadim</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/claw-vadim/concert-tracker/deploy/macos/colima-watchdog.sh</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>/Users/claw-vadim</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StartInterval</key>
+  <integer>300</integer>
+
+  <!-- colima daemonizes the VM; without this launchd would kill it when the
+       script exits -->
+  <key>AbandonProcessGroup</key>
+  <true/>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>
