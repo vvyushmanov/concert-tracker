@@ -5,7 +5,10 @@ set -ex
 
 echo "Granting privileges to user: $MYSQL_USER for database: $MYSQL_DATABASE"
 
-mysql -u root -p"$MYSQL_ROOT_PASSWORD" <<-EOSQL
+# MariaDB images ship only `mariadb`; MySQL images only `mysql`
+CLI=$(command -v mariadb || command -v mysql)
+
+"$CLI" -u root -p"$MYSQL_ROOT_PASSWORD" <<-EOSQL
     -- Create database if it doesn't exist
     CREATE DATABASE IF NOT EXISTS \`$MYSQL_DATABASE\`;
 

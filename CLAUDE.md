@@ -99,7 +99,7 @@ lastfm-parser/
 │   │   ├── requirements.txt        # Python dependencies
 │   │   └── startup.sh              # Docker initialization (generate client, migrate, seed, start)
 │   ├── prisma/                     # Database ORM
-│   │   ├── schema.prisma           # Prisma schema (single source of truth, MySQL)
+│   │   ├── schema.prisma           # Prisma schema (single source of truth, MariaDB via `mysql` provider)
 │   │   └── migrations/             # Database migrations
 │   ├── lib/                        # Shared utilities
 │   │   └── prisma.ts               # Prisma client singleton
@@ -130,7 +130,7 @@ lastfm-parser/
 ### Backend
 - **Next.js API Routes**: TypeScript-based REST API
 - **Prisma 5.22**: ORM with automatic migrations
-- **MySQL 8.0**: the single database backend (`prisma/schema.prisma`)
+- **MariaDB 11.8**: the single database backend, via Prisma's `mysql` provider (`prisma/schema.prisma`); low-memory profile in `scripts/mariadb.cnf`
 - **NextAuth**: Credential-based authentication
 
 ### Python Scripts
@@ -138,7 +138,7 @@ lastfm-parser/
 - **BeautifulSoup4**: HTML parsing
 - **Requests**: HTTP client
 - **python-dotenv**: Environment configuration
-- **mysqlclient**: MySQL connector
+- **PyMySQL**: MySQL/MariaDB connector (pure Python)
 - **musicbrainzngs**: MusicBrainz API client (MBID lookups)
 
 ### DevOps
@@ -417,10 +417,11 @@ Notifications
 
 ## Key Implementation Patterns
 
-### 1. Database (MySQL only)
+### 1. Database (MariaDB only)
 - `prisma/schema.prisma` is the single source of truth (no more dual MySQL/SQLite templates or `switch_db.sh`)
 - `startup.sh`: `prisma generate` → wait for DB → `prisma migrate deploy` → seed → start
-- `DATABASE_URL` (MySQL) is read from env by both Prisma and the Python `get_engine()`
+- `DATABASE_URL` (`mysql://…`) is read from env by both Prisma and the Python `get_engine()` — never add Prisma-only query params (e.g. `connection_limit`): pymysql rejects them
+- Prod (`docker-compose.yml`): the web container runs `migrate deploy` + seed on every start (no separate migrate service); `./deploy.sh` builds, starts, and prunes all build cache
 - Python tests can still pass `--db-path` for a throwaway SQLite scratch DB
 
 ### 2. Configuration Management (Python)
@@ -653,7 +654,7 @@ docker compose -f docker-compose.dev.yml up
 # 3. What happens automatically:
 #    - Install npm dependencies
 #    - Generate Prisma client
-#    - Wait for MySQL health
+#    - Wait for MariaDB health
 #    - Apply migrations (prisma migrate deploy)
 #    - Seed (default admin/countries/settings)
 #    - Start Next.js dev server (port 3000)
@@ -740,17 +741,17 @@ docker compose -f docker-compose.yml up -d
 - Single `Dockerfile` (optimized)
 - No hot reload or debug tools
 - Health checks for both services
-- SQLite or persistent MySQL volume
+- MariaDB in a named volume (`db-data`); per-container `mem_limit` + rotated logs
 - Environment variables from `.env`
 
 ### Database Persistence
-- **MySQL**: Volumes map to `./data/db/`
-- **SQLite**: Database file at `./data/concerts.db` (or custom path)
-- **Backups**: Copy volume contents or export database
+- **Prod**: named volume `db-data`
+- **Dev**: `./data/mariadb/` (`./data/db/` is the pre-MariaDB MySQL 8.0 datadir, kept untouched)
+- **Backups**: `mariadb-dump` (see README "Database")
 
 ### Environment Variables
 See `.env.example` for all options:
-- Database credentials (MySQL) or path (SQLite)
+- Database credentials (`MYSQL_*` names, used for MariaDB too)
 - Last.fm API key & username
 - Fanart.tv API key (optional)
 - Proxy configuration (optional)
@@ -758,8 +759,8 @@ See `.env.example` for all options:
 
 ## Important Architecture Decisions
 
-### 1. MySQL (single database)
-- MySQL 8.0 is the only backend; `prisma/schema.prisma` is the single source of truth
+### 1. MariaDB (single database)
+- MariaDB 11.8 is the only backend (switched from MySQL 8.0 in Oct 2026: ~1/4 the RAM, ~0.4× the image, same Prisma provider + migrations); `prisma/schema.prisma` is the single source of truth
 - Prisma (Next.js) and SQLAlchemy (Python) both read `DATABASE_URL`
 - (SQLite/`DB_TYPE`/`switch_db.sh` were removed — they were dev friction; Python keeps an optional `--db-path` for isolated tests)
 
@@ -992,7 +993,7 @@ result = subprocess.run(
 - Frontend: Browser DevTools + React DevTools
 - Backend: Check logs in Docker: `docker logs concert-tracker-web-1`
 - Python: Add `print()` statements, run scripts directly
-- Database: Use MySQL Workbench or `sqlite3 cli`
+- Database: `docker compose exec db mariadb -uroot -p` (or any MySQL client)
 
 ## Documentation Files
 
@@ -1058,4 +1059,4 @@ See [docs/LASTFM_OPTIONAL_STATUS.md](docs/LASTFM_OPTIONAL_STATUS.md) for detaile
 ---
 
 **Last Updated**: November 2025
-**Technology Version**: Next.js 15, Prisma 5.22, MySQL 8.0, Python 3.12
+**Technology Version**: Next.js 15.5, Prisma 5.22, MariaDB 11.8, Node 24, Python 3.12

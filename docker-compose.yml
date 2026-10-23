@@ -1,49 +1,56 @@
+# Production stack: MariaDB + one Next.js container (which also runs the Python
+# scripts and applies migrations on start). Build + start + cache cleanup:
+#   ./deploy.sh
+# Alongside the dev stack on one machine: WEB_PORT=3001 docker compose up -d --build
+name: concert-tracker
+
+# Rotate container logs (the default json-file log grows without bound)
+x-logging: &logging
+  driver: local
+  options:
+    max-size: 5m
+    max-file: "2"
+
 services:
-  # MySQL database
   db:
-    image: mysql:8.0
+    # MariaDB over MySQL 8: same Prisma `mysql` provider and migrations, ~1/4
+    # the RAM, ~1/2.5 the image size (measured: ~100 MB RSS, 458 MB image)
+    image: mariadb:11.8
     restart: unless-stopped
     environment:
+      MARIADB_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MARIADB_DATABASE: concerts
+      MARIADB_USER: ${MYSQL_USER:-concertuser}
+      MARIADB_PASSWORD: ${MYSQL_PASSWORD:-concertpass}
+      # init-db.sh reads the MYSQL_* names
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
       MYSQL_DATABASE: concerts
       MYSQL_USER: ${MYSQL_USER:-concertuser}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-concertpass}
-    # Loopback only — the app reaches it over the compose network; this is just
-    # for local admin tools (mysqldump, Workbench) on the host itself.
-    ports:
-      - "127.0.0.1:3306:3306"
+    # No host port: the app reaches it over the compose network, and admin
+    # access goes through `docker compose exec db mariadb ...` (README "Database")
     volumes:
       # Named volume, not ./data/db: a host bind mount fights the mysql user's
-      # ownership on macOS (Colima/virtiofs). Back up with mysqldump.
+      # ownership on macOS (Colima/virtiofs). Back up with mariadb-dump.
       - db-data:/var/lib/mysql
-      - ./concert-tracker/scripts/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
+      - ./concert-tracker/scripts/mariadb.cnf:/etc/mysql/conf.d/zz-low-memory.cnf:ro
+      - ./concert-tracker/scripts/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpassword}"]
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 10s
       timeout: 5s
       retries: 5
+    mem_limit: 256m
+    logging: *logging
 
-  # One-shot: prisma migrate deploy + seed, then exits. web waits for it.
-  migrate:
-    build:
-      context: ./concert-tracker
-      target: migrate
-    # Seed reads COUNTRY_CODES / API keys from here
-    env_file: .env
-    environment:
-      - DATABASE_URL=mysql://${MYSQL_USER:-concertuser}:${MYSQL_PASSWORD:-concertpass}@db:3306/concerts
-    restart: "no"
-    depends_on:
-      db:
-        condition: service_healthy
-
-  # Next.js production server
+  # Next.js production server. On start it runs prisma migrate deploy + seed
+  # (both idempotent), then the server.
   web:
     build:
       context: ./concert-tracker
       target: runner
+    image: concert-tracker-web
     ports:
-      - "3000:3000"
+      - "${WEB_PORT:-3000}:3000"
     volumes:
       # Mount shared data directory (for backups/exports)
       - ./data:/app/data
@@ -52,7 +59,14 @@ services:
       - ./.env:/app/scripts/.env:ro
     environment:
       - NODE_ENV=production
+      # No Prisma-only query params here (e.g. connection_limit): the Python
+      # scripts read the same URL and pymysql rejects unknown options
       - DATABASE_URL=mysql://${MYSQL_USER:-concertuser}:${MYSQL_PASSWORD:-concertpass}@db:3306/concerts
+      # Read by the seed on first start (Python gets them from the mounted .env)
+      - COUNTRY_CODES=${COUNTRY_CODES:-}
+      - LASTFM_API_KEY=${LASTFM_API_KEY:-}
+      - FANART_API_KEY=${FANART_API_KEY:-}
+      - WEBSHARE_PROXY_URL=${WEBSHARE_PROXY_URL:-}
       # NextAuth: production refuses to start without a secret, and rejects any
       # Host it doesn't trust (we're reached via LAN/Tailscale, not one fixed URL)
       - AUTH_SECRET=${AUTH_SECRET}
@@ -67,11 +81,12 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    # Covers Node plus the Python scripts it spawns (ingest, metadata, geocoding)
+    mem_limit: 512m
+    logging: *logging
     depends_on:
       db:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
 
 volumes:
   db-data:

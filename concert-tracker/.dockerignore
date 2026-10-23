@@ -43,8 +43,9 @@ next-env.d.ts
 .vscode
 .idea
 
-# Testing
+# Testing (the TS tests stay for next build's type-check; Python tests never ship)
 coverage
+scripts/tests
 .nyc_output
 
 # Docker

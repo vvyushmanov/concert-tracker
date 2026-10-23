@@ -1,0 +1,31 @@
+# Low-memory MariaDB profile for a small, single-app database (~10k rows).
+# Measured with the real dataset: ~100 MB RSS (MySQL 8.0 defaults: ~390 MB).
+# Every value here is a ceiling — raise innodb_buffer_pool_size first if the
+# dataset ever outgrows it.
+
+[mariadb]
+# InnoDB: the whole hot dataset fits in a 16 MB pool
+innodb_buffer_pool_size   = 16M
+innodb_log_file_size      = 4M
+innodb_log_buffer_size    = 1M
+innodb_read_io_threads    = 1
+innodb_write_io_threads   = 1
+innodb_purge_threads      = 1
+innodb_temp_data_file_path = ibtmp1:4M:autoextend
+
+# Unused engines/features
+key_buffer_size             = 1M
+aria_pagecache_buffer_size  = 2M
+aria_log_file_size          = 8M
+performance_schema          = OFF
+skip_log_bin
+skip_name_resolve
+
+# Headroom, not cost: memory is per open connection, not per slot. Prisma's
+# pool is 2×CPUs+1 and each Python script has its own SQLAlchemy pool
+max_connections        = 50
+thread_cache_size      = 4
+table_open_cache       = 64
+table_definition_cache = 128
+tmp_table_size         = 8M
+max_heap_table_size    = 8M
