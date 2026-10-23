@@ -2,7 +2,7 @@
 
 generator client {
   provider      = "prisma-client-js"
-  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+  binaryTargets = ["native"]
 }
 
 datasource db {
@@ -324,7 +324,7 @@ model IngestBatch {
   received   Int               @default(0)              // # concerts in payload (denormalized for status reads)
   attempts   Int               @default(0)              // worker tries; → ERROR (dead-letter) after the cap
   source     String?           @db.VarChar(255)         // human label, e.g. "fr p1" / runId — observability only
-  payload    String            @db.LongText             // JSON array of concert objects (the page's batch)
+  payload    String            @db.LongText             // JSON array of concert objects (the page's batch); cleared once DONE
   result     String?           @db.Text                 // INGEST_RESULT JSON for this batch once DONE
   error      String?           @db.Text                 // last failure detail when status=ERROR
   createdAt  Int                                        // enqueued at (unix seconds)

@@ -18,18 +18,54 @@ Self-hosted: one `docker compose up`, no account anywhere except your own.
 ## Run it
 
 ```bash
-cp .env.example .env      # MySQL credentials; Last.fm key only if you use it
+cp .env.example .env      # DB credentials; Last.fm key only if you use it
 docker compose -f docker-compose.dev.yml up
 ```
 
 Then open http://localhost:3000. The first run takes two to three minutes.
+
+For production, on the machine that will run it:
+
+```bash
+cp .env.example .env      # fill in AUTH_SECRET and INGEST_TOKEN as well
+./deploy.sh               # build, start, then prune all build cache
+```
+
+To try the production image locally next to the dev stack (its own database,
+port 3001): `WEB_PORT=3001 docker compose up -d --build`.
+
+The production stack is sized for a small always-on box. Measured with real
+data, the web container peaks around 180 MB (plus ~55 MB while a Python ingest
+runs) and MariaDB sits near 110 MB; the images are about 360 MB (web) and
+460 MB (MariaDB). Each container also has a hard `mem_limit`.
+
+## Database
+
+MariaDB 11.8 through Prisma's `mysql` provider, with a low-memory profile in
+`concert-tracker/scripts/mariadb.cnf` (16 MB buffer pool; raise it first if the
+data ever outgrows it). Migrations and the seed run on every start of the web
+container and are idempotent.
+
+Back up and restore with a logical dump:
+
+The database has no host port; reach it through the container:
+
+```bash
+docker compose exec -T db sh -c 'mariadb-dump -uroot -p"$MARIADB_ROOT_PASSWORD" concerts' > backup.sql
+docker compose exec -T db sh -c 'mariadb -uroot -p"$MARIADB_ROOT_PASSWORD" concerts' < backup.sql
+```
+
+Dev databases from before the MariaDB switch live in `data/db` (MySQL 8.0),
+which MariaDB cannot open. The dev stack now uses `data/mariadb`; to carry the
+data over, dump it once with a throwaway `mysql:8.0` container started on
+`data/db`, then load the dump into the new database. `data/db` is never touched.
 
 ## What is in it
 
 | Layer | Built with |
 |---|---|
 | Web | Next.js 15 (App Router), TypeScript, Tailwind, NextAuth v5 |
-| Data | Prisma and MySQL 8: 16 models, 16 migrations. SQLite via `DB_TYPE` |
+| Data | Prisma and MariaDB 11.8: 16 models, 15 migrations |
 | Map | Leaflet with marker clustering |
 | Ingest | Python 3.12 against concerts-metal, MusicBrainz, fanart.tv, optionally Last.fm |
 | Agent | Electron desktop scraper, 12 modules, pushing to `POST /api/ingest` |
@@ -37,18 +73,19 @@ Then open http://localhost:3000. The first run takes two to three minutes.
 
 ## The parts worth reading
 
-`concert-tracker/scripts/startup.sh` selects the Prisma schema from `DB_TYPE`,
-waits for MySQL, applies migrations only when `_prisma_migrations` says they
-are needed, seeds an admin user, and then starts the server. Running it again
-never destroys data.
+`concert-tracker/scripts/startup.sh` (dev) waits for the database, applies
+migrations only when `_prisma_migrations` says they are needed, seeds an admin
+user, and then starts the server. Running it again never destroys data.
 
-`docker-compose.dev.yml` pairs a MySQL healthcheck with
+Both compose files pair a database healthcheck with
 `depends_on: condition: service_healthy`, so the app cannot race the database
 on a cold start.
 
-`concert-tracker/Dockerfile` builds in three stages (deps, builder, runner) on
-`node:20-alpine`. The runner drops to a non-root `nextjs` user and carries the
-Python scanner alongside the standalone Next.js build.
+`concert-tracker/Dockerfile` builds in three stages (builder, Prisma CLI,
+runner). The runner is plain Alpine 3.23 with its own `nodejs` package (Node 24)
+and Python 3.12 without pip, which is about 80 MB lighter than the official Node
+image. It drops to a non-root `nextjs` user and carries the Python ingest scripts
+alongside the standalone Next.js build.
 
 `.env.example` is the configuration contract: nothing in the app reads a value
 that is not listed there.
